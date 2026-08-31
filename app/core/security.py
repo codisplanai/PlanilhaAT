@@ -12,14 +12,14 @@ from app.schemas.auth import UserOut
 # Usuários padrão para fallback/desenvolvimento local sem Supabase
 LOCAL_USERS_FALLBACK = {
     "admin@contabilidade.com": {
-        "id": "1",
+        "id": "00000000-0000-0000-0000-000000000001",
         "nome": "Contador Responsável",
         "email": "admin@contabilidade.com",
         "cargo": "Contador Sênior",
         "role": "admin"
     },
     "operador@contabilidade.com": {
-        "id": "2",
+        "id": "00000000-0000-0000-0000-000000000002",
         "nome": "Operador Fiscal",
         "email": "operador@contabilidade.com",
         "cargo": "Analista Fiscal",
@@ -89,7 +89,7 @@ def get_current_user(
     if not authorization or not authorization.startswith("Bearer "):
         if settings.DEBUG:
             # Em modo debug / testes sem cabeçalho explícito, provê o admin padrão
-            user_id = "1"
+            user_id = "00000000-0000-0000-0000-000000000001"
             profile = db.query(Profile).filter(Profile.id == user_id).first()
             if not profile:
                 profile = Profile(
@@ -130,7 +130,7 @@ def get_current_user(
         return profile
 
     if token.startswith("pat_"):
-        user_id = "1"
+        user_id = "00000000-0000-0000-0000-000000000001"
         profile = db.query(Profile).filter(Profile.id == user_id).first()
         if not profile:
             profile = Profile(
@@ -159,8 +159,8 @@ def get_current_user(
 
     profile = db.query(Profile).filter(Profile.id == user_id).first()
     if not profile:
-        cargo = metadata.get("cargo", "Contador Sênior" if email == "admin@contabilidade.com" else "Analista Fiscal")
-        role = metadata.get("role", "admin" if (email == "admin@contabilidade.com" or cargo == "Contador Sênior") else "operador")
+        cargo = metadata.get("cargo", "Contador Sênior" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com") else "Analista Fiscal")
+        role = metadata.get("role", "admin" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com" or cargo == "Contador Sênior") else "operador")
         nome = metadata.get("nome", email.split("@")[0] if email else "Usuário")
 
         profile = Profile(
@@ -190,7 +190,7 @@ def get_optional_user(
     """Obtém o usuário atual caso o cabeçalho Authorization esteja presente, ou usuário padrão em debug."""
     if not authorization or not authorization.startswith("Bearer "):
         if settings.DEBUG:
-            user_id = "1"
+            user_id = "00000000-0000-0000-0000-000000000001"
             return db.query(Profile).filter(Profile.id == user_id).first()
         return None
     try:

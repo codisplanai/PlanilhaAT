@@ -12,10 +12,10 @@ from app.schemas.auth import LoginRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/auth", tags=["Autenticação"])
 
-# Usuários autorizados locais (fallback / dev)
+# Usuários autorizados locais (fallback / dev / demonstração)
 USERS_DB = {
     "admin@contabilidade.com": {
-        "id": "1",
+        "id": "00000000-0000-0000-0000-000000000001",
         "nome": "Contador Responsável",
         "email": "admin@contabilidade.com",
         "password": "admin",
@@ -23,7 +23,7 @@ USERS_DB = {
         "role": "admin"
     },
     "operador@contabilidade.com": {
-        "id": "2",
+        "id": "00000000-0000-0000-0000-000000000002",
         "nome": "Operador Fiscal",
         "email": "operador@contabilidade.com",
         "password": "fiscal",
@@ -57,8 +57,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
                     # Obter ou criar perfil no banco de dados
                     profile = db.query(Profile).filter(Profile.id == str(sb_user_id)).first()
                     if not profile:
-                        cargo = sb_metadata.get("cargo", "Contador Sênior" if email == "admin@contabilidade.com" else "Analista Fiscal")
-                        role = sb_metadata.get("role", "admin" if (email == "admin@contabilidade.com" or cargo == "Contador Sênior") else "operador")
+                        cargo = sb_metadata.get("cargo", "Contador Sênior" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com") else "Analista Fiscal")
+                        role = sb_metadata.get("role", "admin" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com" or cargo == "Contador Sênior") else "operador")
                         nome = sb_metadata.get("nome", email.split("@")[0])
 
                         profile = Profile(
@@ -87,7 +87,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             # Se falhar conexão com Supabase, faz fallback para banco local
             pass
 
-    # 2. Fallback de autenticação local (desenvolvimento / teste)
+    # 2. Fallback de autenticação local (desenvolvimento / teste / admin padrão)
     user = USERS_DB.get(email)
     if not user or user["password"] != payload.password:
         raise HTTPException(
