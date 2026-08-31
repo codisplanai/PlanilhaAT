@@ -1,10 +1,17 @@
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import JSONResponse
 import sqlalchemy as sa
 
 import app.models  # noqa: F401 - registra os modelos no metadata do SQLAlchemy
 from app.api.router import api_router
+from app.api.endpoints.auth import router as auth_router
+from app.api.endpoints.empresas import router as empresas_router
+from app.api.endpoints.perfis_regras import router as perfis_regras_router
+from app.api.endpoints.regras_aliquotas import router as regras_aliquotas_router
+from app.api.endpoints.regras_cfop import router as regras_cfop_router
+from app.api.endpoints.templates import router as templates_router
+from app.api.endpoints.solicitacoes import router as solicitacoes_router
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.exceptions import PlanilhaATException
@@ -66,7 +73,19 @@ async def planilha_at_exception_handler(request: Request, exc: PlanilhaATExcepti
         content={"detail": exc.message}
     )
 
+# Registra rotas em /api/v1
 app.include_router(api_router)
+
+# Registra também em /v1 como alias de segurança para ambientes serverless
+v1_router = APIRouter(prefix="/v1")
+v1_router.include_router(auth_router)
+v1_router.include_router(perfis_regras_router)
+v1_router.include_router(empresas_router)
+v1_router.include_router(regras_aliquotas_router)
+v1_router.include_router(regras_cfop_router)
+v1_router.include_router(templates_router)
+v1_router.include_router(solicitacoes_router)
+app.include_router(v1_router)
 
 @app.get("/api/health")
 @app.get("/api")
