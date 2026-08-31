@@ -127,12 +127,13 @@ def _resolve_period(
             except (ValueError, TypeError):
                 year = None
 
-        if not year and "competencia" in header_info:
+        if "competencia" in header_info and (month is None or year is None):
             parts = str(header_info["competencia"]).strip().split("/")
-            if len(parts) == 2 and parts[1].isdigit():
-                year = int(parts[1])
-            if month is None and len(parts) == 2 and parts[0].isdigit():
-                month = int(parts[0])
+            if len(parts) == 2:
+                if month is None and parts[0].isdigit():
+                    month = int(parts[0])
+                if year is None and parts[1].isdigit():
+                    year = int(parts[1])
 
         return month, year
 

@@ -133,24 +133,54 @@ class TemplateManager:
                 f"Nenhum template ativo cadastrado para o tipo '{tipo}'. "
                 f"Faça o upload do template com seu mapeamento correspondente antes de processar."
             )
-
-        # Garantir que o arquivo do template exista no disco (recuperação pós-deploy / serverless)
-        if template.arquivo_path and not os.path.exists(template.arquivo_path):
-            filename = os.path.basename(template.arquivo_path)
-            # 1. Tentar baixar do Supabase Storage se configurado
-            file_bytes = SupabaseStorageService.download_file(settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, filename)
-            if file_bytes:
-                os.makedirs(settings.TEMPLATES_DIR, exist_ok=True)
-                local_path = os.path.join(settings.TEMPLATES_DIR, filename)
-                with open(local_path, "wb") as f:
-                    f.write(file_bytes)
-                template.arquivo_path = local_path
-                db.commit()
-            else:
-                # 2. Fallback para modelo padrão oficial local
-                default_local_path = os.path.join(settings.TEMPLATES_DIR, f"modelo_padrao_{clean_tipo}.xlsx")
-                if os.path.exists(default_local_path):
-                    template.arquivo_path = default_local_path
-                    db.commit()
-
         return template
+
+    @classmethod
+    def resolve_template_path(cls, template: TemplateXlsx) -> str:
+        """
+        Resolve determinísticamente o caminho local do arquivo de template no sistema de arquivos,
+        com suporte a cold-start e ambientes serverless (Vercel):
+        1. Verifica se o caminho salvo existe diretamente no disco (normalizando separadores).
+        2. Verifica se o arquivo pelo basename existe no diretório TEMPLATES_DIR.
+        3. Tenta baixar do Supabase Storage se configurado.
+        4. Tenta carregar o modelo padrão oficial dos templates empacotados (BUNDLED_TEMPLATES_DIR).
+        """
+        raw_path = (template.arquivo_path or "").replace("\\", "/")
+        clean_tipo = template.tipo.strip().lower()
+        filename = os.path.basename(raw_path) if raw_path else f"modelo_padrao_{clean_tipo}.xlsx"
+
+        # 1. Caminho direto existente
+        if raw_path and os.path.exists(raw_path):
+            return raw_path
+
+        # 2. Arquivo presente no diretório de templates runtime
+        runtime_path = os.path.join(settings.TEMPLATES_DIR, filename)
+        if os.path.exists(runtime_path):
+            return runtime_path
+
+        # 3. Download do Supabase Storage
+        file_bytes = SupabaseStorageService.download_file(
+            settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, filename
+        )
+        if file_bytes:
+            os.makedirs(settings.TEMPLATES_DIR, exist_ok=True)
+            with open(runtime_path, "wb") as f:
+                f.write(file_bytes)
+            return runtime_path
+
+        # 4. Fallback para os modelos oficiais empacotados no repositório
+        bundled_candidates = [
+            os.path.join(settings.BUNDLED_TEMPLATES_DIR, filename),
+            os.path.join(settings.BUNDLED_TEMPLATES_DIR, f"modelo_padrao_{clean_tipo}.xlsx"),
+            os.path.join(settings.TEMPLATES_DIR, f"modelo_padrao_{clean_tipo}.xlsx"),
+            os.path.join(os.getcwd(), "storage", "templates", f"modelo_padrao_{clean_tipo}.xlsx"),
+            os.path.join(os.getcwd(), "storage", "templates", filename),
+        ]
+        for candidate in bundled_candidates:
+            if os.path.exists(candidate):
+                return candidate
+
+        raise ValidationException(
+            f"Arquivo de template '{filename}' (tipo: '{template.tipo}') não foi encontrado no servidor "
+            f"nem pôde ser baixado do armazenamento em nuvem."
+        )

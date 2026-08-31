@@ -508,8 +508,9 @@ class ProcessingPipelineService:
                 output_filename = f"planilha_{empresa.cnpj}_{destino}_{solicitacao.id[:8]}.xlsx"
                 output_path = os.path.join(settings.OUTPUTS_DIR, output_filename)
 
+                resolved_template_path = TemplateManager.resolve_template_path(template_legado)
                 TemplateFiller.fill_template(
-                    template_path=template_legado.arquivo_path,
+                    template_path=resolved_template_path,
                     mapping=template_legado.mapeamento_campos,
                     rows_data=rows,
                     output_path=output_path,
@@ -549,8 +550,9 @@ class ProcessingPipelineService:
                     output_filename = f"planilha_{empresa.cnpj}_{destino}_{solicitacao.id[:8]}.xlsx"
                     output_path = os.path.join(settings.OUTPUTS_DIR, output_filename)
 
+                    resolved_template_path = TemplateManager.resolve_template_path(template)
                     TemplateFiller.fill_template(
-                        template_path=template.arquivo_path,
+                        template_path=resolved_template_path,
                         mapping=template.mapeamento_campos,
                         rows_data=rows,
                         output_path=output_path,

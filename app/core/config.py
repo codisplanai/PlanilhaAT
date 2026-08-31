@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     TEMPLATES_DIR: str = os.path.join(default_storage_base, "templates")
     OUTPUTS_DIR: str = os.path.join(default_storage_base, "outputs")
     UPLOADS_DIR: str = os.path.join(default_storage_base, "uploads")
+    BUNDLED_TEMPLATES_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "storage", "templates")
 
     class Config:
         env_file = ".env"

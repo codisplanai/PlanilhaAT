@@ -46,15 +46,21 @@ COLUNAS_ESPERADAS = [
 
 def garantir_colunas_ausentes(bind):
     """Adiciona em bancos antigos as colunas declaradas nos modelos que ainda nao existem."""
-    with bind.begin() as conn:
-        inspector = sa.inspect(conn)
-        tabelas = set(inspector.get_table_names())
-        for tabela, coluna, definicao in COLUNAS_ESPERADAS:
-            if tabela not in tabelas:
-                continue
+    import logging
+    logger = logging.getLogger("app")
+    inspector = sa.inspect(bind)
+    tabelas = set(inspector.get_table_names())
+    for tabela, coluna, definicao in COLUNAS_ESPERADAS:
+        if tabela not in tabelas:
+            continue
+        try:
             existentes = {c["name"] for c in inspector.get_columns(tabela)}
             if coluna not in existentes:
-                conn.execute(sa.text(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {definicao}"))
+                with bind.begin() as conn:
+                    conn.execute(sa.text(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {definicao}"))
+                logger.info(f"Coluna '{coluna}' adicionada com sucesso à tabela '{tabela}'.")
+        except Exception as e:
+            logger.warning(f"Erro ao verificar/adicionar coluna '{coluna}' na tabela '{tabela}': {e}")
 
 
 @app.on_event("startup")
@@ -64,8 +70,9 @@ def on_startup():
     # Garantir colunas que o modelo declara mas que faltam em bancos ja existentes
     try:
         garantir_colunas_ausentes(engine)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("app").warning(f"Erro geral no startup ao garantir colunas: {e}")
 
     db = SessionLocal()
     try:
@@ -95,9 +102,10 @@ async def planilha_at_exception_handler(request: Request, exc: PlanilhaATExcepti
 async def global_exception_handler(request: Request, exc: Exception):
     import logging
     logging.getLogger("app").error(f"Erro não tratado na rota {request.url}: {exc}", exc_info=True)
+    detail_msg = str(exc) if settings.DEBUG else "Erro interno do servidor ao processar a solicitação."
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Erro interno do servidor: {str(exc)}"}
+        content={"detail": detail_msg}
     )
 
 # Registra rotas em /api/v1
