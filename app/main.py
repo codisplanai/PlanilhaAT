@@ -13,7 +13,9 @@ from app.core.seeds import seed_default_cfop_rules, seed_default_templates
 app = FastAPI(
     title=settings.APP_NAME,
     description="Backend para automação de cálculo de antecipação tributária, DIFAL e preenchimento de planilhas Excel preservando fórmulas.",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs",
+    openapi_url="/openapi.json"
 )
 
 @app.on_event("startup")
@@ -57,8 +59,9 @@ async def planilha_at_exception_handler(request: Request, exc: PlanilhaATExcepti
 
 app.include_router(api_router)
 
-@app.get("/")
-def root():
+@app.get("/api/health")
+@app.get("/api")
+def health():
     return {
         "status": "online",
         "app": settings.APP_NAME,
