@@ -122,9 +122,10 @@ class TemplateManager:
     @classmethod
     def get_active_template(cls, db: Session, tipo: str) -> TemplateXlsx:
         """Obtém a versão vigente (ativa) para o tipo de planilha informado"""
+        clean_tipo = tipo.strip().lower()
         template = (
             db.query(TemplateXlsx)
-            .filter(TemplateXlsx.tipo == tipo.strip().lower(), TemplateXlsx.ativo == True)
+            .filter(TemplateXlsx.tipo == clean_tipo, TemplateXlsx.ativo == True)
             .first()
         )
         if not template:
@@ -132,4 +133,24 @@ class TemplateManager:
                 f"Nenhum template ativo cadastrado para o tipo '{tipo}'. "
                 f"Faça o upload do template com seu mapeamento correspondente antes de processar."
             )
+
+        # Garantir que o arquivo do template exista no disco (recuperação pós-deploy / serverless)
+        if template.arquivo_path and not os.path.exists(template.arquivo_path):
+            filename = os.path.basename(template.arquivo_path)
+            # 1. Tentar baixar do Supabase Storage se configurado
+            file_bytes = SupabaseStorageService.download_file(settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, filename)
+            if file_bytes:
+                os.makedirs(settings.TEMPLATES_DIR, exist_ok=True)
+                local_path = os.path.join(settings.TEMPLATES_DIR, filename)
+                with open(local_path, "wb") as f:
+                    f.write(file_bytes)
+                template.arquivo_path = local_path
+                db.commit()
+            else:
+                # 2. Fallback para modelo padrão oficial local
+                default_local_path = os.path.join(settings.TEMPLATES_DIR, f"modelo_padrao_{clean_tipo}.xlsx")
+                if os.path.exists(default_local_path):
+                    template.arquivo_path = default_local_path
+                    db.commit()
+
         return template

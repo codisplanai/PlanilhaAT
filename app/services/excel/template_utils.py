@@ -110,12 +110,30 @@ def _resolve_period(
     header_info: Optional[Mapping[str, Any]],
 ) -> tuple[Optional[int], Optional[int]]:
     if header_info:
-        month = header_info.get("mes")
-        year = header_info.get("ano")
+        raw_month = header_info.get("mes")
+        raw_year = header_info.get("ano")
+        month: Optional[int] = None
+        year: Optional[int] = None
+
+        if raw_month is not None:
+            try:
+                month = int(raw_month)
+            except (ValueError, TypeError):
+                month = None
+
+        if raw_year is not None:
+            try:
+                year = int(raw_year)
+            except (ValueError, TypeError):
+                year = None
+
         if not year and "competencia" in header_info:
             parts = str(header_info["competencia"]).strip().split("/")
             if len(parts) == 2 and parts[1].isdigit():
                 year = int(parts[1])
+            if month is None and len(parts) == 2 and parts[0].isdigit():
+                month = int(parts[0])
+
         return month, year
 
     if rows:

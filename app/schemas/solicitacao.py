@@ -51,6 +51,10 @@ class SolicitacaoSaidaOut(BaseModel):
     aviso: Optional[str]
     criado_em: datetime
 
+    @validator("id", "solicitacao_id", pre=True)
+    def ensure_str_uuid(cls, v):
+        return str(v) if v is not None else v
+
     class Config:
         orm_mode = True
 
@@ -72,6 +76,10 @@ class SolicitacaoOut(BaseModel):
     atualizado_em: datetime
     notas_processadas: Optional[List[NotaFiscalProcessadaOut]] = Field(default_factory=list)
     saidas: Optional[List[SolicitacaoSaidaOut]] = Field(default_factory=list)
+
+    @validator("id", "usuario_id", pre=True)
+    def ensure_str_uuid(cls, v):
+        return str(v) if v is not None else v
 
     class Config:
         orm_mode = True

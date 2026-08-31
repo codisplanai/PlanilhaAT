@@ -91,6 +91,15 @@ async def planilha_at_exception_handler(request: Request, exc: PlanilhaATExcepti
         content={"detail": exc.message}
     )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import logging
+    logging.getLogger("app").error(f"Erro não tratado na rota {request.url}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Erro interno do servidor: {str(exc)}"}
+    )
+
 # Registra rotas em /api/v1
 app.include_router(api_router)
 

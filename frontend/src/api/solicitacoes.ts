@@ -32,11 +32,7 @@ export const solicitacoesApi = {
     if (planilhaEntradas) {
       formData.append('planilha_entradas', planilhaEntradas);
     }
-    const { data } = await apiClient.post<Solicitacao>(`/solicitacoes/${id}/processar`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const { data } = await apiClient.post<Solicitacao>(`/solicitacoes/${id}/processar`, formData);
     return data;
   },
   atualizarDataEntrada: async (

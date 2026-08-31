@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any
 from datetime import datetime, date
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 class NotaFiscalProcessadaOut(BaseModel):
     id: str
@@ -30,6 +30,10 @@ class NotaFiscalProcessadaOut(BaseModel):
     valor_devido: Decimal
     metadados_extras: Dict[str, Any]
     criado_em: datetime
+
+    @validator("id", "solicitacao_id", pre=True)
+    def ensure_str_uuid(cls, v):
+        return str(v) if v is not None else v
 
     class Config:
         orm_mode = True

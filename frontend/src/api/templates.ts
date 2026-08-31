@@ -27,11 +27,7 @@ export const templatesApi = {
     return data;
   },
   upload: async (formData: FormData): Promise<TemplateXlsx> => {
-    const { data } = await apiClient.post<TemplateXlsx>('/templates/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const { data } = await apiClient.post<TemplateXlsx>('/templates/upload', formData);
     return data;
   },
 };
