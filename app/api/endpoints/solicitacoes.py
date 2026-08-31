@@ -210,3 +210,37 @@ def download_planilha(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'}
     )
+
+
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_solicitacao(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[Profile] = Depends(get_optional_user)
+):
+    solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
+
+    # Se usuário for operador e não for dono da solicitação, bloqueia
+    if current_user and current_user.role != "admin" and current_user.cargo.strip().lower() not in ["contador sênior", "contador senior"]:
+        if solicitacao.usuario_id and solicitacao.usuario_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para excluir a solicitação de outro usuário.")
+
+    # Limpeza dos arquivos gerados no disco local
+    arquivos_para_remover = []
+    if solicitacao.arquivo_saida_path:
+        arquivos_para_remover.append(solicitacao.arquivo_saida_path)
+
+    for saida in solicitacao.saidas or []:
+        if saida.arquivo_path:
+            arquivos_para_remover.append(saida.arquivo_path)
+
+    for arq_path in set(arquivos_para_remover):
+        if arq_path and os.path.exists(arq_path):
+            try:
+                os.remove(arq_path)
+            except Exception:
+                pass
+
+    db.delete(solicitacao)
+    db.commit()
+    return None

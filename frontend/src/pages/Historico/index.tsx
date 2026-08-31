@@ -6,7 +6,8 @@ import {
   Eye,
   Edit2,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from 'lucide-react';
 
 import { solicitacoesApi } from '../../api/solicitacoes';
@@ -42,6 +43,9 @@ export const HistoricoPage: React.FC = () => {
   const [editingNota, setEditingNota] = useState<NotaFiscalProcessada | null>(null);
   const [manualDateInput, setManualDateInput] = useState<string>('');
 
+  // Estado para exclusão de solicitação
+  const [solicitacaoParaExcluir, setSolicitacaoParaExcluir] = useState<Solicitacao | null>(null);
+
   // Queries
   const { data: solicitacoes = [], isLoading, error } = useSolicitacoesQuery(
     empresaFilter,
@@ -69,6 +73,23 @@ export const HistoricoPage: React.FC = () => {
     },
     onError: (err) => {
       alert(`Erro ao atualizar data de entrada: ${getErrorMessage(err)}`);
+    },
+  });
+
+  // Mutation para excluir solicitação e planilhas geradas
+  const deleteSolicitacaoMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await solicitacoesApi.excluir(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solicitacoes'] });
+      if (selectedSolicitacaoId === solicitacaoParaExcluir?.id) {
+        setSelectedSolicitacaoId(null);
+      }
+      setSolicitacaoParaExcluir(null);
+    },
+    onError: (err) => {
+      alert(`Erro ao excluir solicitação: ${getErrorMessage(err)}`);
     },
   });
 
@@ -237,6 +258,17 @@ export const HistoricoPage: React.FC = () => {
                               Baixar .xlsx
                             </Button>
                           )}
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                            onClick={() => setSolicitacaoParaExcluir(sol)}
+                            leftIcon={<Trash2 className="w-3.5 h-3.5 text-rose-500" />}
+                            title="Excluir histórico de planilha"
+                          >
+                            Excluir
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -463,6 +495,42 @@ export const HistoricoPage: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Ações do Modal de Detalhes */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 w-full sm:w-auto"
+                leftIcon={<Trash2 className="w-4 h-4 text-rose-500" />}
+                onClick={() => setSolicitacaoParaExcluir(solicitacaoDetalhada)}
+              >
+                Excluir esta Solicitação
+              </Button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                {solicitacaoDetalhada.status === 'concluido' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownload(solicitacaoDetalhada)}
+                    leftIcon={<Download className="w-4 h-4 text-blue-700" />}
+                  >
+                    Baixar Planilhas (.xlsx)
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedSolicitacaoId(null);
+                    setEditingNota(null);
+                  }}
+                >
+                  Fechar
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </Modal>
@@ -511,6 +579,73 @@ export const HistoricoPage: React.FC = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal de Confirmação de Exclusão */}
+      <Modal
+        isOpen={!!solicitacaoParaExcluir}
+        onClose={() => setSolicitacaoParaExcluir(null)}
+        title="Excluir Histórico de Planilha"
+        subtitle="Esta ação removerá a solicitação e todos os arquivos gerados permanentemente."
+        maxWidth="md"
+      >
+        {solicitacaoParaExcluir && (
+          <div className="space-y-4 text-xs text-slate-600">
+            <div className="bg-rose-50/70 border border-rose-200 rounded-lg p-3.5 text-rose-900 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-semibold text-rose-950">Atenção: Ação Irreversível</p>
+                <p className="text-[11px] text-rose-800 leading-relaxed">
+                  Tem certeza de que deseja excluir o histórico de processamento para a empresa{' '}
+                  <strong className="font-bold text-rose-950">
+                    {getEmpresa(solicitacaoParaExcluir.empresa_id)?.razao_social || `#${solicitacaoParaExcluir.empresa_id}`}
+                  </strong>{' '}
+                  (competência{' '}
+                  <strong>{formatCompetencia(solicitacaoParaExcluir.periodo_inicio)}</strong>)?
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-md p-3 space-y-1 text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Notas Processadas:</span>
+                <span className="font-mono font-semibold text-slate-800">
+                  {solicitacaoParaExcluir.total_notas_processadas}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Tipo de Planilha:</span>
+                <span className="font-medium text-slate-800">
+                  {getPlanilhaLabel(solicitacaoParaExcluir.tipo_planilha)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Criado em:</span>
+                <span className="text-slate-700">{formatDate(solicitacaoParaExcluir.criado_em)}</span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSolicitacaoParaExcluir(null)}
+                disabled={deleteSolicitacaoMutation.isPending}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => deleteSolicitacaoMutation.mutate(solicitacaoParaExcluir.id)}
+                isLoading={deleteSolicitacaoMutation.isPending}
+                leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+              >
+                Sim, Excluir Planilha
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

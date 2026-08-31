@@ -65,4 +65,7 @@ export const solicitacoesApi = {
     link.remove();
     window.URL.revokeObjectURL(url);
   },
+  excluir: async (id: string): Promise<void> => {
+    await apiClient.delete(`/solicitacoes/${id}`);
+  },
 };
