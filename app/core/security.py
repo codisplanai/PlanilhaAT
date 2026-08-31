@@ -12,9 +12,16 @@ from app.schemas.auth import UserOut
 # Usuários padrão para fallback/desenvolvimento local sem Supabase
 LOCAL_USERS_FALLBACK = {
     "admin@contabilidade.com": {
-        "id": "00000000-0000-0000-0000-000000000001",
+        "id": "184e793c-50b7-4b57-ace1-c02b19649408",
         "nome": "Contador Responsável",
         "email": "admin@contabilidade.com",
+        "cargo": "Contador Sênior",
+        "role": "admin"
+    },
+    "admin@codisplan.com": {
+        "id": "184e793c-50b7-4b57-ace1-c02b19649408",
+        "nome": "Contador Responsável",
+        "email": "admin@codisplan.com",
         "cargo": "Contador Sênior",
         "role": "admin"
     },
@@ -89,20 +96,17 @@ def get_current_user(
     if not authorization or not authorization.startswith("Bearer "):
         if settings.DEBUG:
             # Em modo debug / testes sem cabeçalho explícito, provê o admin padrão
-            user_id = "00000000-0000-0000-0000-000000000001"
-            profile = db.query(Profile).filter(Profile.id == user_id).first()
-            if not profile:
-                profile = Profile(
-                    id=user_id,
-                    email="admin@contabilidade.com",
-                    nome="Contador Responsável",
-                    cargo="Contador Sênior",
-                    role="admin"
-                )
-                db.add(profile)
-                db.commit()
-                db.refresh(profile)
-            return profile
+            user_id = "184e793c-50b7-4b57-ace1-c02b19649408"
+            profile = db.query(Profile).filter((Profile.id == user_id) | (Profile.email == "admin@codisplan.com")).first()
+            if profile:
+                return profile
+            return Profile(
+                id=user_id,
+                email="admin@codisplan.com",
+                nome="Contador Responsável",
+                cargo="Contador Sênior",
+                role="admin"
+            )
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -115,7 +119,7 @@ def get_current_user(
     if token in ACTIVE_DEV_TOKENS:
         user_info = ACTIVE_DEV_TOKENS[token]
         user_id = str(user_info["id"])
-        profile = db.query(Profile).filter(Profile.id == user_id).first()
+        profile = db.query(Profile).filter((Profile.id == user_id) | (Profile.email == user_info.get("email"))).first()
         if not profile:
             profile = Profile(
                 id=user_id,
@@ -124,25 +128,19 @@ def get_current_user(
                 cargo=user_info["cargo"],
                 role=user_info.get("role", "operador")
             )
-            db.add(profile)
-            db.commit()
-            db.refresh(profile)
         return profile
 
     if token.startswith("pat_"):
-        user_id = "00000000-0000-0000-0000-000000000001"
-        profile = db.query(Profile).filter(Profile.id == user_id).first()
+        user_id = "184e793c-50b7-4b57-ace1-c02b19649408"
+        profile = db.query(Profile).filter((Profile.id == user_id) | (Profile.email == "admin@codisplan.com")).first()
         if not profile:
             profile = Profile(
                 id=user_id,
-                email="admin@contabilidade.com",
+                email="admin@codisplan.com",
                 nome="Contador Responsável",
                 cargo="Contador Sênior",
                 role="admin"
             )
-            db.add(profile)
-            db.commit()
-            db.refresh(profile)
         return profile
 
     # 2. Validar token JWT do Supabase
@@ -163,16 +161,26 @@ def get_current_user(
         role = metadata.get("role", "admin" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com" or cargo == "Contador Sênior") else "operador")
         nome = metadata.get("nome", email.split("@")[0] if email else "Usuário")
 
-        profile = Profile(
-            id=user_id,
-            email=email,
-            nome=nome,
-            cargo=cargo,
-            role=role
-        )
-        db.add(profile)
-        db.commit()
-        db.refresh(profile)
+        try:
+            profile = Profile(
+                id=user_id,
+                email=email,
+                nome=nome,
+                cargo=cargo,
+                role=role
+            )
+            db.add(profile)
+            db.commit()
+            db.refresh(profile)
+        except Exception:
+            db.rollback()
+            profile = Profile(
+                id=user_id,
+                email=email,
+                nome=nome,
+                cargo=cargo,
+                role=role
+            )
 
     if not profile.ativo:
         raise HTTPException(
@@ -190,8 +198,8 @@ def get_optional_user(
     """Obtém o usuário atual caso o cabeçalho Authorization esteja presente, ou usuário padrão em debug."""
     if not authorization or not authorization.startswith("Bearer "):
         if settings.DEBUG:
-            user_id = "00000000-0000-0000-0000-000000000001"
-            return db.query(Profile).filter(Profile.id == user_id).first()
+            user_id = "184e793c-50b7-4b57-ace1-c02b19649408"
+            return db.query(Profile).filter((Profile.id == user_id) | (Profile.email == "admin@codisplan.com")).first()
         return None
     try:
         return get_current_user(authorization=authorization, db=db)

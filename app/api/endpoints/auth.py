@@ -15,9 +15,17 @@ router = APIRouter(prefix="/auth", tags=["Autenticação"])
 # Usuários autorizados locais (fallback / dev / demonstração)
 USERS_DB = {
     "admin@contabilidade.com": {
-        "id": "00000000-0000-0000-0000-000000000001",
+        "id": "184e793c-50b7-4b57-ace1-c02b19649408",
         "nome": "Contador Responsável",
         "email": "admin@contabilidade.com",
+        "password": "admin",
+        "cargo": "Contador Sênior",
+        "role": "admin"
+    },
+    "admin@codisplan.com": {
+        "id": "184e793c-50b7-4b57-ace1-c02b19649408",
+        "nome": "Contador Responsável",
+        "email": "admin@codisplan.com",
         "password": "admin",
         "cargo": "Contador Sênior",
         "role": "admin"
@@ -61,30 +69,36 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
                         role = sb_metadata.get("role", "admin" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com" or cargo == "Contador Sênior") else "operador")
                         nome = sb_metadata.get("nome", email.split("@")[0])
 
-                        profile = Profile(
-                            id=str(sb_user_id),
-                            email=email,
-                            nome=nome,
-                            cargo=cargo,
-                            role=role
-                        )
-                        db.add(profile)
-                        db.commit()
-                        db.refresh(profile)
+                        try:
+                            profile = Profile(
+                                id=str(sb_user_id),
+                                email=email,
+                                nome=nome,
+                                cargo=cargo,
+                                role=role
+                            )
+                            db.add(profile)
+                            db.commit()
+                            db.refresh(profile)
+                        except Exception:
+                            db.rollback()
+                            profile = None
+
+                    user_out = UserOut(
+                        id=profile.id if profile else str(sb_user_id),
+                        nome=profile.nome if profile else (sb_metadata.get("nome") or email.split("@")[0]),
+                        email=profile.email if profile else email,
+                        cargo=profile.cargo if profile else "Contador Sênior",
+                        role=profile.role if profile else "admin"
+                    )
 
                     return TokenResponse(
                         access_token=access_token,
                         token_type="bearer",
-                        user=UserOut(
-                            id=profile.id,
-                            nome=profile.nome,
-                            email=profile.email,
-                            cargo=profile.cargo,
-                            role=profile.role
-                        )
+                        user=user_out
                     )
         except Exception:
-            # Se falhar conexão com Supabase, faz fallback para banco local
+            # Se falhar conexão com Supabase, faz fallback para credenciais locais
             pass
 
     # 2. Fallback de autenticação local (desenvolvimento / teste / admin padrão)
@@ -95,41 +109,46 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="E-mail ou senha incorretos. Verifique suas credenciais de acesso."
         )
 
-    # Sincronizar com tabela profiles
-    user_id = str(user["id"])
-    profile = db.query(Profile).filter(Profile.id == user_id).first()
+    # Buscar perfil no banco de dados se existir
+    profile = db.query(Profile).filter((Profile.email == user["email"]) | (Profile.id == str(user["id"]))).first()
     if not profile:
-        profile = Profile(
-            id=user_id,
-            email=user["email"],
-            nome=user["nome"],
-            cargo=user["cargo"],
-            role=user.get("role", "operador")
-        )
-        db.add(profile)
-        db.commit()
-        db.refresh(profile)
+        try:
+            profile = Profile(
+                id=str(user["id"]),
+                email=user["email"],
+                nome=user["nome"],
+                cargo=user["cargo"],
+                role=user.get("role", "operador")
+            )
+            db.add(profile)
+            db.commit()
+            db.refresh(profile)
+        except Exception:
+            db.rollback()
+            profile = None
+
+    user_out = UserOut(
+        id=profile.id if profile else str(user["id"]),
+        nome=profile.nome if profile else user["nome"],
+        email=profile.email if profile else user["email"],
+        cargo=profile.cargo if profile else user["cargo"],
+        role=profile.role if profile else user.get("role", "operador")
+    )
 
     # Gerar token de sessão seguro
     token = f"pat_{secrets.token_hex(24)}"
     ACTIVE_DEV_TOKENS[token] = {
-        "id": profile.id,
-        "email": profile.email,
-        "nome": profile.nome,
-        "cargo": profile.cargo,
-        "role": profile.role
+        "id": user_out.id,
+        "email": user_out.email,
+        "nome": user_out.nome,
+        "cargo": user_out.cargo,
+        "role": user_out.role
     }
 
     return TokenResponse(
         access_token=token,
         token_type="bearer",
-        user=UserOut(
-            id=profile.id,
-            nome=profile.nome,
-            email=profile.email,
-            cargo=profile.cargo,
-            role=profile.role
-        )
+        user=user_out
     )
 
 
