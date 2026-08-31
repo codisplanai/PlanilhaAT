@@ -36,18 +36,34 @@ async def vercel_path_normalizer(request: Request, call_next):
     response = await call_next(request)
     return response
 
+# create_all nao altera tabelas ja existentes: colunas adicionadas depois que o banco
+# foi criado precisam ser aplicadas explicitamente.
+COLUNAS_ESPERADAS = [
+    ("solicitacoes", "usuario_id", "VARCHAR(36)"),
+    ("perfis_regras", "configuracoes_extras", "JSON NOT NULL DEFAULT '{}'"),
+]
+
+
+def garantir_colunas_ausentes(bind):
+    """Adiciona em bancos antigos as colunas declaradas nos modelos que ainda nao existem."""
+    with bind.begin() as conn:
+        inspector = sa.inspect(conn)
+        tabelas = set(inspector.get_table_names())
+        for tabela, coluna, definicao in COLUNAS_ESPERADAS:
+            if tabela not in tabelas:
+                continue
+            existentes = {c["name"] for c in inspector.get_columns(tabela)}
+            if coluna not in existentes:
+                conn.execute(sa.text(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {definicao}"))
+
+
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
     
-    # Garantir coluna usuario_id caso banco sqlite já existisse
+    # Garantir colunas que o modelo declara mas que faltam em bancos ja existentes
     try:
-        with engine.begin() as conn:
-            inspector = sa.inspect(conn)
-            if 'solicitacoes' in inspector.get_table_names():
-                columns = [c['name'] for c in inspector.get_columns('solicitacoes')]
-                if 'usuario_id' not in columns:
-                    conn.execute(sa.text("ALTER TABLE solicitacoes ADD COLUMN usuario_id VARCHAR(36)"))
+        garantir_colunas_ausentes(engine)
     except Exception:
         pass
 
