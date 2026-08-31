@@ -36,3 +36,6 @@ storage/templates/template_*
 Thumbs.db
 .idea/
 .vscode/
+
+.vercel
+.env*
