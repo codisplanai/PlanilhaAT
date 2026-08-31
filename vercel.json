@@ -15,7 +15,7 @@
       "destination": "/api/index.py"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/|docs|openapi.json|assets/|.*\\.[\\w]+$).*)",
       "destination": "/index.html"
     }
   ]
