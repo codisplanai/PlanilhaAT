@@ -57,9 +57,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
     }
   };
 
-  const handleUseDemo = () => {
-    setValue('email', 'admin@contabilidade.com');
+  const handleFillAdmin = () => {
+    setValue('email', 'admin@codisplan.com');
     setValue('password', 'admin');
+  };
+
+  const handleFillOperador = () => {
+    setValue('email', 'operador@contabilidade.com');
+    setValue('password', 'fiscal');
   };
 
   const showDemoLogin = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_LOGIN === 'true';
@@ -133,17 +138,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
           </form>
 
           {showDemoLogin && (
-            <div className="mt-6 pt-4 border-t border-slate-100 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/60 text-center">
-              <p className="text-[11px] font-medium text-slate-500 mb-1.5">
-                Acesso padrão de administrador do escritório:
+            <div className="mt-6 pt-4 border-t border-slate-100 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/60 text-center space-y-2">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Acesso Rápido de Teste:
               </p>
-              <button
-                type="button"
-                onClick={handleUseDemo}
-                className="text-xs font-bold text-cyan-700 hover:text-cyan-900 underline transition-colors"
-              >
-                Preencher com admin@contabilidade.com
-              </button>
+              <div className="flex flex-col sm:flex-row justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleFillAdmin}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-cyan-200 text-xs font-bold text-cyan-800 hover:bg-cyan-50 hover:border-cyan-400 shadow-2xs transition-all"
+                >
+                  👑 Admin (admin@codisplan.com / admin)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFillOperador}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 shadow-2xs transition-all"
+                >
+                  👤 Operador (operador@contabilidade.com / fiscal)
+                </button>
+              </div>
             </div>
           )}
         </div>
