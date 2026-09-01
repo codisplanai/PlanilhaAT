@@ -1,9 +1,9 @@
-import datetime
 import uuid
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import CheckConstraint, Column, Integer, String, Date, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.time import utcnow_naive
 
 class Solicitacao(Base):
     __tablename__ = "solicitacoes"
@@ -21,8 +21,8 @@ class Solicitacao(Base):
     total_notas_processadas = Column(Integer, default=0, nullable=False)
     notas_ignoradas = Column(JSON, default=list, nullable=False)  # Lista com registros de notas ignoradas e seus motivos
     cfops_sem_regra = Column(JSON, default=dict, nullable=False)  # Resumo agregado {sufixo_cfop: qtd_itens} de itens descartados por CFOP sem regra cadastrada
-    criado_em = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-    atualizado_em = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
+    atualizado_em = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)
 
     empresa = relationship("Empresa", back_populates="solicitacoes")
     usuario = relationship("Profile", back_populates="solicitacoes")
@@ -37,4 +37,12 @@ class Solicitacao(Base):
         back_populates="solicitacao",
         cascade="all, delete-orphan",
         order_by="func.coalesce(NotaFiscalProcessada.data_entrada, NotaFiscalProcessada.data_emissao), NotaFiscalProcessada.data_emissao, NotaFiscalProcessada.numero_nota, NotaFiscalProcessada.item_numero"
+    )
+
+    __table_args__ = (
+        CheckConstraint("periodo_fim >= periodo_inicio", name="ck_solicitacoes_periodo"),
+        CheckConstraint(
+            "status IN ('pendente', 'processando', 'concluido', 'erro')",
+            name="ck_solicitacoes_status",
+        ),
     )

@@ -3,15 +3,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import get_current_user, require_admin
 from app.models.empresa import Empresa
 from app.models.perfil_regras import PerfilRegras
 from app.schemas.empresa import EmpresaCreate, EmpresaUpdate, EmpresaOut
 from app.services.validation.sanity_checker import validate_cnpj_digits
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 
-router = APIRouter(prefix="/empresas", tags=["Empresas"])
+router = APIRouter(
+    prefix="/empresas",
+    tags=["Empresas"],
+    dependencies=[Depends(get_current_user)],
+)
 
-@router.post("", response_model=EmpresaOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EmpresaOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 def criar_empresa(payload: EmpresaCreate, db: Session = Depends(get_db)):
     if not validate_cnpj_digits(payload.cnpj):
         raise HTTPException(status_code=422, detail=f"CNPJ '{payload.cnpj}' é inválido pelos dígitos verificadores.")
@@ -52,7 +57,7 @@ def listar_empresas(
 def obter_empresa(id: int, db: Session = Depends(get_db)):
     return get_by_id_or_404(db, Empresa, id, "Empresa não encontrada.")
 
-@router.put("/{id}", response_model=EmpresaOut)
+@router.put("/{id}", response_model=EmpresaOut, dependencies=[Depends(require_admin)])
 def atualizar_empresa(id: int, payload: EmpresaUpdate, db: Session = Depends(get_db)):
     empresa = get_by_id_or_404(db, Empresa, id, "Empresa não encontrada.")
 
@@ -66,7 +71,7 @@ def atualizar_empresa(id: int, payload: EmpresaUpdate, db: Session = Depends(get
 
     if payload.razao_social is not None:
         empresa.razao_social = payload.razao_social
-    if payload.inscricao_estadual is not None:
+    if "inscricao_estadual" in payload.__fields_set__:
         empresa.inscricao_estadual = payload.inscricao_estadual
     if payload.uf is not None:
         empresa.uf = payload.uf
@@ -80,7 +85,9 @@ def atualizar_empresa(id: int, payload: EmpresaUpdate, db: Session = Depends(get
 
     return commit_and_refresh(db, empresa)
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 def deletar_empresa(id: int, db: Session = Depends(get_db)):
     empresa = get_by_id_or_404(db, Empresa, id, "Empresa não encontrada.")
+    if empresa.solicitacoes:
+        raise HTTPException(status_code=409, detail="A empresa possui solicitações e não pode ser excluída.")
     delete_and_commit(db, empresa)

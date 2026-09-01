@@ -3,6 +3,8 @@ from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
+VALID_UFS = frozenset({"AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"})
+
 def clean_cnpj(v: str) -> str:
     cleaned = re.sub(r"\D", "", v)
     if len(cleaned) != 14:
@@ -23,7 +25,20 @@ class EmpresaBase(BaseModel):
 
     @validator("uf")
     def validate_uf(cls, v):
-        return v.strip().upper()
+        clean = v.strip().upper()
+        if clean not in VALID_UFS:
+            raise ValueError("UF inválida")
+        return clean
+
+    @validator("razao_social")
+    def validate_name(cls, value):
+        clean = value.strip()
+        if not clean:
+            raise ValueError("Razão social não pode ser vazia")
+        return clean
+
+    class Config:
+        extra = "forbid"
 
 class EmpresaCreate(EmpresaBase):
     pass
@@ -45,8 +60,20 @@ class EmpresaUpdate(BaseModel):
     @validator("uf")
     def validate_uf(cls, v):
         if v is not None:
-            return v.strip().upper()
+            clean = v.strip().upper()
+            if clean not in VALID_UFS:
+                raise ValueError("UF inválida")
+            return clean
         return v
+
+    @validator("razao_social")
+    def validate_optional_name(cls, value):
+        if value is not None and not value.strip():
+            raise ValueError("Razão social não pode ser vazia")
+        return value.strip() if value is not None else value
+
+    class Config:
+        extra = "forbid"
 
 class EmpresaOut(EmpresaBase):
     id: int

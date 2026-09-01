@@ -1,9 +1,13 @@
 import os
+import io
 import hashlib
+import logging
+import tempfile
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import openpyxl
+from sqlalchemy.exc import IntegrityError
 
 from app.models.template_xlsx import TemplateXlsx
 from app.schemas.template_xlsx import TemplateMapping
@@ -11,6 +15,8 @@ from app.core.config import settings
 from app.core.exceptions import ValidationException, NotFoundException
 from app.constants import TIPOS_PLANILHA
 from app.services.supabase_storage import SupabaseStorageService
+
+logger = logging.getLogger(__name__)
 
 class TemplateManager:
     """
@@ -43,7 +49,20 @@ class TemplateManager:
         except Exception as e:
             raise ValidationException(f"Declaração de mapeamento de campos inválida ou incompleta: {str(e)}")
 
-        # Validar se o arquivo é um .xlsx válido que abre com openpyxl
+        # Validar integralmente antes de persistir localmente ou na nuvem.
+        try:
+            workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=False, read_only=True)
+            if validated_mapping.sheet_name and validated_mapping.sheet_name.lower() != "auto":
+                if validated_mapping.sheet_name not in workbook.sheetnames:
+                    raise ValidationException(
+                        f"A aba '{validated_mapping.sheet_name}' declarada no mapeamento não existe no arquivo."
+                    )
+            workbook.close()
+        except ValidationException:
+            raise
+        except Exception as exc:
+            raise ValidationException("O arquivo enviado não é uma planilha Excel (.xlsx) válida.") from exc
+
         file_hash = cls.calculate_file_hash(file_bytes)
         
         # Próxima versão sequencial
@@ -60,24 +79,25 @@ class TemplateManager:
         stored_filename = f"template_{clean_tipo}_v{proxima_versao}_{file_hash[:8]}{ext}"
         stored_path = os.path.join(settings.TEMPLATES_DIR, stored_filename)
 
-        with open(stored_path, "wb") as f:
-            f.write(file_bytes)
+        os.makedirs(settings.TEMPLATES_DIR, exist_ok=True)
+        fd, temporary_path = tempfile.mkstemp(prefix="template_", suffix=".xlsx", dir=settings.TEMPLATES_DIR)
+        try:
+            with os.fdopen(fd, "wb") as file_handle:
+                file_handle.write(file_bytes)
+            os.replace(temporary_path, stored_path)
+        except Exception:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
+            raise ValidationException("Não foi possível armazenar o template enviado.")
 
         # Upload para Supabase Storage se configurado (armazenamento em nuvem)
-        SupabaseStorageService.upload_file(
+        if SupabaseStorageService.is_configured() and not SupabaseStorageService.upload_file(
             bucket=settings.SUPABASE_STORAGE_BUCKET_TEMPLATES,
             path=stored_filename,
-            file_bytes=file_bytes
-        )
-
-        # Testar se o openpyxl abre o arquivo salvo
-        try:
-            wb = openpyxl.load_workbook(stored_path, data_only=False)
-            wb.close()
-        except Exception as e:
-            if os.path.exists(stored_path):
-                os.remove(stored_path)
-            raise ValidationException(f"O arquivo enviado não é uma planilha Excel (.xlsx) válida: {str(e)}")
+            file_bytes=file_bytes,
+        ):
+            os.remove(stored_path)
+            raise ValidationException("Não foi possível armazenar o template na nuvem.")
 
         # Se for o primeiro template do tipo, ativa por padrão se não houver ativo
         template_ativo_existente = (
@@ -101,9 +121,16 @@ class TemplateManager:
             observacoes=observacoes
         )
         db.add(novo_template)
-        db.commit()
-        db.refresh(novo_template)
-        return novo_template
+        try:
+            db.commit()
+            db.refresh(novo_template)
+            return novo_template
+        except IntegrityError as exc:
+            db.rollback()
+            if os.path.exists(stored_path):
+                os.remove(stored_path)
+            SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, stored_filename)
+            raise ValidationException("Outro upload criou esta versão simultaneamente; tente novamente.") from exc
 
     @classmethod
     def promote_version(cls, db: Session, template_id: int) -> TemplateXlsx:

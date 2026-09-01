@@ -3,6 +3,7 @@ import re
 from collections import defaultdict
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.empresa import Empresa
@@ -26,6 +27,7 @@ from app.services.calculation.factory import CalculatorFactory
 from app.services.validation.sanity_checker import SanityChecker
 from app.services.excel.template_filler import TemplateFiller
 from app.services.templates_admin.template_manager import TemplateManager
+from app.services.supabase_storage import SupabaseStorageService
 from app.constants import (
     ANTECIPACAO_PARCIAL,
     ANTECIPACAO_PARCIAL_ANTECIPADO,
@@ -74,6 +76,121 @@ class ProcessingPipelineService:
     def _enrich_sped_with_xml(nf_sped: Any, nf_xml: Any) -> None:
         enrich_sped_with_xml(nf_sped, nf_xml)
 
+    def regenerate_outputs(self, solicitacao: Solicitacao) -> None:
+        """Regenera planilhas após uma edição manual que altera a ordenação.
+
+        Mantém cópias dos arquivos anteriores para restaurá-los caso qualquer
+        template ou upload falhe, evitando divergência entre banco e Excel.
+        """
+        backups: List[Tuple[str, Optional[bytes], str, Optional[bytes]]] = []
+        try:
+            for saida in solicitacao.saidas:
+                if not saida.template_id or not saida.arquivo_path:
+                    continue
+                template = self.db.get(TemplateXlsx, saida.template_id)
+                if not template:
+                    raise ValidationException(f"O template da saída '{saida.tipo}' não existe mais.")
+
+                notes = (
+                    self.db.query(NotaFiscalProcessada)
+                    .filter(
+                        NotaFiscalProcessada.solicitacao_id == solicitacao.id,
+                        NotaFiscalProcessada.destino_planilha == saida.tipo,
+                    )
+                    .order_by(
+                        func.coalesce(NotaFiscalProcessada.data_entrada, NotaFiscalProcessada.data_emissao),
+                        NotaFiscalProcessada.data_emissao,
+                        NotaFiscalProcessada.numero_nota,
+                        NotaFiscalProcessada.item_numero,
+                    )
+                    .all()
+                )
+                rows: List[Dict[str, Any]] = []
+                for note in notes:
+                    metadata = note.metadados_extras or {}
+                    rows.append({
+                        "numero_nota": note.numero_nota,
+                        "serie": note.serie,
+                        "chave_acesso": note.chave_acesso,
+                        "cnpj_emitente": note.cnpj_emitente,
+                        "uf_emitente": note.uf_emitente,
+                        "cnpj_destinatario": note.cnpj_destinatario,
+                        "uf_destinatario": note.uf_destinatario,
+                        "data_emissao": note.data_emissao,
+                        "data_entrada": note.data_entrada,
+                        "item_numero": note.item_numero,
+                        "ncm": note.ncm,
+                        "cfop": note.cfop,
+                        "v_total": note.v_total,
+                        "base_calculo": note.base_calculo,
+                        "ipi_despesas": note.ipi_despesas,
+                        "mva": Decimal(str(metadata.get("mva") or "0")),
+                        "reducao": None,
+                        "red": "",
+                        "aliq_simples": metadata.get("aliq_simples") or "N",
+                        "a_ori": note.a_ori,
+                        "a_dst": note.a_dst_resolvida,
+                        "debito": note.debito,
+                        "credito": note.credito,
+                        "valor_devido": note.valor_devido,
+                    })
+
+                filename = os.path.basename(saida.arquivo_path.replace("\\", "/"))
+                output_path = os.path.join(settings.OUTPUTS_DIR, filename)
+                os.makedirs(settings.OUTPUTS_DIR, exist_ok=True)
+                local_backup = None
+                if os.path.isfile(output_path):
+                    with open(output_path, "rb") as existing_output:
+                        local_backup = existing_output.read()
+                cloud_backup = SupabaseStorageService.download_file(
+                    settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename
+                ) if SupabaseStorageService.is_configured() else None
+                backups.append((output_path, local_backup, filename, cloud_backup))
+
+                TemplateFiller.fill_template(
+                    template_path=TemplateManager.resolve_template_path(template),
+                    mapping=template.mapeamento_campos,
+                    rows_data=rows,
+                    output_path=output_path,
+                    header_info=build_header_info(
+                        solicitacao.empresa,
+                        solicitacao.periodo_inicio,
+                        solicitacao.empresa.inscricao_estadual or "",
+                    ),
+                )
+                if SupabaseStorageService.is_configured():
+                    with open(output_path, "rb") as output_file:
+                        if not SupabaseStorageService.upload_file(
+                            settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
+                            filename,
+                            output_file.read(),
+                        ):
+                            raise ValidationException("Não foi possível atualizar a planilha na nuvem.")
+                saida.arquivo_path = output_path
+                if solicitacao.arquivo_saida_path:
+                    solicitacao.arquivo_saida_path = output_path
+
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            for output_path, local_backup, filename, cloud_backup in backups:
+                if local_backup is None:
+                    if os.path.isfile(output_path):
+                        os.remove(output_path)
+                else:
+                    with open(output_path, "wb") as output_file:
+                        output_file.write(local_backup)
+                if SupabaseStorageService.is_configured():
+                    if cloud_backup is None:
+                        SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename)
+                    else:
+                        SupabaseStorageService.upload_file(
+                            settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
+                            filename,
+                            cloud_backup,
+                        )
+            raise
+
     def process_solicitacao(
         self,
         solicitacao_id: str,
@@ -86,6 +203,19 @@ class ProcessingPipelineService:
         solicitacao = self.db.query(Solicitacao).filter(Solicitacao.id == solicitacao_id).first()
         if not solicitacao:
             raise NotFoundException(f"Solicitação ID '{solicitacao_id}' não encontrada.")
+
+        claimed = (
+            self.db.query(Solicitacao)
+            .filter(
+                Solicitacao.id == solicitacao_id,
+                Solicitacao.status.in_(["pendente", STATUS_ERRO]),
+            )
+            .update({Solicitacao.status: STATUS_PROCESSANDO}, synchronize_session=False)
+        )
+        if claimed != 1:
+            raise ValidationException("Esta solicitação já está sendo processada ou foi concluída.")
+        self.db.commit()
+        self.db.refresh(solicitacao)
 
         empresa = self.db.query(Empresa).filter(Empresa.id == solicitacao.empresa_id).first()
         if not empresa:
@@ -150,6 +280,7 @@ class ProcessingPipelineService:
         # de fato lançada, inclusive eventual reclassificação de CFOP.
         raw_nfs: List[Tuple[str, Any]] = []
         notas_sped: List[Any] = []
+        extraction_errors: List[Dict[str, Any]] = []
 
         if sped_file_bytes:
             notas_sped = self.sped_extractor.extract_from_sped(sped_file_bytes)
@@ -166,9 +297,18 @@ class ProcessingPipelineService:
             for filename, xml_bytes in xml_files_bytes:
                 try:
                     nf_item = self.extractor.extract_from_xml(xml_bytes)
-                except ValidationException:
+                except ValidationException as exc:
                     # Ignora arquivos auxiliares da SEFAZ (ex: eventos de cancelamento, CC-e, resumo)
                     # presentes no lote/ZIP para não inviabilizar o processamento das NF-e válidas.
+                    if "<infNFe>" not in str(exc):
+                        extraction_errors.append({
+                            "numero_nota": "Não identificado",
+                            "serie": None,
+                            "chave_acesso": None,
+                            "data_emissao": None,
+                            "motivo": str(exc),
+                            "arquivo": filename,
+                        })
                     continue
 
                 chaves_xml = self._chaves_cruzamento(nf_item)
@@ -189,13 +329,25 @@ class ProcessingPipelineService:
         if not raw_nfs:
             raise ValidationException("Nenhum arquivo XML de NF-e ou SPED Fiscal válido foi encontrado para processamento.")
 
-        solicitacao.status = STATUS_PROCESSANDO
-        self.db.commit()
+        # O mesmo documento pode aparecer mais de uma vez em lotes diferentes.
+        # Processá-lo novamente duplicaria imposto e linhas no Excel.
+        unique_raw_nfs: List[Tuple[str, Any]] = []
+        seen_documents: set[str] = set()
+        for source_name, nf_data in raw_nfs:
+            keys = self._chaves_cruzamento(nf_data)
+            identity = "||".join(keys) if keys else f"{nf_data.numero_nota}|{nf_data.serie}|{nf_data.cnpj_emitente}"
+            if identity in seen_documents:
+                continue
+            seen_documents.add(identity)
+            unique_raw_nfs.append((source_name, nf_data))
+        raw_nfs = unique_raw_nfs
 
+        generated_paths: List[str] = []
+        generated_cloud_names: List[str] = []
         try:
             rows_por_destino: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
             notas_criadas: List[NotaFiscalProcessada] = []
-            notas_ignoradas: List[Dict[str, Any]] = []
+            notas_ignoradas: List[Dict[str, Any]] = list(extraction_errors)
             cfops_sem_regra: Dict[str, int] = defaultdict(int)
 
             for filename, nf_data in raw_nfs:
@@ -269,7 +421,7 @@ class ProcessingPipelineService:
                 # Itens cujo CFOP não tem regra cadastrada são descartados em silêncio (apenas contabilizados
                 # no resumo agregado da solicitação). No modo legado (tipo único), itens de outro destino
                 # também são descartados aqui, restringindo a apuração ao tipo solicitado.
-                grupos: Dict[Tuple[str, Decimal, Decimal], List[Any]] = {}
+                grupos: Dict[Tuple[str, Decimal, Decimal, str, str], List[Any]] = {}
 
                 for item in nf_data.itens:
                     destino_item = self.cfop_resolver.resolve_destino(empresa.perfil_regras_id, item.cfop)
@@ -294,7 +446,13 @@ class ProcessingPipelineService:
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
 
-                    key = (destino_item, a_ori, a_dst)
+                    key = (
+                        destino_item,
+                        a_ori,
+                        a_dst,
+                        item.ncm if destino_item == ANTECIPACAO_TRIBUTARIA else "",
+                        item.cest if destino_item == ANTECIPACAO_TRIBUTARIA else "",
+                    )
                     if key not in grupos:
                         grupos[key] = []
                     grupos[key].append(item)
@@ -308,7 +466,7 @@ class ProcessingPipelineService:
 
                 split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
 
-                for (destino_grupo, a_ori, a_dst), itens_objs in grupos.items():
+                for (destino_grupo, a_ori, a_dst, _group_ncm, _group_cest), itens_objs in grupos.items():
                     split_index = split_index_por_destino[destino_grupo]
 
                     # Se a nota inteira produziu exatamente 1 bucket/grupo (nenhum item descartado e
@@ -356,7 +514,11 @@ class ProcessingPipelineService:
                     mva_grupo = Decimal("0.00")
                     aliq_simples = "N"
                     if destino_grupo == ANTECIPACAO_TRIBUTARIA:
-                        mva_grupo = MvaResolver.resolve_mva(ncm=ncm_grupo, a_ori=a_ori)
+                        mva_grupo = MvaResolver.resolve_mva(
+                            ncm=ncm_grupo,
+                            a_ori=a_ori,
+                            cest=itens_objs[0].cest if itens_objs else None,
+                        )
                     elif destino_grupo == DIFAL:
                         crt = (nf_data.raw_metadata.get("crt") or "").strip()
                         if crt in ("1", "2"):
@@ -516,6 +678,17 @@ class ProcessingPipelineService:
                     output_path=output_path,
                     header_info=header_info
                 )
+                generated_paths.append(output_path)
+                if SupabaseStorageService.is_configured():
+                    with open(output_path, "rb") as output_file:
+                        uploaded = SupabaseStorageService.upload_file(
+                            settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
+                            output_filename,
+                            output_file.read(),
+                        )
+                    if not uploaded:
+                        raise ValidationException("Não foi possível armazenar a planilha gerada na nuvem.")
+                    generated_cloud_names.append(output_filename)
 
                 total_valor_devido = sum((r["valor_devido"] for r in rows), Decimal("0.00"))
                 saida = SolicitacaoSaida(
@@ -558,6 +731,17 @@ class ProcessingPipelineService:
                         output_path=output_path,
                         header_info=header_info
                     )
+                    generated_paths.append(output_path)
+                    if SupabaseStorageService.is_configured():
+                        with open(output_path, "rb") as output_file:
+                            uploaded = SupabaseStorageService.upload_file(
+                                settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
+                                output_filename,
+                                output_file.read(),
+                            )
+                        if not uploaded:
+                            raise ValidationException("Não foi possível armazenar a planilha gerada na nuvem.")
+                        generated_cloud_names.append(output_filename)
 
                     saida = SolicitacaoSaida(
                         solicitacao_id=solicitacao.id,
@@ -568,6 +752,11 @@ class ProcessingPipelineService:
                         total_valor_devido=total_valor_devido
                     )
                     self.db.add(saida)
+
+            if not generated_paths:
+                raise ValidationException(
+                    "Nenhuma planilha pôde ser gerada porque não há template ativo para os tipos apurados."
+                )
 
             # Atualizar status e resultado da solicitação
             solicitacao.status = STATUS_CONCLUIDO
@@ -580,9 +769,17 @@ class ProcessingPipelineService:
 
             return solicitacao
 
-        except Exception as e:
+        except Exception as exc:
             self.db.rollback()
+            for path in generated_paths:
+                if os.path.isfile(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+            for filename in generated_cloud_names:
+                SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename)
             solicitacao.status = STATUS_ERRO
-            solicitacao.mensagem_erro = str(e)
+            solicitacao.mensagem_erro = str(exc) if isinstance(exc, ValidationException) else "Falha interna ao processar os arquivos."
             self.db.commit()
-            raise e
+            raise

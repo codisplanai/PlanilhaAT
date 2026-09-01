@@ -1,9 +1,9 @@
-import datetime
 import uuid
 from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.time import utcnow_naive
 
 class NotaFiscalProcessada(Base):
     __tablename__ = "notas_fiscais_processadas"
@@ -36,6 +36,6 @@ class NotaFiscalProcessada(Base):
     valor_devido = Column(Numeric(15, 2), nullable=False)
     
     metadados_extras = Column(JSON, default=dict, nullable=False)
-    criado_em = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
 
     solicitacao = relationship("Solicitacao", back_populates="notas_processadas")

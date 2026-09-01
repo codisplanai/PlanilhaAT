@@ -1,224 +1,165 @@
-import jwt
+"""Autenticação e autorização centralizadas.
+
+Perfis e permissões são sempre lidos do banco. Metadados editáveis do token
+servem apenas para sugerir um nome na primeira autenticação e nunca concedem
+privilégios.
+"""
+
+import logging
+from typing import Any, Dict, Optional
+
 import httpx
-from typing import Optional, Dict, Any
-from fastapi import Header, HTTPException, Depends, status
+import jwt
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.profile import Profile
-from app.schemas.auth import UserOut
 
-# Usuários padrão para fallback/desenvolvimento local sem Supabase
+logger = logging.getLogger(__name__)
+
 LOCAL_USERS_FALLBACK = {
     "admin@contabilidade.com": {
         "id": "184e793c-50b7-4b57-ace1-c02b19649408",
         "nome": "Contador Responsável",
         "email": "admin@contabilidade.com",
         "cargo": "Contador Sênior",
-        "role": "admin"
+        "role": "admin",
     },
     "admin@codisplan.com": {
         "id": "184e793c-50b7-4b57-ace1-c02b19649408",
         "nome": "Contador Responsável",
         "email": "admin@codisplan.com",
         "cargo": "Contador Sênior",
-        "role": "admin"
+        "role": "admin",
     },
     "operador@contabilidade.com": {
         "id": "00000000-0000-0000-0000-000000000002",
         "nome": "Operador Fiscal",
         "email": "operador@contabilidade.com",
         "cargo": "Analista Fiscal",
-        "role": "operador"
-    }
+        "role": "operador",
+    },
 }
 
+# Somente para desenvolvimento/testes explícitos. Tokens não reconhecidos
+# nunca recebem permissão, ainda que usem o prefixo local.
 ACTIVE_DEV_TOKENS: Dict[str, Dict[str, Any]] = {}
 
 
 def verify_supabase_token(token: str) -> Optional[Dict[str, Any]]:
-    """Valida token JWT emitido pelo Supabase."""
     if not token:
         return None
 
-    # 1. Validação local com segredo JWT se configurado
     if settings.SUPABASE_JWT_SECRET:
         try:
-            payload = jwt.decode(
+            return jwt.decode(
                 token,
                 settings.SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                options={"verify_aud": False}
+                audience="authenticated",
             )
-            return payload
-        except Exception:
+        except jwt.PyJWTError:
+            # A confirmação remota abaixo também suporta configurações de
+            # assinatura mais novas do Supabase.
             pass
 
-    # 2. Validação via endpoint /auth/v1/user do Supabase se URL configurada
     if settings.SUPABASE_URL and settings.SUPABASE_KEY:
         try:
             headers = {
                 "apikey": settings.SUPABASE_KEY,
-                "Authorization": f"Bearer {token}"
+                "Authorization": f"Bearer {token}",
             }
             url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/user"
-            with httpx.Client(timeout=5.0) as client:
-                res = client.get(url, headers=headers)
-                if res.status_code == 200:
-                    data = res.json()
-                    user_metadata = data.get("user_metadata", {})
-                    return {
-                        "sub": data.get("id"),
-                        "email": data.get("email"),
-                        "user_metadata": user_metadata
-                    }
-        except Exception:
-            pass
-
-    # 3. Fallback para decodificação sem verificação de assinatura em ambiente de dev
-    if settings.DEBUG:
-        try:
-            unverified = jwt.decode(token, options={"verify_signature": False})
-            if "sub" in unverified:
-                return unverified
-        except Exception:
-            pass
+            with httpx.Client(timeout=8.0) as client:
+                response = client.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "sub": data.get("id"),
+                    "email": data.get("email"),
+                    "user_metadata": data.get("user_metadata") or {},
+                }
+        except (httpx.HTTPError, ValueError):
+            logger.warning("Falha ao validar token no Supabase", exc_info=True)
 
     return None
 
 
-def get_current_user(
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
-) -> Profile:
-    """Extrai e autentica o usuário a partir do cabeçalho Authorization Bearer."""
-    if not authorization or not authorization.startswith("Bearer "):
-        if settings.DEBUG:
-            # Em modo debug / testes sem cabeçalho explícito, provê o admin padrão
-            user_id = "184e793c-50b7-4b57-ace1-c02b19649408"
-            profile = db.query(Profile).filter((Profile.id == user_id) | (Profile.email == "admin@codisplan.com")).first()
-            if profile:
-                return profile
-            return Profile(
-                id=user_id,
-                email="admin@codisplan.com",
-                nome="Contador Responsável",
-                cargo="Contador Sênior",
-                role="admin"
-            )
+def _unauthorized(detail: str = "Sessão expirada ou token inválido. Faça login novamente.") -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token de autorização não fornecido ou formato inválido."
-        )
 
-    token = authorization.split(" ", 1)[1].strip()
-
-    # 1. Verificar tokens de desenvolvimento local (pat_...)
-    if token in ACTIVE_DEV_TOKENS:
-        user_info = ACTIVE_DEV_TOKENS[token]
-        user_id = str(user_info["id"])
-        profile = db.query(Profile).filter((Profile.id == user_id) | (Profile.email == user_info.get("email"))).first()
-        if not profile:
-            profile = Profile(
-                id=user_id,
-                email=user_info["email"],
-                nome=user_info["nome"],
-                cargo=user_info["cargo"],
-                role=user_info.get("role", "operador")
-            )
-        return profile
-
-    if token.startswith("pat_"):
-        user_id = "184e793c-50b7-4b57-ace1-c02b19649408"
-        profile = db.query(Profile).filter((Profile.id == user_id) | (Profile.email == "admin@codisplan.com")).first()
-        if not profile:
-            profile = Profile(
-                id=user_id,
-                email="admin@codisplan.com",
-                nome="Contador Responsável",
-                cargo="Contador Sênior",
-                role="admin"
-            )
-        return profile
-
-    # 2. Validar token JWT do Supabase
-    payload = verify_supabase_token(token)
-    if not payload or not payload.get("sub"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sessão expirada ou token inválido. Faça login novamente."
-        )
-
-    user_id = str(payload["sub"])
-    email = payload.get("email", "")
-    metadata = payload.get("user_metadata", {})
-
+def _load_active_profile(db: Session, user_id: str) -> Profile:
     profile = db.query(Profile).filter(Profile.id == user_id).first()
     if not profile:
-        cargo = metadata.get("cargo", "Contador Sênior" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com") else "Analista Fiscal")
-        role = metadata.get("role", "admin" if (email == "admin@contabilidade.com" or email == "admin@codisplan.com" or cargo == "Contador Sênior") else "operador")
-        nome = metadata.get("nome", email.split("@")[0] if email else "Usuário")
-
-        try:
-            profile = Profile(
-                id=user_id,
-                email=email,
-                nome=nome,
-                cargo=cargo,
-                role=role
-            )
-            db.add(profile)
-            db.commit()
-            db.refresh(profile)
-        except Exception:
-            db.rollback()
-            profile = Profile(
-                id=user_id,
-                email=email,
-                nome=nome,
-                cargo=cargo,
-                role=role
-            )
-
+        if settings.local_auth_enabled:
+            for fallback in LOCAL_USERS_FALLBACK.values():
+                if str(fallback["id"]) == str(user_id):
+                    return Profile(
+                        id=str(fallback["id"]),
+                        email=fallback["email"],
+                        nome=fallback["nome"],
+                        cargo=fallback["cargo"],
+                        role=fallback["role"],
+                        ativo=True,
+                    )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuário autenticado sem perfil autorizado no sistema.",
+        )
     if not profile.ativo:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Conta de usuário inativa. Contate o administrador."
+            detail="Conta de usuário inativa. Contate o administrador.",
         )
-
     return profile
+
+
+def get_current_user(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> Profile:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise _unauthorized("Token de autorização não fornecido ou formato inválido.")
+
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise _unauthorized()
+
+    if settings.local_auth_enabled and token in ACTIVE_DEV_TOKENS:
+        return _load_active_profile(db, str(ACTIVE_DEV_TOKENS[token]["id"]))
+
+    payload = verify_supabase_token(token)
+    if not payload or not payload.get("sub"):
+        raise _unauthorized()
+
+    return _load_active_profile(db, str(payload["sub"]))
 
 
 def get_optional_user(
     authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Optional[Profile]:
-    """Obtém o usuário atual caso o cabeçalho Authorization esteja presente, ou usuário padrão em debug."""
-    if not authorization or not authorization.startswith("Bearer "):
-        if settings.DEBUG:
-            user_id = "184e793c-50b7-4b57-ace1-c02b19649408"
-            return db.query(Profile).filter((Profile.id == user_id) | (Profile.email == "admin@codisplan.com")).first()
+    """Compatibilidade para fluxos realmente públicos; token inválido falha."""
+    if not authorization:
         return None
-    try:
-        return get_current_user(authorization=authorization, db=db)
-    except HTTPException:
-        return None
+    return get_current_user(authorization=authorization, db=db)
 
 
 def require_admin(
     authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Profile:
-    """Garante que apenas usuários com cargo de Contador Sênior / role admin acessem rotas restritas."""
     current_user = get_current_user(authorization=authorization, db=db)
-    is_admin = current_user.role == "admin" or current_user.cargo.strip().lower() in [
-        "contador sênior", "contador senior", "administrador", "admin"
-    ]
-    if not is_admin:
+    if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acesso restrito. Esta funcionalidade é exclusiva para o Contador Sênior / Administrador."
+            detail="Acesso restrito. Esta funcionalidade é exclusiva para o Contador Sênior / Administrador.",
         )
     return current_user

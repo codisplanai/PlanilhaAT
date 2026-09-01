@@ -29,7 +29,7 @@ import {
   formatCompetencia
 } from '../../lib/formatters';
 import { StatusBadge } from '../../components/domain/StatusBadge';
-import { getPlanilhaLabel } from '../../constants/domain';
+import { getEntryOriginLabel, getPlanilhaLabel } from '../../constants/domain';
 import { queryKeys } from '../../api/queryKeys';
 import { useEmpresasQuery, useSolicitacoesQuery } from '../../hooks/useApiQueries';
 
@@ -52,10 +52,10 @@ export const HistoricoPage: React.FC = () => {
     statusFilter,
   );
 
-  const { data: empresas = [] } = useEmpresasQuery();
+  const { data: empresas = [], error: empresasError } = useEmpresasQuery();
 
   // Query para drill-down da solicitação específica
-  const { data: solicitacaoDetalhada, isLoading: isLoadingDetalhes } = useQuery({
+  const { data: solicitacaoDetalhada, isLoading: isLoadingDetalhes, error: detalhesError } = useQuery({
     queryKey: queryKeys.solicitacao(selectedSolicitacaoId),
     queryFn: () => solicitacoesApi.obter(selectedSolicitacaoId!),
     enabled: !!selectedSolicitacaoId,
@@ -146,6 +146,7 @@ export const HistoricoPage: React.FC = () => {
         title="Histórico de Solicitações e Planilhas Geradas"
         description="Consulte as solicitações realizadas, rebaixe arquivos `.xlsx` preenchidos e confira o detalhamento nota a nota"
       />
+      {empresasError && <ErrorAlert message={getErrorMessage(empresasError)} />}
 
       {/* Filters Bar */}
       <Card className="p-3">
@@ -172,6 +173,7 @@ export const HistoricoPage: React.FC = () => {
               className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-800 text-slate-700"
             >
               <option value="">Todos os Status</option>
+              <option value="pendente">Pendente</option>
               <option value="concluido">Concluída</option>
               <option value="processando">Processando</option>
               <option value="erro">Erro</option>
@@ -293,6 +295,8 @@ export const HistoricoPage: React.FC = () => {
       >
         {isLoadingDetalhes ? (
           <LoadingSpinner message="Carregando notas fiscais da solicitação..." />
+        ) : detalhesError ? (
+          <ErrorAlert message={getErrorMessage(detalhesError)} />
         ) : !solicitacaoDetalhada ? (
           <p className="text-xs text-slate-500">Solicitação não encontrada.</p>
         ) : (
@@ -459,7 +463,7 @@ export const HistoricoPage: React.FC = () => {
                                     variant={item.origem_data_entrada === 'planilha_sistema_contabil' ? 'success' : 'info'}
                                     size="sm"
                                   >
-                                    {item.origem_data_entrada === 'planilha_sistema_contabil' ? 'Planilha' : 'Manual'}
+                                    {getEntryOriginLabel(item.origem_data_entrada)}
                                   </Badge>
                                 </>
                               ) : (
@@ -470,6 +474,7 @@ export const HistoricoPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditDataEntrada(item)}
+                                aria-label={`Editar data de entrada da nota ${item.numero_nota}`}
                                 className="p-1 rounded text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors ml-1"
                                 title="Editar Data de Entrada Manualmente"
                               >

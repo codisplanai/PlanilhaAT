@@ -1,22 +1,18 @@
 import os
 import re
-from typing import List, Dict, Any, Optional
+import tempfile
+from typing import Any, Dict, List, Optional
+
 import openpyxl
 from openpyxl.utils import column_index_from_string
 
-from app.core.exceptions import TemplateIntegrityException, ValidationException
+from app.core.exceptions import PlanilhaATException, ValidationException
 from app.services.excel.formula_guard import FormulaGuard
-from app.services.excel.template_utils import (
-    build_header_text,
-    format_excel_value,
-    select_worksheet,
-)
+from app.services.excel.template_utils import build_header_text, format_excel_value, select_worksheet
+
 
 class TemplateFiller:
-    """
-    Camada 8: Preenchimento do template .xlsx com os dados extraídos e processados.
-    Escreve ESTRITAMENTE em células de entrada mapeadas, mantendo todas as fórmulas originais intactas.
-    """
+    """Preenche apenas as células mapeadas e preserva as fórmulas do modelo."""
 
     @classmethod
     def fill_template(
@@ -25,82 +21,84 @@ class TemplateFiller:
         mapping: Dict[str, Any],
         rows_data: List[Dict[str, Any]],
         output_path: str,
-        header_info: Optional[Dict[str, Any]] = None
+        header_info: Optional[Dict[str, Any]] = None,
     ) -> str:
         if not os.path.exists(template_path):
-            raise ValidationException(f"Arquivo de template não encontrado no caminho: '{template_path}'")
+            raise ValidationException(f"Arquivo de template não encontrado: '{os.path.basename(template_path)}'.")
 
-        # Abrir template preservando fórmulas (data_only=False)
-        wb = openpyxl.load_workbook(template_path, data_only=False)
+        workbook = None
+        temporary_path: Optional[str] = None
+        try:
+            workbook = openpyxl.load_workbook(template_path, data_only=False)
+            original_formula_map = FormulaGuard.extract_formula_map(workbook)
+            worksheet, month, year = select_worksheet(workbook, mapping, rows_data, header_info)
+            original_title = worksheet.title
 
-        # 1. Mapear todas as fórmulas originais antes de qualquer escrita
-        original_formula_map = FormulaGuard.extract_formula_map(wb)
+            header_cell = mapping.get("header_cell") or mapping.get("extra_options", {}).get("header_cell") or "A2"
+            if header_cell and header_info:
+                try:
+                    worksheet[header_cell] = build_header_text(header_info)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValidationException(f"Célula de cabeçalho inválida: '{header_cell}'.") from exc
 
-        ws, mes_idx, ano_val = select_worksheet(wb, mapping, rows_data, header_info)
+            start_row = int(mapping.get("start_row", 4))
+            columns_map = mapping.get("columns", {})
+            percentage_format = mapping.get("aliquota_format") or mapping.get("extra_options", {}).get(
+                "aliquota_format", "decimal"
+            )
+            column_indices: Dict[str, int] = {}
+            for field, column_letter in columns_map.items():
+                try:
+                    column_indices[field] = column_index_from_string(column_letter)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationException(
+                        f"Letra de coluna inválida '{column_letter}' para o campo '{field}'."
+                    ) from exc
 
-        original_ws_title = ws.title
+            for index, source_row in enumerate(rows_data):
+                current_row = start_row + index
+                row = dict(source_row)
+                row.setdefault("item_index", index + 1)
+                for field_name, column_index in column_indices.items():
+                    raw_value = row.get(field_name)
+                    if raw_value is None:
+                        continue
+                    FormulaGuard.assert_no_formula_overwrite(worksheet, current_row, column_index, field_name)
+                    worksheet.cell(row=current_row, column=column_index).value = format_excel_value(
+                        field_name, raw_value, percentage_format
+                    )
 
-        # 2. Preenchimento de cabeçalho da Empresa / Inscrição Estadual / Competência
-        header_cell = mapping.get("header_cell") or mapping.get("extra_options", {}).get("header_cell") or "A2"
-        if header_cell and header_info:
-            try:
-                ws[header_cell] = build_header_text(header_info)
-            except Exception:
-                pass
+            for other_sheet in [sheet for sheet in workbook.worksheets if sheet != worksheet]:
+                workbook.remove(other_sheet)
 
-        start_row = int(mapping.get("start_row", 4))
-        columns_map = mapping.get("columns", {})
-        aliquota_format = mapping.get("aliquota_format") or mapping.get("extra_options", {}).get("aliquota_format", "decimal")
+            if month and year:
+                competence_title = f"{month:02d}-{year}"
+                if re.match(r"^\d{2}[-_/]\d{4}", worksheet.title) or worksheet.title.strip().lower() in {
+                    "sheet1",
+                    "planilha1",
+                    "sheet",
+                }:
+                    worksheet.title = competence_title
 
-        # Converter letras de colunas para índices numéricos 1-based
-        col_indices: Dict[str, int] = {}
-        for field, col_letter in columns_map.items():
-            try:
-                col_indices[field] = column_index_from_string(col_letter)
-            except ValueError:
-                raise ValidationException(f"Letra de coluna inválida '{col_letter}' para o campo '{field}' no mapeamento.")
+            single_sheet_formula_map = {worksheet.title: original_formula_map.get(original_title, {})}
+            FormulaGuard.verify_wb_integrity(single_sheet_formula_map, workbook)
 
-        # Preencher linha a linha
-        for idx, row_item in enumerate(rows_data):
-            current_row = start_row + idx
-
-            # Injetar item_index se mapeado
-            if "item_index" in col_indices and "item_index" not in row_item:
-                row_item["item_index"] = idx + 1
-
-            for field_name, col_idx in col_indices.items():
-                if field_name not in row_item:
-                    continue
-
-                raw_value = row_item[field_name]
-                if raw_value is None:
-                    continue
-
-                # Garantir que a célula NÃO contém fórmula antes de escrever
-                FormulaGuard.assert_no_formula_overwrite(ws, current_row, col_idx, field_name)
-
-                cell = ws.cell(row=current_row, column=col_idx)
-                cell.value = format_excel_value(field_name, raw_value, aliquota_format)
-
-        # 3. Manter APENAS a aba da competência processada e remover todas as demais abas
-        for other_sheet in [s for s in wb.worksheets if s != ws]:
-            wb.remove(other_sheet)
-
-        # Renomear a aba com a competência do mês processado (ex: "03-2026", "04-2026")
-        if mes_idx and ano_val:
-            comp_tab_name = f"{mes_idx:02d}-{ano_val}"
-            # Se a aba original tem formato numérico de competência (ex: "03-2026", "04-2026 FCP")
-            # ou nome genérico padrão (ex: "Sheet1", "Planilha1"), renomeia para a competência processada:
-            if re.match(r"^\d{2}[-_/]\d{4}", ws.title) or ws.title.strip().lower() in ["sheet1", "planilha1", "sheet"]:
-                ws.title = comp_tab_name
-
-        # 4. Verificação final de integridade de 100% das fórmulas originais da aba processada
-        single_sheet_formula_map = {ws.title: original_formula_map.get(original_ws_title, {})}
-        FormulaGuard.verify_wb_integrity(single_sheet_formula_map, wb)
-
-        # 5. Salvar o arquivo resultante com aba única
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        wb.save(output_path)
-        wb.close()
-
-        return output_path
+            output_directory = os.path.dirname(os.path.abspath(output_path))
+            os.makedirs(output_directory, exist_ok=True)
+            descriptor, temporary_path = tempfile.mkstemp(prefix="planilha_", suffix=".xlsx", dir=output_directory)
+            os.close(descriptor)
+            workbook.save(temporary_path)
+            workbook.close()
+            workbook = None
+            os.replace(temporary_path, output_path)
+            temporary_path = None
+            return output_path
+        except PlanilhaATException:
+            raise
+        except Exception as exc:
+            raise ValidationException("Não foi possível preencher o template Excel.") from exc
+        finally:
+            if workbook is not None:
+                workbook.close()
+            if temporary_path and os.path.exists(temporary_path):
+                os.remove(temporary_path)

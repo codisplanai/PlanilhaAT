@@ -1,8 +1,8 @@
-import datetime
-from sqlalchemy import Column, String, Boolean, DateTime
+from sqlalchemy import CheckConstraint, Column, String, Boolean, DateTime
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.time import utcnow_naive
 
 class Profile(Base):
     __tablename__ = "profiles"
@@ -13,7 +13,11 @@ class Profile(Base):
     cargo = Column(String(100), default="Analista Fiscal", nullable=False)
     role = Column(String(50), default="operador", nullable=False)  # 'admin' ou 'operador'
     ativo = Column(Boolean, default=True, nullable=False)
-    criado_em = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-    atualizado_em = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
+    atualizado_em = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)
 
     solicitacoes = relationship("Solicitacao", back_populates="usuario")
+
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'operador')", name="ck_profiles_role"),
+    )

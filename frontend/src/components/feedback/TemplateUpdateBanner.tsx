@@ -3,19 +3,24 @@ import { useQuery } from '@tanstack/react-query';
 import { Sparkles, X, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 import { templatesApi, type TemplateAtivoResumo } from '../../api/templates';
 import { getPlanilhaLabel } from '../../constants/domain';
+import { getErrorMessage } from '../../api/client';
+import { ErrorAlert } from './ErrorAlert';
 
 export const TemplateUpdateBanner: React.FC = () => {
   const [dismissed, setDismissed] = useState(false);
 
-  const { data: templatesAtivos = [] } = useQuery<TemplateAtivoResumo[]>({
+  const { data: templatesAtivos = [], error } = useQuery<TemplateAtivoResumo[]>({
     queryKey: ['templates-ativos-resumo'],
     queryFn: templatesApi.listarAtivosResumo,
     staleTime: 60_000,
   });
 
-  if (dismissed || templatesAtivos.length === 0) {
+  if (dismissed) {
     return null;
   }
+
+  if (error) return <ErrorAlert title="Modelos indisponíveis" message={getErrorMessage(error)} />;
+  if (templatesAtivos.length === 0) return null;
 
   return (
     <div className="mb-6 rounded-lg border border-blue-500/30 bg-gradient-to-r from-blue-950/60 via-slate-900/80 to-blue-950/40 p-4 shadow-md shadow-blue-950/20 backdrop-blur-sm">
@@ -57,7 +62,9 @@ export const TemplateUpdateBanner: React.FC = () => {
         </div>
 
         <button
+          type="button"
           onClick={() => setDismissed(true)}
+          aria-label="Fechar aviso de modelos"
           className="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800/60 transition-colors"
           title="Fechar aviso"
         >

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
@@ -42,6 +42,15 @@ const queryClient = new QueryClient({
 export function App() {
   const { user, isInitializing, startSession, endSession } = useAuthSession();
 
+  useEffect(() => {
+    if (!user) queryClient.clear();
+  }, [user]);
+
+  const handleLogout = async () => {
+    queryClient.clear();
+    await endSession();
+  };
+
   if (isInitializing) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-900">
@@ -69,7 +78,7 @@ export function App() {
             <Route
               element={
                 user ? (
-                  <Layout user={user} onLogout={endSession} />
+                  <Layout user={user} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/login" replace />
                 )

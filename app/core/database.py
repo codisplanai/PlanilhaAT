@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
 
@@ -13,6 +14,8 @@ engine_kwargs = {"echo": False}
 
 if db_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    if db_url in {"sqlite://", "sqlite:///:memory:"}:
+        engine_kwargs["poolclass"] = StaticPool
 else:
     # Configuração otimizada para Serverless / PostgreSQL Pooler
     engine_kwargs["pool_pre_ping"] = True

@@ -53,7 +53,7 @@ export const EmpresasPage: React.FC = () => {
   // Queries
   const { data: empresas = [], isLoading, error } = useEmpresasQuery();
 
-  const { data: perfis = [] } = usePerfisQuery();
+  const { data: perfis = [], error: perfisError } = usePerfisQuery();
 
   // Form
   const {
@@ -146,16 +146,20 @@ export const EmpresasPage: React.FC = () => {
     const payload: EmpresaCreate = {
       razao_social: data.razao_social.trim(),
       cnpj: data.cnpj.replace(/\D/g, ''),
-      inscricao_estadual: data.inscricao_estadual?.trim() || undefined,
+      inscricao_estadual: data.inscricao_estadual?.trim() || (editingEmpresa ? null : undefined),
       uf: data.uf,
       perfil_regras_id: Number(data.perfil_regras_id),
       ativo: data.ativo,
     };
 
-    if (editingEmpresa) {
-      await updateMutation.mutateAsync({ id: editingEmpresa.id, payload });
-    } else {
-      await createMutation.mutateAsync(payload);
+    try {
+      if (editingEmpresa) {
+        await updateMutation.mutateAsync({ id: editingEmpresa.id, payload });
+      } else {
+        await createMutation.mutateAsync(payload);
+      }
+    } catch {
+      // onError da mutation apresenta a mensagem no modal.
     }
   };
 
@@ -174,9 +178,10 @@ export const EmpresasPage: React.FC = () => {
   // Filtragem
   const filteredEmpresas = empresas.filter((emp) => {
     const cleanSearch = searchTerm.toLowerCase();
+    const digitSearch = cleanSearch.replace(/\D/g, '');
     const matchesSearch =
       emp.razao_social.toLowerCase().includes(cleanSearch) ||
-      emp.cnpj.includes(cleanSearch.replace(/\D/g, '')) ||
+      (digitSearch.length > 0 && emp.cnpj.includes(digitSearch)) ||
       emp.uf.toLowerCase().includes(cleanSearch);
 
     const matchesUf = !ufFilter || emp.uf === ufFilter;
@@ -200,6 +205,8 @@ export const EmpresasPage: React.FC = () => {
           </Button>
         )}
       />
+
+      {perfisError && <ErrorAlert message={`Não foi possível carregar os perfis: ${getErrorMessage(perfisError)}`} />}
 
       {/* Filters Bar */}
       <Card className="p-3">

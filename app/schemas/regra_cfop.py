@@ -34,6 +34,9 @@ class RegraCfopBase(BaseModel):
             raise ValueError(f"destino deve ser um dos seguintes: {', '.join(VALID_DESTINOS)}")
         return clean
 
+    class Config:
+        extra = "forbid"
+
 class RegraCfopCreate(RegraCfopBase):
     pass
 
@@ -56,6 +59,9 @@ class RegraCfopUpdate(BaseModel):
         if clean not in VALID_DESTINOS:
             raise ValueError(f"destino deve ser um dos seguintes: {', '.join(VALID_DESTINOS)}")
         return clean
+
+    class Config:
+        extra = "forbid"
 
 class RegraCfopOut(RegraCfopBase):
     id: int

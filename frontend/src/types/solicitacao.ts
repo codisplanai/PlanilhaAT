@@ -12,7 +12,7 @@ export interface NotaFiscalProcessada {
   uf_destinatario?: string | null;
   data_emissao: string;
   data_entrada?: string | null;
-  origem_data_entrada?: 'planilha_sistema_contabil' | 'manual' | null;
+  origem_data_entrada?: 'planilha_sistema_contabil' | 'sped_fiscal' | 'xml_nfe' | 'manual' | null;
   item_numero: number;
   ncm: string;
   cfop?: string | null;

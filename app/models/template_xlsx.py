@@ -1,8 +1,8 @@
-import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.time import utcnow_naive
 
 class TemplateXlsx(Base):
     __tablename__ = "templates_xlsx"
@@ -15,10 +15,17 @@ class TemplateXlsx(Base):
     mapeamento_campos = Column(JSON, nullable=False)       # Mapeamento obrigatório declarado de linhas/colunas
     ativo = Column(Boolean, default=False, nullable=False) # Apenas 1 ativo por tipo
     observacoes = Column(Text, nullable=True)
-    criado_em = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
 
     solicitacoes = relationship("Solicitacao", back_populates="template")
 
     __table_args__ = (
         UniqueConstraint('tipo', 'versao', name='uq_tipo_versao'),
+        Index(
+            'uq_template_ativo_por_tipo',
+            'tipo',
+            unique=True,
+            postgresql_where=(ativo.is_(True)),
+            sqlite_where=(ativo.is_(True)),
+        ),
     )

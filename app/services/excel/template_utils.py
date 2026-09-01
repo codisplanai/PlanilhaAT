@@ -7,6 +7,8 @@ from typing import Any, Mapping, Optional, Sequence
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from app.core.exceptions import ValidationException
+
 
 MONTH_NAMES = (
     "JANEIRO",
@@ -35,9 +37,14 @@ def select_worksheet(
     sheet_name = mapping.get("sheet_name")
     month, year = _resolve_period(rows, header_info)
 
-    candidates: list[str] = []
+    normalized_names = {name.strip().upper(): name for name in workbook.sheetnames}
     if sheet_name and str(sheet_name).lower() != "auto":
-        candidates.append(str(sheet_name))
+        actual_name = normalized_names.get(str(sheet_name).strip().upper())
+        if not actual_name:
+            raise ValidationException(f"A aba '{sheet_name}' declarada no mapeamento não existe no template.")
+        return workbook[actual_name], month, year
+
+    candidates: list[str] = []
 
     if month and 1 <= month <= 12:
         candidates.append(MONTH_NAMES[month - 1])
@@ -52,7 +59,6 @@ def select_worksheet(
                 ]
             )
 
-    normalized_names = {name.strip().upper(): name for name in workbook.sheetnames}
     for candidate in candidates:
         actual_name = normalized_names.get(candidate.strip().upper())
         if actual_name:
@@ -64,8 +70,6 @@ def select_worksheet(
             if actual_name.strip().upper().startswith(prefix):
                 return workbook[actual_name], month, year
 
-    if sheet_name and sheet_name in workbook.sheetnames:
-        return workbook[sheet_name], month, year
     return workbook.active, month, year
 
 
@@ -102,6 +106,9 @@ def format_excel_value(field: str, raw_value: Any, percentage_format: str) -> An
         return float(raw_value)
     if isinstance(raw_value, date):
         return datetime(raw_value.year, raw_value.month, raw_value.day)
+    if isinstance(raw_value, str) and raw_value.startswith(("=", "+", "-", "@")):
+        # Textos vindos de XML/SPED não podem virar fórmulas executáveis.
+        return f"'{raw_value}"
     return raw_value
 
 

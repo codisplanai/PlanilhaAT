@@ -159,7 +159,11 @@ export const AdminTemplatesPage: React.FC = () => {
     if (data.observacoes) formData.append('observacoes', data.observacoes);
     formData.append('promover_ativo', String(data.promover_ativo));
 
-    await uploadMutation.mutateAsync(formData);
+    try {
+      await uploadMutation.mutateAsync(formData);
+    } catch {
+      // onError da mutation exibe a falha no formulário.
+    }
   };
 
   const tiposPlanilha = [
@@ -354,7 +358,17 @@ export const AdminTemplatesPage: React.FC = () => {
               <input
                 type="file"
                 accept=".xlsx"
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  if (file && (!file.name.toLowerCase().endsWith('.xlsx') || file.size === 0 || file.size > 20 * 1024 * 1024)) {
+                    setSelectedFile(null);
+                    setErrorMessage('Selecione um arquivo .xlsx não vazio, com no máximo 20 MB.');
+                    e.target.value = '';
+                    return;
+                  }
+                  setSelectedFile(file);
+                  setErrorMessage(null);
+                }}
                 className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
             </div>

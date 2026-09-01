@@ -3,14 +3,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import get_current_user, require_admin
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.perfil_regras import PerfilRegras
 from app.schemas.regra_cfop import RegraCfopCreate, RegraCfopUpdate, RegraCfopOut, RegraCfopEfetivaOut
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 
-router = APIRouter(prefix="/regras-cfop", tags=["Regras de Roteamento CFOP -> Planilha"])
+router = APIRouter(
+    prefix="/regras-cfop",
+    tags=["Regras de Roteamento CFOP -> Planilha"],
+    dependencies=[Depends(get_current_user)],
+)
 
-@router.post("", response_model=RegraCfopOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=RegraCfopOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 def criar_regra_cfop(payload: RegraCfopCreate, db: Session = Depends(get_db)):
     if payload.perfil_regras_id is not None:
         perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
@@ -80,7 +85,7 @@ def listar_regras_cfop_efetivas(perfil_id: int, db: Session = Depends(get_db)):
 def obter_regra_cfop(id: int, db: Session = Depends(get_db)):
     return get_by_id_or_404(db, RegraCfopDestino, id, "Regra de CFOP não encontrada.")
 
-@router.put("/{id}", response_model=RegraCfopOut)
+@router.put("/{id}", response_model=RegraCfopOut, dependencies=[Depends(require_admin)])
 def atualizar_regra_cfop(id: int, payload: RegraCfopUpdate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraCfopDestino, id, "Regra de CFOP não encontrada.")
 
@@ -88,12 +93,20 @@ def atualizar_regra_cfop(id: int, payload: RegraCfopUpdate, db: Session = Depend
         regra.cfop_sufixo = payload.cfop_sufixo
     if payload.destino is not None:
         regra.destino = payload.destino
-    if payload.descricao is not None:
+    if "descricao" in payload.__fields_set__:
         regra.descricao = payload.descricao
+
+    duplicate = db.query(RegraCfopDestino).filter(
+        RegraCfopDestino.id != id,
+        RegraCfopDestino.perfil_regras_id == regra.perfil_regras_id,
+        RegraCfopDestino.cfop_sufixo == regra.cfop_sufixo,
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Já existe uma regra neste escopo para o CFOP informado.")
 
     return commit_and_refresh(db, regra)
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 def deletar_regra_cfop(id: int, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraCfopDestino, id, "Regra de CFOP não encontrada.")
     delete_and_commit(db, regra)

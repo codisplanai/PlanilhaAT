@@ -1,6 +1,9 @@
 import io
 import zipfile
 import pytest
+from fastapi import HTTPException
+from app.api.upload_utils import _read_xml_archive
+from app.core.config import settings
 from tests.conftest import CHAVE_NF901, CHAVE_NF902, build_xml_nfe
 
 
@@ -86,3 +89,13 @@ def test_zip_corrompido_rejeita(client, cenario_janeiro):
     response = client.post(f"/api/v1/solicitacoes/{sol.id}/processar", files=files)
     assert response.status_code == 400
     assert "inválido ou corrompido" in response.json()["detail"]
+
+
+def test_zip_bomb_rejeitado_antes_de_descompactar(monkeypatch):
+    content = b"A" * 10_000
+    zip_bytes = _create_zip({"compactado.xml": content})
+    monkeypatch.setattr(settings, "MAX_ZIP_COMPRESSION_RATIO", 2)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        with pytest.raises(HTTPException) as exc_info:
+            _read_xml_archive(archive)
+    assert exc_info.value.status_code == 413

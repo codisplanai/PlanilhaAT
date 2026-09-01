@@ -1,6 +1,8 @@
+import re
 from typing import Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
+from openpyxl.utils import column_index_from_string
 
 class TemplateMapping(BaseModel):
     start_row: int = Field(..., example=5, description="Linha onde começa o preenchimento dos dados")
@@ -18,6 +20,8 @@ class TemplateMapping(BaseModel):
         description="Mapeamento de campo para letra da coluna (ex: A, B, C...)"
     )
     sheet_name: Optional[str] = Field(None, description="Nome da aba. Se nulo, usa a aba ativa")
+    header_cell: Optional[str] = Field(None, description="Célula que recebe o cabeçalho da empresa")
+    aliquota_format: Optional[str] = Field(None, description="decimal ou percent_number")
     extra_options: Dict[str, Any] = Field(default_factory=dict)
 
     @validator("start_row")
@@ -28,11 +32,33 @@ class TemplateMapping(BaseModel):
 
     @validator("columns")
     def validate_columns(cls, v):
+        if not v:
+            raise ValueError("O mapeamento deve declarar ao menos uma coluna")
         for field, col in v.items():
-            if not col.isalpha():
+            if not isinstance(col, str) or not col.isalpha():
                 raise ValueError(f"Coluna '{col}' para o campo '{field}' deve ser uma letra válida (ex: A, B, AA)")
-            v[field] = col.upper()
+            normalized = col.upper()
+            try:
+                column_index_from_string(normalized)
+            except ValueError as exc:
+                raise ValueError(f"Coluna '{col}' está fora do limite do Excel") from exc
+            v[field] = normalized
         return v
+
+    @validator("header_cell")
+    def validate_header_cell(cls, value):
+        if value is not None and not re.fullmatch(r"[A-Za-z]{1,3}[1-9]\d*", value.strip()):
+            raise ValueError("header_cell deve ser uma referência Excel válida, como A2")
+        return value.upper() if value else value
+
+    @validator("aliquota_format")
+    def validate_percentage_format(cls, value):
+        if value is not None and value not in {"decimal", "percent_number"}:
+            raise ValueError("aliquota_format deve ser decimal ou percent_number")
+        return value
+
+    class Config:
+        extra = "forbid"
 
 class TemplateXlsxBase(BaseModel):
     tipo: str = Field(..., example="antecipacao_parcial", description="antecipacao_parcial, antecipacao_tributaria ou difal")
@@ -60,6 +86,11 @@ class TemplateXlsxOut(BaseModel):
     ativo: bool
     observacoes: Optional[str]
     criado_em: datetime
+
+    @validator("arquivo_path", pre=True)
+    def hide_internal_path(cls, value):
+        import os
+        return os.path.basename(str(value).replace("\\", "/"))
 
     class Config:
         orm_mode = True

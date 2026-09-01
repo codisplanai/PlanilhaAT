@@ -4,6 +4,7 @@ import re
 from decimal import Decimal
 from typing import Optional, Dict, Any, List
 from app.core.config import settings
+from app.core.exceptions import ValidationException
 
 class MvaResolver:
     """
@@ -17,6 +18,12 @@ class MvaResolver:
     """
 
     _cache_entries: Optional[List[Dict[str, Any]]] = None
+    _bundled_anexo_file_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+        "storage",
+        "data",
+        "AnexoI.json",
+    )
     _anexo_file_path = os.path.join(settings.STORAGE_DIR, "data", "AnexoI.json")
 
     @classmethod
@@ -30,6 +37,8 @@ class MvaResolver:
             return "12"
         try:
             val = float(a_ori)
+            if val <= 0:
+                return "12"
             if val <= 0.05: # ex: 0.04
                 return "4"
             elif val <= 0.09: # ex: 0.07
@@ -53,12 +62,15 @@ class MvaResolver:
             return cls._cache_entries
 
         entries: List[Dict[str, Any]] = []
-        if not os.path.exists(cls._anexo_file_path):
+        source_path = cls._anexo_file_path
+        if not os.path.exists(source_path):
+            source_path = cls._bundled_anexo_file_path
+        if not os.path.exists(source_path):
             cls._cache_entries = entries
             return cls._cache_entries
 
         try:
-            with open(cls._anexo_file_path, "r", encoding="utf-8") as f:
+            with open(source_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             if isinstance(data, list):
@@ -102,7 +114,8 @@ class MvaResolver:
         cls,
         ncm: Optional[str],
         a_ori: Optional[Decimal] = None,
-        fallback_mva: Optional[Decimal] = None
+        fallback_mva: Optional[Decimal] = None,
+        cest: Optional[str] = None,
     ) -> Decimal:
         """
         Resolve a alíquota MVA (%) para o NCM e A.ORI fornecidos.
@@ -125,8 +138,8 @@ class MvaResolver:
         ori_key = cls._normalize_a_ori_key(a_ori)
 
         # Buscar melhor match por NCM (do mais específico ao mais geral)
-        best_match = None
         best_prefix_len = 0
+        matches: List[Dict[str, Any]] = []
 
         for entry in entries:
             entry_ncm = entry["ncm"]
@@ -135,18 +148,38 @@ class MvaResolver:
                 prefix_len = len(entry_ncm)
                 if prefix_len > best_prefix_len:
                     best_prefix_len = prefix_len
-                    best_match = entry
+                    matches = [entry]
+                elif prefix_len == best_prefix_len:
+                    matches.append(entry)
             elif entry_ncm.startswith(clean_ncm) and len(clean_ncm) >= 4:
                 prefix_len = len(clean_ncm)
                 if prefix_len > best_prefix_len:
                     best_prefix_len = prefix_len
-                    best_match = entry
+                    matches = [entry]
+                elif prefix_len == best_prefix_len:
+                    matches.append(entry)
 
-        if not best_match:
+        if not matches:
             return fallback_mva
 
+        clean_cest = re.sub(r"\D", "", str(cest or ""))
+        if clean_cest:
+            cest_matches = [entry for entry in matches if re.sub(r"\D", "", str(entry.get("cest") or "")) == clean_cest]
+            if cest_matches:
+                matches = cest_matches
+
+        resolved_values = {value for entry in matches if (value := cls._value_for_entry(entry, ori_key)) is not None}
+        if len(resolved_values) > 1:
+            raise ValidationException(
+                f"O NCM {clean_ncm} possui mais de uma MVA aplicável. Informe um CEST válido no documento fiscal."
+            )
+        return next(iter(resolved_values), fallback_mva)
+
+    @classmethod
+    def _value_for_entry(cls, entry: Dict[str, Any], ori_key: Optional[str]) -> Optional[Decimal]:
+
         # 1. Tentar obter da MVA ajustada para a alíquota de origem (4%, 7%, 12%)
-        ajustadas = best_match.get("mva_ajustada")
+        ajustadas = entry.get("mva_ajustada")
         if ajustadas and isinstance(ajustadas, list):
             for aj in ajustadas:
                 if isinstance(aj, dict):
@@ -164,14 +197,14 @@ class MvaResolver:
                             pass
 
         # 2. Tentar valor 'mva' direto da entrada
-        if best_match.get("mva") is not None:
+        if entry.get("mva") is not None:
             try:
-                return Decimal(str(best_match["mva"]))
+                return Decimal(str(entry["mva"]))
             except Exception:
                 pass
 
         # 3. Tentar valor 'mva_original'
-        orig = best_match.get("mva_original")
+        orig = entry.get("mva_original")
         if orig and isinstance(orig, list) and len(orig) > 0 and isinstance(orig[0], dict):
             val = orig[0].get("valor")
             if val is not None:
@@ -180,4 +213,4 @@ class MvaResolver:
                 except Exception:
                     pass
 
-        return fallback_mva
+        return None

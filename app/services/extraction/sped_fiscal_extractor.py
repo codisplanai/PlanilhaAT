@@ -246,6 +246,7 @@ class SpedFiscalExtractor:
                     ncm_clean = re.sub(r"\D", "", ncm_raw)
                     itens_cadastrados[cod_item] = {
                         "ncm": ncm_clean,
+                        "cest": re.sub(r"\D", "", fields[13]) if len(fields) > 13 else "",
                         "descricao": descr
                     }
 
@@ -276,7 +277,11 @@ class SpedFiscalExtractor:
                 dt_doc_raw = fields[10] if len(fields) > 10 else ""
                 dt_es_raw = fields[11] if len(fields) > 11 else ""
 
-                data_emissao = self._parse_sped_date(dt_doc_raw) or date.today()
+                data_emissao = self._parse_sped_date(dt_doc_raw)
+                if data_emissao is None:
+                    raise ValidationException(
+                        f"O documento SPED nº '{num_doc or '(sem número)'}' possui data de emissão inválida."
+                    )
                 data_entrada = self._parse_sped_date(dt_es_raw)
 
                 vl_doc = self._parse_sped_decimal(fields[12] if len(fields) > 12 else "0.00")
@@ -318,6 +323,7 @@ class SpedFiscalExtractor:
                 cod_item = fields[3].strip() if len(fields) > 3 else ""
                 item_info = itens_cadastrados.get(cod_item, {})
                 ncm = item_info.get("ncm", "00000000")
+                cest = item_info.get("cest", "")
                 descr = item_info.get("descricao", f"Item {cod_item}")
 
                 vl_item = self._parse_sped_decimal(fields[7] if len(fields) > 7 else "0.00")
@@ -353,6 +359,7 @@ class SpedFiscalExtractor:
                 current_itens.append(ExtractedItemNF(
                     item_numero=num_item,
                     ncm=ncm,
+                    cest=cest,
                     cfop=cfop,
                     descricao=descr,
                     v_item=vl_item,

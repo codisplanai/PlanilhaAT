@@ -1,9 +1,9 @@
-import datetime
 import uuid
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.time import utcnow_naive
 
 class SolicitacaoSaida(Base):
     __tablename__ = "solicitacoes_saidas"
@@ -16,7 +16,7 @@ class SolicitacaoSaida(Base):
     total_notas = Column(Integer, default=0, nullable=False)
     total_valor_devido = Column(Numeric(15, 2), default=0, nullable=False)
     aviso = Column(Text, nullable=True)  # Preenchido quando não havia template ativo para o tipo
-    criado_em = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
 
     solicitacao = relationship("Solicitacao", back_populates="saidas")
     template = relationship("TemplateXlsx")

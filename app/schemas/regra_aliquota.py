@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, validator
+from app.schemas.empresa import VALID_UFS
 
 def clean_ncm(v: Optional[str]) -> Optional[str]:
     if v is None or v.strip() == "":
@@ -22,7 +23,10 @@ class RegraAliquotaBase(BaseModel):
 
     @validator("uf")
     def validate_uf(cls, v):
-        return v.strip().upper()
+        clean = v.strip().upper()
+        if clean not in VALID_UFS:
+            raise ValueError("UF inválida")
+        return clean
 
     @validator("ncm")
     def validate_ncm(cls, v):
@@ -38,6 +42,9 @@ class RegraAliquotaBase(BaseModel):
                 raise ValueError("Alíquota deve estar entre 0 e 1 (ex: 0.1800)")
         return v
 
+    class Config:
+        extra = "forbid"
+
 class RegraAliquotaCreate(RegraAliquotaBase):
     pass
 
@@ -51,8 +58,14 @@ class RegraAliquotaUpdate(BaseModel):
     @validator("uf")
     def validate_uf(cls, v):
         if v is not None:
-            return v.strip().upper()
+            clean = v.strip().upper()
+            if clean not in VALID_UFS:
+                raise ValueError("UF inválida")
+            return clean
         return v
+
+    class Config:
+        extra = "forbid"
 
     @validator("ncm")
     def validate_ncm(cls, v):

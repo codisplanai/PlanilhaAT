@@ -54,16 +54,21 @@ export const solicitacoesApi = {
 
     const isZip = String(response.headers['content-type'] || '').includes('zip');
     const extensao = isZip ? '.zip' : '.xlsx';
-    const nomeBase = filename ? filename.replace(/\.xlsx$/i, '') : `planilha_${id.slice(0, 8)}`;
+    const disposition = String(response.headers['content-disposition'] || '');
+    const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const plainFilename = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+    const serverFilename = encodedFilename ? decodeURIComponent(encodedFilename) : plainFilename;
+    const nomeBase = filename ? filename.replace(/\.(xlsx|zip)$/i, '') : `planilha_${id.slice(0, 8)}`;
+    const downloadName = serverFilename || `${nomeBase}${extensao}`;
 
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `${nomeBase}${extensao}`);
+    link.setAttribute('download', downloadName);
     document.body.appendChild(link);
     link.click();
     link.remove();
-    window.URL.revokeObjectURL(url);
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
   },
   excluir: async (id: string): Promise<void> => {
     await apiClient.delete(`/solicitacoes/${id}`);

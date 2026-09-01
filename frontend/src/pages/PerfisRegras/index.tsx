@@ -272,16 +272,20 @@ export const PerfisRegrasPage: React.FC = () => {
 
   const onSubmitPerfil = async (data: PerfilFormData) => {
     setErrorMessage(null);
-    if (editingPerfil) {
-      await updatePerfilMutation.mutateAsync({
-        id: editingPerfil.id,
-        payload: { nome: data.nome, descricao: data.descricao },
-      });
-    } else {
-      await createPerfilMutation.mutateAsync({
-        nome: data.nome,
-        descricao: data.descricao,
-      });
+    try {
+      if (editingPerfil) {
+        await updatePerfilMutation.mutateAsync({
+          id: editingPerfil.id,
+          payload: { nome: data.nome, descricao: data.descricao },
+        });
+      } else {
+        await createPerfilMutation.mutateAsync({
+          nome: data.nome,
+          descricao: data.descricao,
+        });
+      }
+    } catch {
+      // onError da mutation exibe a falha no modal.
     }
   };
 
@@ -328,10 +332,14 @@ export const PerfisRegrasPage: React.FC = () => {
       descricao: data.descricao || (cleanNcm ? `Exceção NCM ${cleanNcm}` : `Alíquota Padrão ${data.uf}`),
     };
 
-    if (editingRegra) {
-      await updateRegraMutation.mutateAsync({ id: editingRegra.id, payload });
-    } else {
-      await createRegraMutation.mutateAsync(payload);
+    try {
+      if (editingRegra) {
+        await updateRegraMutation.mutateAsync({ id: editingRegra.id, payload });
+      } else {
+        await createRegraMutation.mutateAsync(payload);
+      }
+    } catch {
+      // onError da mutation exibe a falha no modal.
     }
   };
 
@@ -363,10 +371,14 @@ export const PerfisRegrasPage: React.FC = () => {
 
     // Editando uma regra que hoje é apenas o padrão global (origem 'global'): cria a
     // sobrescrita para este perfil em vez de tentar atualizar a regra global compartilhada.
-    if (editingRegraCfop && editingRegraCfop.origem === 'perfil') {
-      await updateRegraCfopMutation.mutateAsync({ id: editingRegraCfop.regra_id, payload });
-    } else {
-      await createRegraCfopMutation.mutateAsync(payload);
+    try {
+      if (editingRegraCfop && editingRegraCfop.origem === 'perfil') {
+        await updateRegraCfopMutation.mutateAsync({ id: editingRegraCfop.regra_id, payload });
+      } else {
+        await createRegraCfopMutation.mutateAsync(payload);
+      }
+    } catch {
+      // onError da mutation exibe a falha no modal.
     }
   };
 

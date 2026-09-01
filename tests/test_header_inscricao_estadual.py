@@ -2,26 +2,11 @@ import os
 import openpyxl
 from decimal import Decimal
 from datetime import date
-import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
-from app.core.database import Base, engine, SessionLocal
 from app.models.perfil_regras import PerfilRegras
 from app.models.empresa import Empresa
 from app.models.template_xlsx import TemplateXlsx
 from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
 from app.services.excel.template_filler import TemplateFiller
-
-client = TestClient(app)
-
-@pytest.fixture
-def db_session():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 def test_sped_extract_empresa_info_with_ie():
     """Testa extração de Razão Social, CNPJ, UF e Inscrição Estadual do Registro 0000 do SPED"""
@@ -37,11 +22,11 @@ def test_sped_extract_empresa_info_with_ie():
     assert info["uf"] == "MG"
     assert info["ie"] == "83592715"
 
-def test_empresa_api_crud_with_inscricao_estadual(db_session):
+def test_empresa_api_crud_with_inscricao_estadual(db_session, client):
     """Testa criação, listagem e atualização de empresa com campo de Inscrição Estadual"""
     perfil = db_session.query(PerfilRegras).first()
     if not perfil:
-        perfil = PerfilRegras(nome="Perfil Teste IE", padrao_uf={"SP": 0.12}, excecoes_ncm={})
+        perfil = PerfilRegras(nome="Perfil Teste IE", configuracoes_extras={})
         db_session.add(perfil)
         db_session.commit()
         db_session.refresh(perfil)

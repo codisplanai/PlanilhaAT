@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import datetime
 from typing import Optional, List, Dict, Tuple, Set
@@ -27,14 +28,14 @@ class DataEntradaNormalizer:
         """Mantém apenas os dígitos do CNPJ/CPF"""
         if not cnpj:
             return ""
-        return re.sub(r"\D", "", str(cnpj).strip())
+        return re.sub(r"\D", "", DataEntradaNormalizer._numeric_text(cnpj))
 
     @staticmethod
     def normalize_numero(numero: Optional[str]) -> str:
         """Remove zeros à esquerda e caracteres não numéricos do número da nota"""
         if not numero:
             return ""
-        clean = re.sub(r"\D", "", str(numero).strip())
+        clean = re.sub(r"\D", "", DataEntradaNormalizer._numeric_text(numero))
         return clean.lstrip("0")
 
     @staticmethod
@@ -42,7 +43,7 @@ class DataEntradaNormalizer:
         """Remove espaços em branco da série da nota"""
         if serie is None:
             return ""
-        clean = str(serie).strip()
+        clean = DataEntradaNormalizer._numeric_text(serie)
         # Se vier com zeros à esquerda ex: '001', manter dígitos limpos
         return clean
 
@@ -51,8 +52,13 @@ class DataEntradaNormalizer:
         """Mantém apenas dígitos da chave de acesso"""
         if not chave:
             return ""
-        clean = re.sub(r"\D", "", str(chave).strip())
+        clean = re.sub(r"\D", "", DataEntradaNormalizer._numeric_text(chave))
         return clean if len(clean) == 44 else ""
+
+    @staticmethod
+    def _numeric_text(value: object) -> str:
+        text = str(value).strip()
+        return text[:-2] if re.fullmatch(r"\d+\.0", text) else text
 
 
 class PlanilhaEntradaParser:
@@ -83,18 +89,20 @@ class PlanilhaEntradaParser:
         if not file_bytes:
             return []
 
-        # Tentar abrir primeiro via OpenXML (openpyxl)
+        suffix = os.path.splitext(filename)[1].lower()
         try:
-            return cls._parse_openpyxl(file_bytes)
-        except Exception:
-            # Fallback para BIFF8 (.xls legado via xlrd)
-            try:
+            if suffix == ".xlsx":
+                return cls._parse_openpyxl(file_bytes)
+            if suffix == ".xls":
                 return cls._parse_xlrd(file_bytes)
-            except Exception as e:
-                raise ValidationException(
-                    f"Não foi possível ler a planilha do sistema contábil '{filename}'. "
-                    f"Verifique se o arquivo está no formato Excel (.xls ou .xlsx) válido. Erro: {str(e)}"
-                )
+            raise ValidationException("A planilha contábil deve possuir extensão .xls ou .xlsx.")
+        except ValidationException:
+            raise
+        except Exception as exc:
+            raise ValidationException(
+                f"Não foi possível ler a planilha do sistema contábil '{filename}'. "
+                "Verifique se o arquivo é um Excel válido."
+            ) from exc
 
     @classmethod
     def _parse_openpyxl(cls, file_bytes: bytes) -> List[PlanilhaEntradaRecord]:
@@ -125,6 +133,12 @@ class PlanilhaEntradaParser:
         col_serie_idx = cls._find_column_index(header_names, ["Série", "Serie", "Ser"])
         col_cnpj_idx = cls._find_column_index(header_names, ["Terceiro", "CNPJ do Emitente", "CNPJ Emitente", "CNPJ/CPF", "CNPJ", "CPF/CNPJ"])
         col_chave_idx = cls._find_column_index(header_names, ["Chave da Nota Fiscal Eletrônica", "Chave NFe", "Chave de Acesso", "Chave Eletrônica", "Chave"])
+
+        if col_num_idx is None or col_dt_idx is None:
+            wb.close()
+            raise ValidationException(
+                "A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração."
+            )
 
         records: List[PlanilhaEntradaRecord] = []
 
@@ -191,6 +205,11 @@ class PlanilhaEntradaParser:
         col_serie_idx = cls._find_column_index(header_names, ["Série", "Serie", "Ser"])
         col_cnpj_idx = cls._find_column_index(header_names, ["Terceiro", "CNPJ do Emitente", "CNPJ Emitente", "CNPJ/CPF", "CNPJ"])
         col_chave_idx = cls._find_column_index(header_names, ["Chave da Nota Fiscal Eletrônica", "Chave NFe", "Chave de Acesso", "Chave"])
+
+        if col_num_idx is None or col_dt_idx is None:
+            raise ValidationException(
+                "A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração."
+            )
 
         records: List[PlanilhaEntradaRecord] = []
 

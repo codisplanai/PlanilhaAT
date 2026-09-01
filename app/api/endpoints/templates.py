@@ -10,6 +10,8 @@ from app.models.template_xlsx import TemplateXlsx
 from app.schemas.template_xlsx import TemplateXlsxOut, TemplateMapping
 from app.services.templates_admin.template_manager import TemplateManager
 from app.api.persistence import get_by_id_or_404
+from app.core.config import settings
+from app.core.exceptions import PlanilhaATException
 
 router = APIRouter(prefix="/templates", tags=["Administração de Templates Excel"])
 
@@ -23,7 +25,7 @@ async def upload_template(
     admin_user: Profile = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
-    if not file.filename.endswith(".xlsx"):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="O arquivo deve ser uma planilha Excel com extensão .xlsx")
 
     try:
@@ -31,9 +33,11 @@ async def upload_template(
     except Exception:
         raise HTTPException(status_code=422, detail="O campo 'mapeamento_json' deve ser um JSON válido.")
 
-    file_bytes = await file.read()
+    file_bytes = await file.read(settings.MAX_UPLOAD_FILE_BYTES + 1)
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="O arquivo enviado está vazio.")
+    if len(file_bytes) > settings.MAX_UPLOAD_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="O arquivo excede o tamanho permitido.")
 
     try:
         novo_template = TemplateManager.upload_new_template_version(
@@ -46,8 +50,8 @@ async def upload_template(
             promover_ativo=promover_ativo
         )
         return novo_template
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except PlanilhaATException as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
 @router.get("/ativos-resumo")
 def listar_templates_ativos_resumo(
@@ -97,5 +101,5 @@ def promover_template(
 ):
     try:
         return TemplateManager.promote_version(db, id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except PlanilhaATException as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)

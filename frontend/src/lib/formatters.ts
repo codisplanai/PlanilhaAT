@@ -9,7 +9,7 @@ export function formatCurrency(value: number | string | null | undefined): strin
 export function formatPercent(value: number | string | null | undefined, isDecimal = true): string {
   if (value === null || value === undefined || isNaN(Number(value))) return '0,00%';
   const num = Number(value);
-  const percentValue = isDecimal && num <= 1 && num > 0 ? num * 100 : num;
+  const percentValue = isDecimal && Math.abs(num) <= 1 ? num * 100 : num;
   return `${percentValue.toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -22,8 +22,12 @@ export function formatDate(dateString: string | null | undefined): string {
   try {
     const cleanDate = dateString.split('T')[0];
     const [year, month, day] = cleanDate.split('-');
-    if (year && month && day) return `${day}/${month}/${year}`;
-    return new Date(dateString).toLocaleDateString('pt-BR');
+    if (year && month && day) {
+      const parsed = new Date(`${year}-${month}-${day}T00:00:00`);
+      if (!Number.isNaN(parsed.getTime())) return `${day}/${month}/${year}`;
+    }
+    const parsed = new Date(dateString);
+    return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString('pt-BR');
   } catch {
     return dateString;
   }
@@ -42,6 +46,7 @@ export function formatCompetencia(periodoInicio: string): string {
   try {
     const cleanDate = periodoInicio.split('T')[0];
     const [year, month] = cleanDate.split('-');
+    if (!/^\d{4}$/.test(year || '') || !/^(0[1-9]|1[0-2])$/.test(month || '')) return '-';
     return `${month}/${year}`;
   } catch {
     return periodoInicio;

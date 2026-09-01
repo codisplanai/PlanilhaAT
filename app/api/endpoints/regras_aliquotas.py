@@ -4,14 +4,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from app.core.database import get_db
+from app.core.security import get_current_user, require_admin
 from app.models.regra_aliquota import RegraAliquotaDestino
 from app.models.perfil_regras import PerfilRegras
 from app.schemas.regra_aliquota import RegraAliquotaCreate, RegraAliquotaUpdate, RegraAliquotaOut
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 
-router = APIRouter(prefix="/regras-aliquotas", tags=["Regras de Alíquotas (A.DST)"])
+router = APIRouter(
+    prefix="/regras-aliquotas",
+    tags=["Regras de Alíquotas (A.DST)"],
+    dependencies=[Depends(get_current_user)],
+)
 
-@router.post("", response_model=RegraAliquotaOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=RegraAliquotaOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 def criar_regra_aliquota(payload: RegraAliquotaCreate, db: Session = Depends(get_db)):
     perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
     if not perfil:
@@ -67,7 +72,7 @@ def obter_regra_aliquota(id: int, db: Session = Depends(get_db)):
         db, RegraAliquotaDestino, id, "Regra de alíquota não encontrada."
     )
 
-@router.put("/{id}", response_model=RegraAliquotaOut)
+@router.put("/{id}", response_model=RegraAliquotaOut, dependencies=[Depends(require_admin)])
 def atualizar_regra_aliquota(id: int, payload: RegraAliquotaUpdate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(
         db, RegraAliquotaDestino, id, "Regra de alíquota não encontrada."
@@ -75,18 +80,29 @@ def atualizar_regra_aliquota(id: int, payload: RegraAliquotaUpdate, db: Session 
 
     if payload.uf is not None:
         regra.uf = payload.uf
-    if payload.ncm is not None:
+    if "ncm" in payload.__fields_set__:
         regra.ncm = payload.ncm
     if payload.aliquota is not None:
         regra.aliquota = payload.aliquota
-    if payload.descricao is not None:
+    if "descricao" in payload.__fields_set__:
         regra.descricao = payload.descricao
     if payload.parametros_extras is not None:
         regra.parametros_extras = payload.parametros_extras
 
+    duplicate_query = db.query(RegraAliquotaDestino).filter(
+        RegraAliquotaDestino.id != id,
+        RegraAliquotaDestino.perfil_regras_id == regra.perfil_regras_id,
+        RegraAliquotaDestino.uf == regra.uf,
+    )
+    if regra.ncm:
+        duplicate_query = duplicate_query.filter(RegraAliquotaDestino.ncm == regra.ncm)
+    else:
+        duplicate_query = duplicate_query.filter(or_(RegraAliquotaDestino.ncm.is_(None), RegraAliquotaDestino.ncm == ""))
+    if duplicate_query.first():
+        raise HTTPException(status_code=409, detail="Já existe uma regra para este perfil, UF e NCM.")
     return commit_and_refresh(db, regra)
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 def deletar_regra_aliquota(id: int, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(
         db, RegraAliquotaDestino, id, "Regra de alíquota não encontrada."

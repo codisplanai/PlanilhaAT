@@ -14,6 +14,7 @@ IBGE_UF_MAP: Dict[str, str] = {
 class ExtractedItemNF(BaseModel):
     item_numero: int
     ncm: str
+    cest: str = ""
     cfop: str = ""
     descricao: str = ""
     v_item: Decimal       # Valor do produto/item

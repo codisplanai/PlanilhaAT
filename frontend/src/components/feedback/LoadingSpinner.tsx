@@ -17,7 +17,7 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   };
 
   return (
-    <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-500">
+    <div role="status" aria-live="polite" className="flex flex-col items-center justify-center py-10 gap-3 text-slate-500">
       <Loader2 className={`${sizes[size]} animate-spin text-blue-800`} />
       {message && <p className="text-xs font-medium text-slate-600">{message}</p>}
     </div>

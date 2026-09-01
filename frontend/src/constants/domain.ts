@@ -46,3 +46,12 @@ export const STATUS_BADGE_VARIANTS: Record<StatusSolicitacao, BadgeVariant> = {
 export function getPlanilhaLabel(tipo: string): string {
   return PLANILHA_LABELS[tipo as TipoPlanilha | 'multi'] ?? tipo;
 }
+
+export function getEntryOriginLabel(origin: string | null | undefined): string {
+  return ({
+    planilha_sistema_contabil: 'Planilha',
+    sped_fiscal: 'SPED',
+    xml_nfe: 'XML',
+    manual: 'Manual',
+  } as Record<string, string>)[origin || ''] ?? 'Não informada';
+}

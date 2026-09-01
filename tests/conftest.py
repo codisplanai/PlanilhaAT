@@ -1,6 +1,19 @@
 import pytest
 import os
 import io
+
+# Definido antes do primeiro import de ``app``: a antiga suíte substituía a
+# sessão das rotas, mas startup e login ainda alcançavam o banco/Supabase do .env.
+os.environ["APP_ENV"] = "testing"
+os.environ["DEBUG"] = "true"
+os.environ["ENABLE_LOCAL_AUTH"] = "true"
+os.environ["AUTO_CREATE_SCHEMA"] = "false"
+os.environ["SEED_DEFAULTS"] = "false"
+os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["SUPABASE_URL"] = ""
+os.environ["SUPABASE_KEY"] = ""
+os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
+os.environ["SUPABASE_JWT_SECRET"] = ""
 import openpyxl
 from decimal import Decimal
 from sqlalchemy import create_engine
@@ -49,6 +62,12 @@ def client(db_session):
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
+        response = c.post("/api/v1/auth/login", json={
+            "email": "admin@contabilidade.com",
+            "password": "admin",
+        })
+        assert response.status_code == 200, response.text
+        c.headers["Authorization"] = f"Bearer {response.json()['access_token']}"
         yield c
     app.dependency_overrides.clear()
 

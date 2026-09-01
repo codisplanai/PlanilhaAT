@@ -23,11 +23,12 @@
       "dest": "/api/index.py"
     },
     {
-      "src": "/(.*)",
-      "dest": "/frontend/$1"
+      "src": "/assets/(.*)",
+      "dest": "/frontend/assets/$1"
     },
     {
-      "handle": "filesystem"
+      "src": "/favicon.svg",
+      "dest": "/frontend/favicon.svg"
     },
     {
       "src": "/(.*)",

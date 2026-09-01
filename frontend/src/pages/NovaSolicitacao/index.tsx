@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   FileSpreadsheet,
   CheckCircle2,
@@ -30,12 +31,14 @@ import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PlanilhaBadge } from '../../components/domain/PlanilhaBadge';
+import { getEntryOriginLabel } from '../../constants/domain';
 import { TemplateUpdateBanner } from '../../components/feedback/TemplateUpdateBanner';
 import { formatCNPJ, formatDate, formatCurrency, formatPercent } from '../../lib/formatters';
 import { useEmpresasQuery } from '../../hooks/useApiQueries';
 import { useFiscalInputFiles } from './useFiscalInputFiles';
 
 export const NovaSolicitacaoPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);
 
   // Form State
@@ -62,6 +65,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
     handleSpedDrop,
     handlePlanilhaEntradaInput,
     resetFiles,
+    fileError,
+    clearFileError,
   } = useFiscalInputFiles();
   
   // Processing State
@@ -70,13 +75,14 @@ export const NovaSolicitacaoPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Queries
-  const { data: empresas = [], isLoading: isLoadingEmpresas } = useEmpresasQuery();
+  const { data: empresas = [], isLoading: isLoadingEmpresas, error: empresasError } = useEmpresasQuery();
 
   const filteredEmpresas = empresas.filter((e) => {
     const term = empresaSearch.toLowerCase();
-    return (
+    const digits = term.replace(/\D/g, '');
+    return e.ativo && (
       e.razao_social.toLowerCase().includes(term) ||
-      e.cnpj.includes(term.replace(/\D/g, '')) ||
+      (digits.length > 0 && e.cnpj.includes(digits)) ||
       e.uf.toLowerCase().includes(term)
     );
   });
@@ -85,6 +91,10 @@ export const NovaSolicitacaoPage: React.FC = () => {
 
   const handleGerarPlanilha = async () => {
     if (!selectedEmpresa) return;
+    if (!periodoInicio || !periodoFim || periodoFim < periodoInicio) {
+      setErrorMessage('O período final não pode ser anterior ao período inicial.');
+      return;
+    }
     if (xmlFiles.length === 0 && !spedFile) {
       setErrorMessage('Envie os XMLs de NF-e, o arquivo SPED Fiscal, ou ambos.');
       return;
@@ -111,6 +121,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
       );
 
       setResultadoSolicitacao(solicitacaoProcessada);
+      await queryClient.invalidateQueries({ queryKey: ['solicitacoes'] });
     } catch (err) {
       setErrorMessage(getErrorMessage(err));
     } finally {
@@ -143,10 +154,12 @@ export const NovaSolicitacaoPage: React.FC = () => {
       <PageHeader
         icon={<FileSpreadsheet className="w-6 h-6 text-blue-800" />}
         title="Gerar Planilha de Antecipação / DIFAL"
-        description="Assistente guiado em 5 etapas para extração de dados e preenchimento determinístico do Excel"
+        description="Assistente guiado em 4 etapas para extração de dados e preenchimento determinístico do Excel"
       />
 
       <TemplateUpdateBanner />
+      {empresasError && <ErrorAlert message={getErrorMessage(empresasError)} />}
+      {fileError && <ErrorAlert title="Arquivo não aceito" message={fileError} onDismiss={clearFileError} />}
 
       {/* Wizard Steps Bar */}
       <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
@@ -354,10 +367,16 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 Arquivos XML de NF-e ou Pacote .ZIP (opcional se enviar o SPED)
               </label>
               <div
+                role="button"
+                tabIndex={0}
+                aria-label="Selecionar XMLs ou arquivos ZIP"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleXmlDrop}
                 className="border-2 border-dashed border-slate-300 hover:border-blue-700 bg-slate-50/50 hover:bg-blue-50/30 rounded-lg p-6 text-center transition-colors cursor-pointer"
                 onClick={() => document.getElementById('xml-file-input')?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') document.getElementById('xml-file-input')?.click();
+                }}
               >
                 <input
                   id="xml-file-input"
@@ -394,7 +413,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     {xmlFiles.map((file, idx) => {
                       const isZip = file.name.toLowerCase().endsWith('.zip');
                       return (
-                        <div key={idx} className="p-2 flex items-center justify-between text-xs hover:bg-slate-50">
+                        <div key={`${file.name}-${file.size}-${file.lastModified}`} className="p-2 flex items-center justify-between text-xs hover:bg-slate-50">
                           <div className="flex items-center gap-2 overflow-hidden">
                             {isZip ? (
                               <FileArchive className="w-3.5 h-3.5 text-amber-600 shrink-0" />
@@ -412,7 +431,9 @@ export const NovaSolicitacaoPage: React.FC = () => {
                             )}
                           </div>
                           <button
+                            type="button"
                             onClick={() => removeXmlFile(idx)}
+                            aria-label={`Remover ${file.name}`}
                             className="text-slate-400 hover:text-red-600 p-1 transition-colors"
                             title="Remover arquivo"
                           >
@@ -439,9 +460,15 @@ export const NovaSolicitacaoPage: React.FC = () => {
 
               {!spedFile ? (
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Selecionar arquivo SPED Fiscal"
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={handleSpedDrop}
                   onClick={() => document.getElementById('sped-file-input')?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') document.getElementById('sped-file-input')?.click();
+                  }}
                   className="border-2 border-dashed border-indigo-200 hover:border-indigo-600 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-lg p-6 text-center transition-colors cursor-pointer"
                 >
                   <input
@@ -477,6 +504,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSpedFile(null)}
+                    aria-label="Remover arquivo SPED"
                     className="p-1 rounded text-indigo-800 hover:text-red-700 hover:bg-indigo-100 transition-colors"
                     title="Remover arquivo SPED"
                   >
@@ -497,12 +525,18 @@ export const NovaSolicitacaoPage: React.FC = () => {
               </div>
 
               <p className="text-xs text-slate-500">
-                {'Se você tiver a exportação do sistema contábil (Prosoft ou similar) com as datas de entrada das notas, anexe aqui para preencher automaticamente. Caso não possua, o sistema usará a data de emissão ou deixará para preenchimento manual.'}
+                {'Se você tiver a exportação do sistema contábil (Prosoft ou similar) com as datas de entrada das notas, anexe aqui para preencher automaticamente. Caso não possua, a data de entrada permanecerá em branco para preenchimento manual.'}
               </p>
 
               {!planilhaEntradaFile ? (
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Selecionar planilha auxiliar de datas de entrada"
                   onClick={() => document.getElementById('planilha-entrada-input')?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') document.getElementById('planilha-entrada-input')?.click();
+                  }}
                   className="border border-emerald-300/80 bg-emerald-50/40 hover:bg-emerald-50 rounded-lg p-3.5 flex items-center justify-between cursor-pointer transition-colors"
                 >
                   <input
@@ -525,9 +559,9 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <Button size="sm" variant="outline" className="text-xs border-emerald-400 text-emerald-800 bg-white">
+                  <span className="inline-flex items-center rounded-md px-2.5 py-1.5 text-xs font-medium border border-emerald-400 text-emerald-800 bg-white">
                     Selecionar Arquivo
-                  </Button>
+                  </span>
                 </div>
               ) : (
                 <div className="border border-emerald-300 bg-emerald-50/90 rounded-lg p-3 flex items-center justify-between">
@@ -545,6 +579,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setPlanilhaEntradaFile(null)}
+                    aria-label="Remover planilha auxiliar"
                     className="p-1 rounded text-emerald-800 hover:text-red-700 hover:bg-emerald-100 transition-colors"
                     title="Remover planilha"
                   >
@@ -847,7 +882,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                                   <div className="flex items-center gap-1.5">
                                     <span className="font-semibold text-slate-900">{formatDate(nota.data_entrada)}</span>
                                     <Badge variant={nota.origem_data_entrada === 'planilha_sistema_contabil' ? 'success' : 'info'} size="sm">
-                                      {nota.origem_data_entrada === 'planilha_sistema_contabil' ? 'Planilha' : 'Manual'}
+                                      {getEntryOriginLabel(nota.origem_data_entrada)}
                                     </Badge>
                                   </div>
                                 ) : (

@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, validator
 from app.schemas.nota_fiscal import NotaFiscalProcessadaOut
 from app.constants import TIPOS_PLANILHA_LEGADO
+import os
 
 class NotaIgnoradaOut(BaseModel):
     numero_nota: str
@@ -40,6 +41,15 @@ class SolicitacaoCreate(BaseModel):
             )
         return v
 
+    @validator("template_id")
+    def validate_template_requires_tipo(cls, value, values):
+        if value is not None and not values.get("tipo_planilha"):
+            raise ValueError("template_id só pode ser usado junto com tipo_planilha")
+        return value
+
+    class Config:
+        extra = "forbid"
+
 class SolicitacaoSaidaOut(BaseModel):
     id: str
     solicitacao_id: str
@@ -54,6 +64,10 @@ class SolicitacaoSaidaOut(BaseModel):
     @validator("id", "solicitacao_id", pre=True)
     def ensure_str_uuid(cls, v):
         return str(v) if v is not None else v
+
+    @validator("arquivo_path", pre=True)
+    def hide_internal_path(cls, value):
+        return os.path.basename(str(value).replace("\\", "/")) if value else value
 
     class Config:
         orm_mode = True
@@ -80,6 +94,32 @@ class SolicitacaoOut(BaseModel):
     @validator("id", "usuario_id", pre=True)
     def ensure_str_uuid(cls, v):
         return str(v) if v is not None else v
+
+    @validator("arquivo_saida_path", pre=True)
+    def hide_internal_path(cls, value):
+        return os.path.basename(str(value).replace("\\", "/")) if value else value
+
+    class Config:
+        orm_mode = True
+
+
+class SolicitacaoListOut(BaseModel):
+    id: str
+    empresa_id: int
+    usuario_id: Optional[str] = None
+    periodo_inicio: date
+    periodo_fim: date
+    tipo_planilha: str
+    template_id: Optional[int]
+    status: str
+    mensagem_erro: Optional[str]
+    total_notas_processadas: int
+    criado_em: datetime
+    atualizado_em: datetime
+
+    @validator("id", "usuario_id", pre=True)
+    def ensure_str_uuid(cls, value):
+        return str(value) if value is not None else value
 
     class Config:
         orm_mode = True

@@ -2,7 +2,19 @@ import axios from 'axios';
 
 export const apiClient = axios.create({
   baseURL: '/api/v1',
+  timeout: 30_000,
 });
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const isLoginRequest = String(error.config?.url || '').includes('/auth/login');
+    if (error.response?.status === 401 && !isLoginRequest) {
+      window.dispatchEvent(new Event('planilha-at:unauthorized'));
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Interceptor para injetar token JWT/Bearer e gerenciar headers dinâmicos
 apiClient.interceptors.request.use((config) => {

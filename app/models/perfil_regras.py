@@ -1,8 +1,8 @@
-import datetime
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.time import utcnow_naive
 
 class PerfilRegras(Base):
     __tablename__ = "perfis_regras"
@@ -11,9 +11,9 @@ class PerfilRegras(Base):
     nome = Column(String(100), unique=True, nullable=False, index=True)
     descricao = Column(Text, nullable=True)
     configuracoes_extras = Column(JSON, default=dict, nullable=False)
-    criado_em = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-    atualizado_em = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
+    atualizado_em = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)
 
-    empresas = relationship("Empresa", back_populates="perfil_regras", cascade="all, delete-orphan")
+    empresas = relationship("Empresa", back_populates="perfil_regras", passive_deletes=True)
     regras_aliquotas = relationship("RegraAliquotaDestino", back_populates="perfil_regras", cascade="all, delete-orphan")
     regras_cfop = relationship("RegraCfopDestino", back_populates="perfil_regras", cascade="all, delete-orphan")

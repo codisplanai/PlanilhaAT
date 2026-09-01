@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Building2,
   CheckCircle2,
@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
+import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import {
   formatCNPJ,
   formatDate,
@@ -24,6 +25,7 @@ import {
 } from '../../lib/formatters';
 import { StatusBadge } from '../../components/domain/StatusBadge';
 import { getPlanilhaLabel } from '../../constants/domain';
+import { CodisplanLogo } from '../../components/ui/CodisplanLogo';
 import {
   useEmpresasQuery,
   useSolicitacoesQuery,
@@ -31,12 +33,13 @@ import {
 } from '../../hooks/useApiQueries';
 
 export const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
   // Queries agregadas
-  const { data: solicitacoes = [], isLoading: isLoadingSols } = useSolicitacoesQuery();
+  const { data: solicitacoes = [], isLoading: isLoadingSols, error: solicitacoesError } = useSolicitacoesQuery();
 
-  const { data: empresas = [], isLoading: isLoadingEmps } = useEmpresasQuery();
+  const { data: empresas = [], isLoading: isLoadingEmps, error: empresasError } = useEmpresasQuery();
 
-  const { data: templates = [], isLoading: isLoadingTemplates } = useTemplatesQuery();
+  const { data: templates = [], isLoading: isLoadingTemplates, error: templatesError } = useTemplatesQuery();
 
   const concluidasCount = solicitacoes.filter((s) => s.status === 'concluido').length;
   const erroCount = solicitacoes.filter((s) => s.status === 'erro').length;
@@ -62,10 +65,15 @@ export const DashboardPage: React.FC = () => {
     <div className="space-y-6">
       {/* Top Banner Operacional */}
       <div className="bg-gradient-to-r from-blue-900 via-blue-850 to-slate-900 text-white rounded-xl p-6 shadow-md border border-blue-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div className="space-y-1.5 max-w-xl">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-700/60 text-blue-200 text-[11px] font-semibold border border-blue-500/30">
-            <TrendingUp className="w-3.5 h-3.5" />
-            Sistema Contábil Integrado
+        <div className="space-y-2 max-w-xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-700/60 text-blue-200 text-[11px] font-semibold border border-blue-500/30">
+              <TrendingUp className="w-3.5 h-3.5" />
+              Sistema Contábil Integrado
+            </div>
+            <div className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-700/60">
+              <CodisplanLogo theme="dark" size="xs" />
+            </div>
           </div>
           <h1 className="text-xl font-bold tracking-tight text-white">
             Painel Operacional de Antecipação e DIFAL
@@ -76,17 +84,16 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         <div className="shrink-0">
-          <NavLink to="/nova-solicitacao">
-            <Button
-              size="lg"
-              className="bg-white text-blue-950 hover:bg-blue-50 shadow-md font-bold text-xs"
-              leftIcon={<PlusCircle className="w-4 h-4 text-blue-800" />}
-            >
-              Gerar Nova Planilha
-            </Button>
+          <NavLink to="/nova-solicitacao" className="inline-flex items-center justify-center gap-2 rounded-md px-5 py-2.5 bg-white text-blue-950 hover:bg-blue-50 shadow-md font-bold text-xs focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-900">
+            <PlusCircle className="w-4 h-4 text-blue-800" />
+            <span>Gerar Nova Planilha</span>
           </NavLink>
         </div>
       </div>
+
+      {(solicitacoesError || empresasError || templatesError) && (
+        <ErrorAlert message={getErrorMessage(solicitacoesError || empresasError || templatesError)} />
+      )}
 
       {/* Metrics Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -176,10 +183,9 @@ export const DashboardPage: React.FC = () => {
         title="Solicitações Recentes de Processamento"
         subtitle="Acompanhamento das últimas planilhas geradas e download direto"
         headerAction={
-          <NavLink to="/solicitacoes">
-            <Button size="sm" variant="ghost" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
-              Ver Histórico Completo
-            </Button>
+          <NavLink to="/solicitacoes" className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400">
+            <span>Ver Histórico Completo</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </NavLink>
         }
       >
@@ -191,7 +197,7 @@ export const DashboardPage: React.FC = () => {
             title="Nenhuma planilha gerada ainda"
             description="Inicie a primeira solicitação para carregar os XMLs de notas fiscais e gerar a planilha Excel."
             actionLabel="Gerar Primeira Planilha"
-            onAction={() => window.location.href = '/nova-solicitacao'}
+            onAction={() => navigate('/nova-solicitacao')}
           />
         ) : (
           <div className="overflow-x-auto -mx-5 -mb-5">
@@ -246,10 +252,8 @@ export const DashboardPage: React.FC = () => {
                             Baixar .xlsx
                           </Button>
                         ) : (
-                          <NavLink to="/solicitacoes">
-                            <Button size="sm" variant="ghost">
-                              Ver Detalhes
-                            </Button>
+                          <NavLink to="/solicitacoes" className="inline-flex items-center rounded-md px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400">
+                            Ver Detalhes
                           </NavLink>
                         )}
                       </td>

@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useId } from 'react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -25,7 +25,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
   id,
   ...props
 }, ref) => {
-  const selectId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+  const generatedId = useId();
+  const selectId = id || generatedId;
+  const messageId = `${selectId}-message`;
 
   return (
     <div className="w-full">
@@ -37,6 +39,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
       <select
         id={selectId}
         ref={ref}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error || helperText ? messageId : undefined}
         className={twMerge(
           clsx(
             'w-full px-3 py-2 text-sm bg-white border rounded-md shadow-sm transition-colors',
@@ -60,9 +64,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
         ))}
       </select>
       {error ? (
-        <p className="mt-1 text-xs text-red-600 font-medium">{error}</p>
+        <p id={messageId} role="alert" className="mt-1 text-xs text-red-600 font-medium">{error}</p>
       ) : helperText ? (
-        <p className="mt-1 text-xs text-slate-500">{helperText}</p>
+        <p id={messageId} className="mt-1 text-xs text-slate-500">{helperText}</p>
       ) : null}
     </div>
   );

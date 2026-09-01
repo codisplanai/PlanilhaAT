@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { FileSpreadsheet, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
+import { PlanAutLogo } from '../../components/ui/PlanAutLogo';
+import { CodisplanLogo } from '../../components/ui/CodisplanLogo';
 
 import { authApi } from '../../api/auth';
 import { getErrorMessage } from '../../api/client';
@@ -24,9 +26,9 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
-  const navigate = useNavigate();
-  const [serverError, setServerError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const {
     register,
@@ -42,11 +44,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
   });
 
   const onSubmit = async (data: LoginFormData) => {
-    setServerError(null);
     setLoading(true);
+    setServerError(null);
     try {
-      const response = await authApi.login(data);
-      onAuthenticated(response.user, response.access_token);
+      const resp = await authApi.login(data);
+      onAuthenticated(resp.user, resp.access_token);
       navigate('/');
     } catch (err) {
       setServerError(getErrorMessage(err));
@@ -60,22 +62,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
     setValue('password', 'admin');
   };
 
+  const showDemoLogin = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_LOGIN === 'true';
+
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-100 to-slate-200/70 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/30 mb-4">
-          <FileSpreadsheet className="w-7 h-7" />
+        {/* Codisplan Accounting Firm Header Badge */}
+        <div className="flex justify-center mb-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white shadow-xs border border-slate-200/80">
+            <span className="text-[9px] uppercase font-extrabold tracking-widest text-slate-400">Escritório:</span>
+            <CodisplanLogo size="xs" />
+          </div>
         </div>
-        <h2 className="text-2xl font-bold tracking-tight text-white">
-          Planilha AT — Acesso Interno
+
+        <div className="flex justify-center mb-3">
+          <PlanAutLogo variant="icon" theme="light" size="xl" />
+        </div>
+        <h2 className="text-3xl font-black tracking-tight text-slate-900">
+          Plan<span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600">Aut</span>
         </h2>
-        <p className="mt-1.5 text-xs text-slate-400">
-          Automação de Antecipação Tributária, ICMS e DIFAL para Escritório Contábil
+        <p className="mt-1.5 text-xs font-medium text-slate-500">
+          Automação Contábil e Fiscal de Antecipação, ICMS e DIFAL
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
-        <div className="bg-white py-8 px-6 shadow-xl rounded-xl sm:px-10 border border-slate-200">
+        <div className="bg-white py-8 px-6 shadow-xl shadow-slate-300/40 rounded-2xl sm:px-10 border border-slate-200/90">
           {serverError && (
             <ErrorAlert
               title="Falha na autenticação"
@@ -110,7 +122,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
             <div className="pt-2">
               <Button
                 type="submit"
-                className="w-full justify-center"
+                className="w-full justify-center bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-blue-500 font-bold shadow-md shadow-blue-500/20"
                 size="md"
                 isLoading={loading}
                 rightIcon={<ArrowRight className="w-4 h-4" />}
@@ -120,24 +132,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
             </div>
           </form>
 
-          {/* Quick Fill Box for Internal Team */}
-          <div className="mt-6 pt-4 border-t border-slate-100 bg-slate-50 p-3 rounded-md text-center">
-            <p className="text-[11px] text-slate-500 mb-2">
-              Acesso padrão de administrador do escritório:
-            </p>
-            <button
-              type="button"
-              onClick={handleUseDemo}
-              className="text-xs font-semibold text-blue-700 hover:text-blue-900 underline"
-            >
-              Preencher com admin@contabilidade.com
-            </button>
-          </div>
+          {showDemoLogin && (
+            <div className="mt-6 pt-4 border-t border-slate-100 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/60 text-center">
+              <p className="text-[11px] font-medium text-slate-500 mb-1.5">
+                Acesso padrão de administrador do escritório:
+              </p>
+              <button
+                type="button"
+                onClick={handleUseDemo}
+                className="text-xs font-bold text-cyan-700 hover:text-cyan-900 underline transition-colors"
+              >
+                Preencher com admin@contabilidade.com
+              </button>
+            </div>
+          )}
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-500">
-          Uso restrito da equipe contábil interna. Não compartilhe suas credenciais.
-        </p>
+        <div className="mt-6 text-center space-y-1">
+          <p className="text-xs text-slate-500">
+            Uso restrito da equipe contábil interna. Não compartilhe suas credenciais.
+          </p>
+          <p className="text-[11px] text-slate-400">
+            Desenvolvido por <span className="text-slate-600 font-semibold">Rodrigo Sena</span>
+          </p>
+        </div>
       </div>
     </div>
   );

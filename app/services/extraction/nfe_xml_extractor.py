@@ -44,7 +44,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
     def _parse_datetime(self, date_str: str) -> datetime:
         """Parse de dhEmi (ISO com fuso) ou dEmi (YYYY-MM-DD)"""
         if not date_str:
-            return datetime.utcnow()
+            raise ValidationException("O XML da NF-e não informa a data de emissão obrigatória.")
         try:
             # dhEmi ex: 2026-01-15T14:30:00-03:00 ou 2026-01-15T14:30:00Z
             # Limpar fuso horário se necessário para datetime nativo
@@ -60,12 +60,11 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 return datetime.fromisoformat(clean_str)
             else:
                 return datetime.strptime(clean_str, "%Y-%m-%d")
-        except Exception:
-            # Fallback
+        except (TypeError, ValueError):
             try:
                 return datetime.strptime(date_str[:10], "%Y-%m-%d")
-            except Exception:
-                return datetime.utcnow()
+            except (TypeError, ValueError) as exc:
+                raise ValidationException(f"Data de emissão inválida no XML: '{date_str}'.") from exc
 
     def extract_from_xml(self, xml_content: bytes) -> ExtractedNFData:
         try:
@@ -143,6 +142,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
 
             prod = self._find_elem(det, "prod")
             ncm = self._get_text(prod, "NCM")
+            cest = self._get_text(prod, "CEST")
             cfop = self._get_text(prod, "CFOP")
             x_prod = self._get_text(prod, "xProd")
             v_prod = self._get_decimal(prod, "vProd")
@@ -195,16 +195,15 @@ class NFeXMLExtractor(BaseNFEExtractor):
             # V.Total = vProd + vFrete + vSeg + vOutro + vIPI - vDesc
             v_total_item = v_prod + ipi_despesas - v_desc
 
-            # Se o item não tem vBC explícito no ICMS, pode herdar da capa ou ser o valor da mercadoria
+            # A base total da capa nunca pode ser atribuída arbitrariamente a um
+            # dos itens de uma NF-e com múltiplos produtos.
             if v_bc_item == Decimal("0.00"):
-                if v_bc_nota > Decimal("0.00") and len(itens) == 0:
-                    v_bc_item = v_bc_nota
-                else:
-                    v_bc_item = v_total_item - ipi_despesas
+                v_bc_item = v_total_item - ipi_despesas
 
             itens.append(ExtractedItemNF(
                 item_numero=item_numero,
                 ncm=re.sub(r"\D", "", ncm),
+                cest=re.sub(r"\D", "", cest),
                 cfop=cfop,
                 descricao=x_prod,
                 v_item=v_prod,

@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { authApi } from '../api/auth';
-import { supabase } from '../lib/supabase';
 import type { User } from '../types/auth';
 
 const TOKEN_KEY = 'token';
@@ -24,45 +23,58 @@ export function useAuthSession() {
   const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
+    let active = true;
     const validateSession = async () => {
       const token = localStorage.getItem(TOKEN_KEY);
       if (!token) {
-        setIsInitializing(false);
+        if (active) setIsInitializing(false);
         return;
       }
 
       try {
         const currentUser = await authApi.getMe();
         localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
-        setUser(currentUser);
+        if (active) setUser(currentUser);
       } catch {
         clearStoredSession();
-        setUser(null);
+        if (active) setUser(null);
       } finally {
-        setIsInitializing(false);
+        if (active) setIsInitializing(false);
       }
     };
 
     void validateSession();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const startSession = (nextUser: User, token?: string) => {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      clearStoredSession();
+      setUser(null);
+    };
+    window.addEventListener('planilha-at:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('planilha-at:unauthorized', handleUnauthorized);
+  }, []);
+
+  const startSession = useCallback((nextUser: User, token: string) => {
+    clearStoredSession();
+    localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
     setUser(nextUser);
-  };
+  }, []);
 
-  const endSession = async () => {
-    if (supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        // Ignore supabase signout error
-      }
+  const endSession = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // O encerramento local continua mesmo se o servidor estiver indisponível.
+    } finally {
+      clearStoredSession();
+      setUser(null);
     }
-    clearStoredSession();
-    setUser(null);
-  };
+  }, []);
 
   return { user, isInitializing, startSession, endSession };
 }
