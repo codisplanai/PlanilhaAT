@@ -1,7 +1,8 @@
 # Gestão de usuários pelo Contador Sênior
 
 **Data:** 2026-09-01
-**Status:** revisado após code review; bloqueado por pré-requisito de segurança
+**Status:** revisado após code review; pré-requisito de segurança resolvido;
+pronto para o plano de implementação
 
 ## Problema
 
@@ -25,7 +26,16 @@ Ciclo de vida essencial, operado por um admin já autenticado:
 **Fora de escopo:** editar nome/cargo, promover ou rebaixar papel de conta
 existente, redefinir senha, excluir de verdade.
 
-## PRÉ-REQUISITO BLOQUEANTE
+## PRÉ-REQUISITO — RESOLVIDO EM 2026-09-01
+
+`ENABLE_LOCAL_AUTH=false` foi definido no ambiente de Production da Vercel e
+o deploy aplicado. Verificado contra produção: `admin@codisplan.com` com
+`123456` e `admin123` agora retorna 401, enquanto as senhas reais do Supabase
+seguem funcionando — inclusive as dos dois botões de acesso rápido da tela de
+login, que não regrediram.
+
+O registro do problema fica abaixo, porque explica por que a seção de
+Segurança deste design é confiável.
 
 Esta funcionalidade não deve ir para produção enquanto o fallback de
 autenticação local estiver ativo lá.
