@@ -32,11 +32,6 @@ USERS_DB = {
         "valid_passwords": {"admin", "codisplan", "123456", "fiscal", "admin123"},
         "password": "admin",
     },
-    "admin@admin.com": {
-        **LOCAL_USERS_FALLBACK["admin@admin.com"],
-        "valid_passwords": {"admin"},
-        "password": "admin",
-    },
     "operador@contabilidade.com": {
         **LOCAL_USERS_FALLBACK["operador@contabilidade.com"],
         "valid_passwords": {"fiscal", "operador", "admin", "123456"},
