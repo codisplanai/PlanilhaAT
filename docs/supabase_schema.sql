@@ -173,9 +173,15 @@ BEGIN
 END;
 $$;
 
+-- Somente AFTER INSERT. O ramo ``UPDATE OF email, raw_user_meta_data`` disparava
+-- a cada login: o GoTrue inclui essas colunas no SET do UPDATE de sign-in, e o
+-- PostgreSQL avalia gatilhos por coluna pela lista do SET, não por mudança de
+-- valor. O efeito era o perfil ser reescrito a partir dos metadados do Supabase
+-- em toda autenticação, desfazendo ajustes administrativos de nome/cargo/role.
+-- O perfil é provisionado uma vez; depois disso pertence à aplicação.
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
-AFTER INSERT OR UPDATE OF email, raw_user_meta_data ON auth.users
+AFTER INSERT ON auth.users
 FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- O frontend usa exclusivamente a API FastAPI. Nenhuma tabela fiscal fica

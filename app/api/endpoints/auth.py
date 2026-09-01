@@ -12,6 +12,8 @@ from app.core.security import (
     ACTIVE_DEV_TOKENS,
     LOCAL_USERS_FALLBACK,
     get_current_user as security_get_current_user,
+    known_account_profile,
+    reconcile_known_account,
 )
 from app.models.profile import Profile
 from app.schemas.auth import LoginRequest, TokenResponse, UserOut
@@ -28,6 +30,11 @@ USERS_DB = {
     "admin@codisplan.com": {
         **LOCAL_USERS_FALLBACK["admin@codisplan.com"],
         "valid_passwords": {"admin", "codisplan", "123456", "fiscal", "admin123"},
+        "password": "admin",
+    },
+    "admin@admin.com": {
+        **LOCAL_USERS_FALLBACK["admin@admin.com"],
+        "valid_passwords": {"admin"},
         "password": "admin",
     },
     "operador@contabilidade.com": {
@@ -76,6 +83,13 @@ def _ensure_local_profile(db: Session, user: dict) -> Profile:
                 role=user["role"],
                 ativo=True,
             )
+    elif reconcile_known_account(profile):
+        try:
+            db.commit()
+            db.refresh(profile)
+        except Exception:
+            db.rollback()
+            logger.warning("Falha ao realinhar perfil institucional local", exc_info=True)
     if not profile.ativo:
         raise HTTPException(status_code=403, detail="Conta de usuário inativa.")
     return profile
@@ -113,14 +127,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
                     raise HTTPException(status_code=502, detail="Resposta inválida do serviço de autenticação.")
 
                 profile = db.query(Profile).filter(Profile.id == str(user_id)).first()
+                account = known_account_profile(email) or {}
                 if not profile:
                     metadata = sb_user.get("user_metadata") or {}
+                    nome = account.get("nome") or metadata.get("nome") or email.split("@", 1)[0]
                     profile = Profile(
                         id=str(user_id),
                         email=email,
-                        nome=str(metadata.get("nome") or email.split("@", 1)[0])[:255],
-                        cargo="Analista Fiscal",
-                        role="operador",
+                        nome=str(nome)[:255],
+                        cargo=account.get("cargo", "Analista Fiscal"),
+                        role=account.get("role", "operador"),
                     )
                     db.add(profile)
                     try:
@@ -130,6 +146,13 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
                         db.rollback()
                         logger.exception("Falha ao provisionar perfil autenticado")
                         raise HTTPException(status_code=500, detail="Não foi possível preparar o usuário.")
+                elif reconcile_known_account(profile):
+                    try:
+                        db.commit()
+                        db.refresh(profile)
+                    except Exception:
+                        db.rollback()
+                        logger.exception("Falha ao realinhar perfil institucional")
 
                 if not profile.ativo:
                     raise HTTPException(status_code=403, detail="Conta de usuário inativa.")

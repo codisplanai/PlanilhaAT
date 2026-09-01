@@ -34,6 +34,13 @@ LOCAL_USERS_FALLBACK = {
         "cargo": "Contador Sênior",
         "role": "admin",
     },
+    "admin@admin.com": {
+        "id": "e2a336a9-579e-472f-845b-cf3e91284c0b",
+        "nome": "Administrador",
+        "email": "admin@admin.com",
+        "cargo": "Contador Sênior",
+        "role": "admin",
+    },
     "operador@contabilidade.com": {
         "id": "00000000-0000-0000-0000-000000000002",
         "nome": "Operador Fiscal",
@@ -85,6 +92,46 @@ def verify_supabase_token(token: str) -> Optional[Dict[str, Any]]:
             logger.warning("Falha ao validar token no Supabase", exc_info=True)
 
     return None
+
+
+def known_account_profile(email: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Cadastro institucional de nome/cargo/role indexado por e-mail.
+
+    O sistema não expõe gestão de usuários, portanto este mapa é a única origem
+    de cargo e papel das contas institucionais — qualquer que seja o provedor
+    que validou a credencial (Supabase Auth ou fallback local).
+    """
+    if not email:
+        return None
+    return LOCAL_USERS_FALLBACK.get(email.strip().lower())
+
+
+def reconcile_known_account(profile: Profile) -> bool:
+    """Realinha um perfil já persistido ao cadastro institucional.
+
+    Retorna ``True`` quando algum campo mudou. Perfis provisionados sem
+    consultar o cadastro ficam gravados como operador e nenhum fluxo os
+    corrigia depois; reconciliar no login é o que os recupera.
+    """
+    account = known_account_profile(profile.email)
+    if not account:
+        return False
+
+    changed = False
+    for field in ("cargo", "role"):
+        if getattr(profile, field) != account[field]:
+            setattr(profile, field, account[field])
+            changed = True
+
+    # ``nome`` só é substituído enquanto for o placeholder derivado do e-mail,
+    # para nunca descartar um nome real já ajustado.
+    placeholder = str(profile.email or "").split("@", 1)[0]
+    if not profile.nome or profile.nome == placeholder:
+        if profile.nome != account["nome"]:
+            profile.nome = account["nome"]
+            changed = True
+
+    return changed
 
 
 def _unauthorized(detail: str = "Sessão expirada ou token inválido. Faça login novamente.") -> HTTPException:
