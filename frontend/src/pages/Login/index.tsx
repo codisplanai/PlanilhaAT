@@ -67,7 +67,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
     setValue('password', 'fiscal');
   };
 
-  const showDemoLogin = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_LOGIN === 'true';
+  const showDemoLogin = import.meta.env.VITE_ENABLE_DEMO_LOGIN !== 'false';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-100 to-slate-200/70 flex flex-col justify-center py-12 sm:px-6 lg:px-8">

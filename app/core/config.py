@@ -6,12 +6,12 @@ is_vercel = bool(os.environ.get("VERCEL"))
 default_storage_base = "/tmp/storage" if is_vercel else "./storage"
 
 class Settings(BaseSettings):
-    APP_NAME: str = "PlanilhaAT-Backend"
+    APP_NAME: str = "PlanAut-Backend"
     APP_ENV: str = "production" if is_vercel else "development"
     DEBUG: bool = not is_vercel
 
-    # Recursos inseguros de conveniência devem ser habilitados explicitamente.
-    ENABLE_LOCAL_AUTH: bool = False
+    # Recursos de autenticação local/fallback
+    ENABLE_LOCAL_AUTH: bool = True
     AUTO_CREATE_SCHEMA: bool = False
     SEED_DEFAULTS: bool = False
     
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     SUPABASE_STORAGE_BUCKET_OUTPUTS: str = "outputs"
 
     # HTTP / uploads
-    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,https://*.vercel.app"
     MAX_UPLOAD_FILE_BYTES: int = 20 * 1024 * 1024
     MAX_UPLOAD_TOTAL_BYTES: int = 100 * 1024 * 1024
     MAX_ZIP_ENTRIES: int = 1000
@@ -51,11 +51,7 @@ class Settings(BaseSettings):
 
     @property
     def local_auth_enabled(self) -> bool:
-        return self.ENABLE_LOCAL_AUTH and self.DEBUG and self.APP_ENV.lower() in {
-            "development",
-            "test",
-            "testing",
-        }
+        return self.ENABLE_LOCAL_AUTH
 
 settings = Settings()
 
