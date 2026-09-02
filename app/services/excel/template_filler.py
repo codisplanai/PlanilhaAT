@@ -113,6 +113,11 @@ class TemplateFiller:
             single_sheet_formula_map = {worksheet.title: original_formula_map.get(original_title, {})}
             FormulaGuard.verify_wb_integrity(single_sheet_formula_map, workbook)
 
+            if getattr(workbook, "calculation", None) is not None:
+                workbook.calculation.fullCalcOnLoad = True
+                workbook.calculation.forceFullCalc = True
+                workbook.calculation.calcMode = "auto"
+
             output_directory = os.path.dirname(os.path.abspath(output_path))
             os.makedirs(output_directory, exist_ok=True)
             descriptor, temporary_path = tempfile.mkstemp(prefix="planilha_", suffix=".xlsx", dir=output_directory)
