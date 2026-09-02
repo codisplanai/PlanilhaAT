@@ -4,7 +4,8 @@ import {
   Plus,
   Search,
   Edit2,
-  Trash2
+  Trash2,
+  X,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -50,37 +51,51 @@ export const EmpresasPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        icon={<Building2 className="w-6 h-6 text-blue-800" />}
+        icon={<Building2 className="w-5 h-5 text-blue-700" />}
         title="Empresas Clientes"
-        description="Gerenciamento das empresas atendidas pelo escritório contábil e seus perfis fiscais"
-        action={(
+        description="Gerenciamento das empresas atendidas pelo escritório contábil e vinculação aos perfis fiscais"
+        action={
           <Button onClick={handleOpenCreateModal} leftIcon={<Plus className="w-4 h-4" />}>
             Cadastrar Empresa
           </Button>
-        )}
+        }
       />
 
-      {perfisError && <ErrorAlert message={`Não foi possível carregar os perfis: ${getErrorMessage(perfisError)}`} />}
+      {perfisError && (
+        <ErrorAlert
+          title="Erro ao carregar perfis"
+          message={getErrorMessage(perfisError)}
+        />
+      )}
 
       {/* Filters Bar */}
-      <Card className="p-3">
+      <Card className="p-3.5">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
             <input
               type="text"
               placeholder="Buscar por Razão Social, CNPJ ou UF..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-800"
+              className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 transition-all text-slate-900 placeholder:text-slate-400"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          <div className="w-full sm:w-48">
+          <div className="w-full sm:w-52">
             <select
               value={ufFilter}
               onChange={(e) => setUfFilter(e.target.value)}
-              className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-800 text-slate-700"
+              className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
             >
               <option value="">Todas as UFs</option>
               {UFS_BRASIL.map((uf) => (
@@ -111,7 +126,7 @@ export const EmpresasPage: React.FC = () => {
           />
         ) : (
           <EmptyState
-            icon={<Building2 className="w-8 h-8 text-blue-700" />}
+            icon={<Building2 className="w-7 h-7 text-blue-700" />}
             title="Nenhuma empresa cadastrada ainda"
             description="Cadastre as empresas atendidas pela contabilidade para vincular os perfis de cálculo e processar as notas fiscais."
             actionLabel="Cadastrar Primeira Empresa"
@@ -119,79 +134,81 @@ export const EmpresasPage: React.FC = () => {
           />
         )
       ) : (
-        <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+        <div className="bg-white border border-slate-200/80 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs divide-y divide-slate-200">
-              <thead className="bg-slate-50/80 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
+            <table className="w-full text-left text-xs divide-y divide-slate-100">
+              <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
-                  <th className="py-3 px-4">Razão Social</th>
-                  <th className="py-3 px-4 font-mono">CNPJ</th>
-                  <th className="py-3 px-4 font-mono">Inscrição Estadual</th>
-                  <th className="py-3 px-4 text-center">UF</th>
-                  <th className="py-3 px-4">Perfil de Regras</th>
-                  <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4">Cadastro</th>
-                  <th className="py-3 px-4 text-right">Ações</th>
+                  <th className="py-3.5 px-4">Razão Social</th>
+                  <th className="py-3.5 px-4 font-mono">CNPJ</th>
+                  <th className="py-3.5 px-4 font-mono">Inscrição Estadual</th>
+                  <th className="py-3.5 px-4 text-center">UF</th>
+                  <th className="py-3.5 px-4">Perfil de Regras</th>
+                  <th className="py-3.5 px-4 text-center">Status</th>
+                  <th className="py-3.5 px-4">Cadastro</th>
+                  <th className="py-3.5 px-4 text-right">Ações</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100/80">
                 {filteredEmpresas.map((empresa) => (
                   <tr
                     key={empresa.id}
                     className="hover:bg-slate-50/70 transition-colors group"
                   >
-                    <td className="py-3 px-4 font-medium text-slate-900">
+                    <td className="py-3.5 px-4 font-semibold text-slate-900">
                       {empresa.razao_social}
                     </td>
-                    <td className="py-3 px-4 font-mono text-slate-600">
+                    <td className="py-3.5 px-4 font-mono font-medium text-slate-600">
                       {formatCNPJ(empresa.cnpj)}
                     </td>
-                    <td className="py-3 px-4 font-mono text-slate-600">
+                    <td className="py-3.5 px-4 font-mono text-slate-600">
                       {empresa.inscricao_estadual ? (
                         <span className="font-semibold text-slate-800">{empresa.inscricao_estadual}</span>
                       ) : (
                         <span className="text-slate-400 italic">Não informada</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3.5 px-4 text-center">
                       <span className="inline-block font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200">
                         {empresa.uf}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-slate-700">
+                    <td className="py-3.5 px-4 text-slate-700">
                       <span className="text-blue-950 font-medium">
                         {getPerfilNome(empresa.perfil_regras_id)}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3.5 px-4 text-center">
                       {empresa.ativo ? (
-                        <Badge variant="success" size="sm">
+                        <Badge variant="success" size="sm" dot>
                           Ativa
                         </Badge>
                       ) : (
-                        <Badge variant="neutral" size="sm">
+                        <Badge variant="neutral" size="sm" dot>
                           Inativa
                         </Badge>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-slate-500 text-[11px]">
+                    <td className="py-3.5 px-4 text-slate-500 text-[11px]">
                       {formatDate(empresa.criado_em)}
                     </td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
+                          type="button"
                           onClick={() => handleOpenEditModal(empresa)}
-                          className="p-1 text-slate-400 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                          className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                           title="Editar empresa"
                         >
-                          <Edit2 className="w-4 h-4" />
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDelete(empresa)}
-                          className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                          className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                           title="Remover empresa"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
@@ -200,7 +217,7 @@ export const EmpresasPage: React.FC = () => {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2.5 bg-slate-50/50 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between items-center">
+          <div className="px-4 py-3 bg-slate-50/50 border-t border-slate-100 text-xs text-slate-500 flex justify-between items-center">
             <span>
               Total de <strong>{filteredEmpresas.length}</strong> empresa(s) listada(s)
             </span>
@@ -214,6 +231,7 @@ export const EmpresasPage: React.FC = () => {
         onClose={handleCloseModal}
         title={editingEmpresa ? 'Editar Empresa' : 'Cadastrar Nova Empresa'}
         subtitle="Informe os dados cadastrais da empresa e vincule ao perfil fiscal compartilhado"
+        maxWidth="xl"
       >
         {errorMessage && (
           <ErrorAlert
@@ -276,14 +294,14 @@ export const EmpresasPage: React.FC = () => {
             />
           </div>
 
-          <div className="pt-2 flex items-center gap-2">
+          <div className="pt-2 flex items-center gap-2.5">
             <input
               type="checkbox"
               id="ativo"
-              className="rounded border-slate-300 text-blue-800 focus:ring-blue-800 h-4 w-4"
+              className="rounded-md border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
               {...register('ativo')}
             />
-            <label htmlFor="ativo" className="text-xs text-slate-700 font-medium cursor-pointer">
+            <label htmlFor="ativo" className="text-xs text-slate-700 font-medium cursor-pointer select-none">
               Empresa ativa para geração de planilhas
             </label>
           </div>

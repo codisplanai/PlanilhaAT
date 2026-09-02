@@ -3,7 +3,8 @@ import { isAxiosError } from 'axios';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { authApi } from '../../api/auth';
-import { KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
+import { KeyRound, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { ErrorAlert } from '../feedback/ErrorAlert';
 
 interface AlterarSenhaModalProps {
   isOpen: boolean;
@@ -96,11 +97,13 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
       maxWidth="md"
     >
       {success ? (
-        <div className="py-6 text-center space-y-3">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-7 h-7" />
+        <div className="py-8 text-center space-y-3 animate-fade-in">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-2xs">
+            <CheckCircle2 className="w-8 h-8" />
           </div>
-          <h3 className="text-base font-bold text-slate-800">Senha alterada com sucesso!</h3>
+          <h3 className="text-base font-bold text-slate-900 tracking-tight">
+            Senha alterada com sucesso!
+          </h3>
           <p className="text-xs text-slate-500">
             Sua nova senha já está ativa para os próximos acessos.
           </p>
@@ -108,20 +111,18 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div
-              role="alert"
-              className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-xs text-red-800 font-medium"
-            >
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
-              <span>{error}</span>
-            </div>
+            <ErrorAlert
+              title="Atenção"
+              message={error}
+              onDismiss={() => setError(null)}
+            />
           )}
 
           {/* Senha Atual */}
-          <div>
+          <div className="space-y-1.5">
             <label
               htmlFor="input-senha-atual"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
             >
               Senha Atual
             </label>
@@ -133,12 +134,12 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
                 onChange={(e) => setSenhaAtual(e.target.value)}
                 placeholder="Informe sua senha atual"
                 required
-                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-300 rounded-lg shadow-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-cyan-600 focus:border-cyan-600 placeholder:text-slate-400 text-slate-900"
+                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs transition-all duration-150 focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 placeholder:text-slate-400 text-slate-900"
               />
               <button
                 type="button"
                 onClick={() => setShowSenhaAtual(!showSenhaAtual)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
                 tabIndex={-1}
                 aria-label={showSenhaAtual ? 'Ocultar senha' : 'Exibir senha'}
               >
@@ -148,10 +149,10 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
           </div>
 
           {/* Nova Senha */}
-          <div>
+          <div className="space-y-1.5">
             <label
               htmlFor="input-nova-senha"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
             >
               Nova Senha
             </label>
@@ -164,28 +165,28 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
                 placeholder="Mínimo 6 caracteres"
                 required
                 minLength={6}
-                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-300 rounded-lg shadow-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-cyan-600 focus:border-cyan-600 placeholder:text-slate-400 text-slate-900"
+                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs transition-all duration-150 focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 placeholder:text-slate-400 text-slate-900"
               />
               <button
                 type="button"
                 onClick={() => setShowNovaSenha(!showNovaSenha)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
                 tabIndex={-1}
                 aria-label={showNovaSenha ? 'Ocultar senha' : 'Exibir senha'}
               >
                 {showNovaSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-400">
               A senha deve conter no mínimo 6 caracteres.
             </p>
           </div>
 
           {/* Confirmar Nova Senha */}
-          <div>
+          <div className="space-y-1.5">
             <label
               htmlFor="input-confirmar-senha"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
             >
               Confirmar Nova Senha
             </label>
@@ -198,12 +199,12 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
                 placeholder="Repita a nova senha"
                 required
                 minLength={6}
-                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-300 rounded-lg shadow-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-cyan-600 focus:border-cyan-600 placeholder:text-slate-400 text-slate-900"
+                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs transition-all duration-150 focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 placeholder:text-slate-400 text-slate-900"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmarSenha(!showConfirmarSenha)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
                 tabIndex={-1}
                 aria-label={showConfirmarSenha ? 'Ocultar senha' : 'Exibir senha'}
               >
@@ -213,7 +214,7 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
           </div>
 
           {/* Actions */}
-          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
             <Button
               type="button"
               variant="outline"
@@ -226,9 +227,8 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
               type="submit"
               variant="primary"
               isLoading={loading}
-              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+              leftIcon={<KeyRound className="w-4 h-4" />}
             >
-              <KeyRound className="w-4 h-4 mr-1.5" />
               Salvar Nova Senha
             </Button>
           </div>

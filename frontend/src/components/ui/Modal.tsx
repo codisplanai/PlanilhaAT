@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-interface ModalProps {
+export interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
@@ -16,7 +16,14 @@ interface ModalProps {
 let openModalCount = 0;
 let originalOverflow = '';
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, children, maxWidth = 'lg' }) => {
+export const Modal: React.FC<ModalProps> = ({
+  isOpen,
+  onClose,
+  title,
+  subtitle,
+  children,
+  maxWidth = 'lg',
+}) => {
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -44,9 +51,11 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, 
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
-      ));
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+        )
+      );
       if (focusable.length === 0) {
         event.preventDefault();
         dialogRef.current.focus();
@@ -73,14 +82,20 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, 
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
   const maxWidths = {
-    sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl',
-    '2xl': 'max-w-2xl', '4xl': 'max-w-4xl', '6xl': 'max-w-6xl',
+    sm: 'max-w-sm',
+    md: 'max-w-md',
+    lg: 'max-w-lg',
+    xl: 'max-w-xl',
+    '2xl': 'max-w-2xl',
+    '4xl': 'max-w-4xl',
+    '6xl': 'max-w-6xl',
   };
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/50 backdrop-blur-md animate-fade-in"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <div
@@ -90,21 +105,34 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, 
         aria-labelledby={titleId}
         aria-describedby={subtitle ? descriptionId : undefined}
         tabIndex={-1}
-        className={twMerge(clsx(
-          'w-full bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh]',
-          maxWidths[maxWidth]
-        ))}
+        className={twMerge(
+          clsx(
+            'w-full bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] animate-scale-in',
+            maxWidths[maxWidth]
+          )
+        )}
       >
-        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4 bg-slate-50/50">
+        <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4 bg-slate-50/60 shrink-0">
           <div>
-            <h3 id={titleId} className="text-base font-semibold text-slate-900">{title}</h3>
-            {subtitle && <p id={descriptionId} className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+            <h3 id={titleId} className="text-base font-bold text-slate-900 tracking-tight">
+              {title}
+            </h3>
+            {subtitle && (
+              <p id={descriptionId} className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                {subtitle}
+              </p>
+            )}
           </div>
-          <button type="button" onClick={onClose} aria-label="Fechar janela" className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar janela"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1">{children}</div>
+        <div className="p-5 sm:p-6 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>,
     document.body

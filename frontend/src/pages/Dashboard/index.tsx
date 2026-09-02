@@ -8,7 +8,7 @@ import {
   Download,
   ArrowRight,
   TrendingUp,
-  FileSpreadsheet
+  FileSpreadsheet,
 } from 'lucide-react';
 
 import { solicitacoesApi } from '../../api/solicitacoes';
@@ -21,7 +21,7 @@ import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import {
   formatCNPJ,
   formatDate,
-  formatCompetencia
+  formatCompetencia,
 } from '../../lib/formatters';
 import { StatusBadge } from '../../components/domain/StatusBadge';
 import { getPlanilhaLabel } from '../../constants/domain';
@@ -34,11 +34,9 @@ import {
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  // Queries agregadas
+
   const { data: solicitacoes = [], isLoading: isLoadingSols, error: solicitacoesError } = useSolicitacoesQuery();
-
   const { data: empresas = [], isLoading: isLoadingEmps, error: empresasError } = useEmpresasQuery();
-
   const { data: templates = [], isLoading: isLoadingTemplates, error: templatesError } = useTemplatesQuery();
 
   const concluidasCount = solicitacoes.filter((s) => s.status === 'concluido').length;
@@ -64,28 +62,33 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Banner Operacional */}
-      <div className="bg-gradient-to-r from-blue-900 via-blue-850 to-slate-900 text-white rounded-xl p-6 shadow-md border border-blue-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div className="space-y-2 max-w-xl">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-950 via-blue-950 to-slate-900 text-white p-6 sm:p-8 shadow-md border border-blue-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="space-y-2.5 max-w-xl relative z-10">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-700/60 text-blue-200 text-[11px] font-semibold border border-blue-500/30">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 text-cyan-300 text-[11px] font-semibold border border-blue-400/30">
               <TrendingUp className="w-3.5 h-3.5" />
-              Sistema Contábil Integrado
+              <span>Sistema Contábil Integrado</span>
             </div>
-            <div className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-700/60">
+            <div className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-900/80 border border-slate-700/60 shadow-2xs">
               <CodisplanLogo theme="dark" size="xs" />
             </div>
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
             Painel Operacional de Antecipação e DIFAL
           </h1>
           <p className="text-xs text-blue-100/80 leading-relaxed">
-            Processamento automatizado de NF-e e preenchimento de planilhas com preservação inviolável de fórmulas.
+            Processamento determinístico de NF-e e SPED Fiscal com preenchimento inviolável de fórmulas Excel.
           </p>
         </div>
 
-        <div className="shrink-0">
-          <NavLink to="/nova-solicitacao" className="inline-flex items-center justify-center gap-2 rounded-md px-5 py-2.5 bg-white text-blue-950 hover:bg-blue-50 shadow-md font-bold text-xs focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-900">
-            <PlusCircle className="w-4 h-4 text-blue-800" />
+        <div className="shrink-0 relative z-10">
+          <NavLink
+            to="/nova-solicitacao"
+            className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 bg-white text-slate-900 hover:bg-blue-50 shadow-md font-bold text-xs transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-950 cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4 text-blue-700" />
             <span>Gerar Nova Planilha</span>
           </NavLink>
         </div>
@@ -98,81 +101,85 @@ export const DashboardPage: React.FC = () => {
       {/* Metrics Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Concluídas */}
-        <Card className="p-4 border-l-4 border-l-emerald-500">
+        <Card className="p-4 sm:p-5 card-interactive">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Planilhas Geradas
               </p>
-              <p className="text-2xl font-bold font-mono text-slate-900 mt-1">
+              <p className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
                 {isLoadingSols ? '...' : concluidasCount}
               </p>
             </div>
-            <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center shadow-2xs">
               <CheckCircle2 className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-[11px] text-slate-500 mt-2">
-            {totalNotas} itens de NF-e processados
+          <p className="text-[11px] text-slate-500 mt-2.5 flex items-center gap-1.5 font-medium">
+            <span className="font-semibold text-slate-700">{totalNotas}</span> itens de NF-e processados
           </p>
         </Card>
 
         {/* Card 2: Empresas Atendidas */}
-        <Card className="p-4 border-l-4 border-l-blue-600">
+        <Card className="p-4 sm:p-5 card-interactive">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Empresas Cadastradas
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Empresas Atendidas
               </p>
-              <p className="text-2xl font-bold font-mono text-slate-900 mt-1">
+              <p className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
                 {isLoadingEmps ? '...' : empresas.length}
               </p>
             </div>
-            <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-700 border border-blue-200/60 flex items-center justify-center shadow-2xs">
               <Building2 className="w-5 h-5" />
             </div>
           </div>
-          <NavLink to="/empresas" className="text-[11px] text-blue-700 hover:underline mt-2 inline-block font-medium">
-            Gerenciar empresas clientes &rarr;
+          <NavLink
+            to="/empresas"
+            className="text-[11px] text-blue-700 hover:text-blue-900 font-semibold mt-2.5 inline-flex items-center gap-1 group"
+          >
+            <span>Gerenciar empresas clientes</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </NavLink>
         </Card>
 
         {/* Card 3: Modelos Vigentes */}
-        <Card className="p-4 border-l-4 border-l-amber-500">
+        <Card className="p-4 sm:p-5 card-interactive">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Modelos de Excel
               </p>
-              <p className="text-2xl font-bold font-mono text-slate-900 mt-1">
+              <p className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
                 {isLoadingTemplates ? '...' : `${templatesAtivos.length}/4`}
               </p>
             </div>
-            <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 border border-amber-200/60 flex items-center justify-center shadow-2xs">
               <FileSpreadsheet className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-[11px] text-slate-500 mt-2">
-            {templates.length} versões versionadas
+          <p className="text-[11px] text-slate-500 mt-2.5 flex items-center gap-1 font-medium">
+            <span className="font-semibold text-slate-700">{templates.length}</span> versões versionadas
           </p>
         </Card>
 
-        {/* Card 4: Status Pendentes / Erros */}
-        <Card className="p-4 border-l-4 border-l-slate-400">
+        {/* Card 4: Inconsistências / Erros */}
+        <Card className="p-4 sm:p-5 card-interactive">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Inconsistências / Erros
               </p>
-              <p className="text-2xl font-bold font-mono text-slate-900 mt-1">
+              <p className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
                 {isLoadingSols ? '...' : erroCount}
               </p>
             </div>
-            <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 border border-rose-200/60 flex items-center justify-center shadow-2xs">
               <AlertCircle className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-[11px] text-slate-500 mt-2">
+          <p className="text-[11px] text-slate-500 mt-2.5 font-medium">
             Bloqueados por validação fiscal
           </p>
         </Card>
@@ -183,9 +190,12 @@ export const DashboardPage: React.FC = () => {
         title="Solicitações Recentes de Processamento"
         subtitle="Acompanhamento das últimas planilhas geradas e download direto"
         headerAction={
-          <NavLink to="/solicitacoes" className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400">
+          <NavLink
+            to="/solicitacoes"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100/90 transition-colors"
+          >
             <span>Ver Histórico Completo</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
           </NavLink>
         }
       >
@@ -193,16 +203,16 @@ export const DashboardPage: React.FC = () => {
           <LoadingSpinner message="Carregando solicitações..." />
         ) : recentSolicitacoes.length === 0 ? (
           <EmptyState
-            icon={<FileSpreadsheet className="w-8 h-8 text-blue-700" />}
+            icon={<FileSpreadsheet className="w-7 h-7 text-blue-700" />}
             title="Nenhuma planilha gerada ainda"
             description="Inicie a primeira solicitação para carregar os XMLs de notas fiscais e gerar a planilha Excel."
             actionLabel="Gerar Primeira Planilha"
             onAction={() => navigate('/nova-solicitacao')}
           />
         ) : (
-          <div className="overflow-x-auto -mx-5 -mb-5">
-            <table className="w-full text-left text-xs divide-y divide-slate-200">
-              <thead className="bg-slate-50/80 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
+          <div className="overflow-x-auto -mx-5 -my-5">
+            <table className="w-full text-left text-xs divide-y divide-slate-100">
+              <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
                   <th className="py-3 px-5">Empresa</th>
                   <th className="py-3 px-4">Competência</th>
@@ -213,35 +223,35 @@ export const DashboardPage: React.FC = () => {
                   <th className="py-3 px-5 text-right">Ação</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100/80">
                 {recentSolicitacoes.map((sol) => {
                   const emp = getEmpresa(sol.empresa_id);
                   return (
                     <tr key={sol.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-5 font-medium text-slate-900">
+                      <td className="py-3.5 px-5 font-semibold text-slate-900">
                         <div>{emp?.razao_social || `Empresa #${sol.empresa_id}`}</div>
                         {emp && (
-                          <div className="text-[10px] font-mono text-slate-400">
+                          <div className="text-[11px] font-mono font-normal text-slate-400">
                             {formatCNPJ(emp.cnpj)}
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-4 font-semibold text-slate-800">
+                      <td className="py-3.5 px-4 font-semibold text-slate-800">
                         {formatCompetencia(sol.periodo_inicio)}
                       </td>
-                      <td className="py-3 px-4 text-slate-700">
+                      <td className="py-3.5 px-4 text-slate-700 font-medium">
                         {getPlanilhaLabel(sol.tipo_planilha)}
                       </td>
-                      <td className="py-3 px-4 text-center">
+                      <td className="py-3.5 px-4 text-center">
                         <StatusBadge status={sol.status} />
                       </td>
-                      <td className="py-3 px-4 text-center font-mono font-bold text-slate-700">
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">
                         {sol.total_notas_processadas}
                       </td>
-                      <td className="py-3 px-4 text-slate-500 text-[11px]">
+                      <td className="py-3.5 px-4 text-slate-500 text-[11px]">
                         {formatDate(sol.criado_em)}
                       </td>
-                      <td className="py-3 px-5 text-right">
+                      <td className="py-3.5 px-5 text-right">
                         {sol.status === 'concluido' ? (
                           <Button
                             size="sm"
@@ -252,7 +262,10 @@ export const DashboardPage: React.FC = () => {
                             Baixar .xlsx
                           </Button>
                         ) : (
-                          <NavLink to="/solicitacoes" className="inline-flex items-center rounded-md px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400">
+                          <NavLink
+                            to="/solicitacoes"
+                            className="inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                          >
                             Ver Detalhes
                           </NavLink>
                         )}

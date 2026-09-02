@@ -5,7 +5,7 @@ import {
   Edit2,
   Trash2,
   Sparkles,
-  Zap
+  Zap,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -19,6 +19,7 @@ import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
+import { PageHeader } from '../../components/layout/PageHeader';
 import { formatPercent } from '../../lib/formatters';
 import {
   DESTINO_CFOP_BADGE_VARIANTS,
@@ -75,22 +76,17 @@ export const PerfisRegrasPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <Sliders className="w-6 h-6 text-blue-800" />
-            Perfis de Regras e Alíquotas (A.DST)
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Configuração determinística das alíquotas de destino padrão por estado e suas exceções por NCM
-          </p>
-        </div>
-
-        <Button onClick={handleOpenCreatePerfil} leftIcon={<Plus className="w-4 h-4" />}>
-          Novo Perfil de Regras
-        </Button>
-      </div>
+      {/* PageHeader Padronizado */}
+      <PageHeader
+        icon={<Sliders className="w-5 h-5 text-blue-700" />}
+        title="Perfis de Regras e Alíquotas (A.DST)"
+        description="Configuração determinística das alíquotas de destino padrão por estado e suas exceções por NCM"
+        action={
+          <Button onClick={handleOpenCreatePerfil} leftIcon={<Plus className="w-4 h-4" />}>
+            Novo Perfil de Regras
+          </Button>
+        }
+      />
 
       {isLoadingPerfis ? (
         <LoadingSpinner message="Carregando perfis fiscais..." />
@@ -98,7 +94,7 @@ export const PerfisRegrasPage: React.FC = () => {
         <ErrorAlert message={getErrorMessage(errorPerfis)} />
       ) : perfis.length === 0 ? (
         <EmptyState
-          icon={<Sliders className="w-8 h-8 text-blue-700" />}
+          icon={<Sliders className="w-7 h-7 text-blue-700" />}
           title="Nenhum perfil de regras cadastrado"
           description="Crie o primeiro perfil de regras para definir as alíquotas padrão por estado e as exceções por NCM compartilhadas pelas empresas."
           actionLabel="Criar Primeiro Perfil"
@@ -108,9 +104,11 @@ export const PerfisRegrasPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Coluna Esquerda: Seletor de Perfis */}
           <div className="lg:col-span-4 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 px-1">
-              Perfis Compartilhados ({perfis.length})
-            </h3>
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Perfis Compartilhados ({perfis.length})
+              </h3>
+            </div>
 
             <div className="space-y-2">
               {perfis.map((p) => {
@@ -119,40 +117,42 @@ export const PerfisRegrasPage: React.FC = () => {
                   <div
                     key={p.id}
                     onClick={() => setSelectedPerfilId(p.id)}
-                    className={`p-3.5 rounded-lg border text-left cursor-pointer transition-all ${
+                    className={`p-4 rounded-xl border text-left cursor-pointer transition-all duration-150 ${
                       isSelected
-                        ? 'bg-blue-50/70 border-blue-600 shadow-sm ring-1 ring-blue-600/30'
-                        : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                        ? 'bg-blue-50/80 border-blue-600 shadow-xs ring-2 ring-blue-600/20'
+                        : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/60'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <h4
-                        className={`text-sm font-semibold ${
-                          isSelected ? 'text-blue-900' : 'text-slate-900'
+                        className={`text-xs sm:text-sm font-bold tracking-tight ${
+                          isSelected ? 'text-blue-950' : 'text-slate-900'
                         }`}
                       >
                         {p.nome}
                       </h4>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleOpenEditPerfil(p);
                           }}
-                          className="p-1 text-slate-400 hover:text-blue-800 rounded transition-colors"
+                          className="p-1 rounded-md text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
                           title="Editar perfil"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         {perfis.length > 1 && (
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               if (confirm(`Deseja remover o perfil "${p.nome}"?`)) {
                                 deletePerfil(p.id);
                               }
                             }}
-                            className="p-1 text-slate-400 hover:text-red-700 rounded transition-colors"
+                            className="p-1 rounded-md text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
                             title="Remover perfil"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -161,7 +161,7 @@ export const PerfisRegrasPage: React.FC = () => {
                       </div>
                     </div>
                     {p.descricao && (
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">{p.descricao}</p>
+                      <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{p.descricao}</p>
                     )}
                   </div>
                 );
@@ -171,12 +171,14 @@ export const PerfisRegrasPage: React.FC = () => {
 
           {/* Coluna Direita: Detalhes das Regras do Perfil Selecionado */}
           {activePerfil && (
-            <div className="lg:col-span-8 space-y-6">
+            <div className="lg:col-span-8 space-y-6 animate-fade-in">
               {/* Card Explicativo de Precedência Fiscal */}
-              <div className="bg-slate-900 text-slate-200 rounded-lg p-4 shadow-sm border border-slate-800 text-xs flex items-start gap-3">
-                <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="bg-slate-950 text-slate-200 rounded-xl p-4 shadow-xs border border-slate-800 text-xs flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/30 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <Sparkles className="w-4 h-4" />
+                </div>
                 <div className="leading-relaxed">
-                  <span className="font-semibold text-white">Como o motor resolve a alíquota (A.DST): </span>
+                  <span className="font-bold text-white tracking-tight">Como o motor resolve a alíquota (A.DST): </span>
                   O sistema busca primeiro por uma <strong>Exceção (UF + NCM)</strong>. Se não existir regra específica para aquele NCM, aplica automaticamente a <strong>Alíquota Padrão do Estado (UF)</strong>. A alíquota de origem (A.ORI) vem pronta do XML.
                 </div>
               </div>
@@ -197,58 +199,60 @@ export const PerfisRegrasPage: React.FC = () => {
                 }
               >
                 {isLoadingRegras ? (
-                  <LoadingSpinner size="sm" message="Carregando regras..." />
+                  <LoadingSpinner size="sm" message="Carregando regras estaduais..." />
                 ) : regrasPadrao.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic py-4 text-center">
+                  <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
                     Nenhuma alíquota padrão configurada para este perfil. Clique em "Nova Regra Estadual" para definir a alíquota padrão da UF.
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs divide-y divide-slate-200">
-                      <thead className="bg-slate-50 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
+                  <div className="overflow-x-auto -mx-5 -my-5">
+                    <table className="w-full text-left text-xs divide-y divide-slate-100">
+                      <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                         <tr>
-                          <th className="py-2.5 px-3">Estado</th>
-                          <th className="py-2.5 px-3">Tipo</th>
-                          <th className="py-2.5 px-3 font-mono text-right">A.DST Padrão</th>
-                          <th className="py-2.5 px-3">Descrição / Legislação</th>
-                          <th className="py-2.5 px-3 text-right">Ações</th>
+                          <th className="py-3 px-4">Estado</th>
+                          <th className="py-3 px-4">Tipo</th>
+                          <th className="py-3 px-4 font-mono text-right">A.DST Padrão</th>
+                          <th className="py-3 px-4">Descrição / Legislação</th>
+                          <th className="py-3 px-4 text-right">Ações</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100/80">
                         {regrasPadrao.map((regra) => (
                           <tr key={regra.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="py-2.5 px-3">
+                            <td className="py-3 px-4">
                               <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
                                 {regra.uf}
                               </span>
                             </td>
-                            <td className="py-2.5 px-3">
+                            <td className="py-3 px-4">
                               <Badge variant="info" size="sm">
                                 Padrão Estadual
                               </Badge>
                             </td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-blue-950 text-right">
+                            <td className="py-3 px-4 font-mono font-bold text-blue-950 text-right tabular-nums">
                               {formatPercent(regra.aliquota)}
                             </td>
-                            <td className="py-2.5 px-3 text-slate-600">
+                            <td className="py-3 px-4 text-slate-600">
                               {regra.descricao || '-'}
                             </td>
-                            <td className="py-2.5 px-3 text-right">
+                            <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <button
+                                  type="button"
                                   onClick={() => handleOpenEditRegra(regra)}
-                                  className="p-1 text-slate-400 hover:text-blue-800 hover:bg-blue-50 rounded"
+                                  className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                                   title="Editar regra"
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={() => {
                                     if (confirm(`Remover regra padrão de ${regra.uf}?`)) {
                                       deleteRegra(regra.id);
                                     }
                                   }}
-                                  className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded"
+                                  className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   title="Remover regra"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -263,14 +267,14 @@ export const PerfisRegrasPage: React.FC = () => {
                 )}
               </Card>
 
-              {/* Seção 2: Exceções por Estado + NCM (Alta Prioridade) */}
+              {/* Seção 2: Exceções por Estado + NCM */}
               <Card
                 title="Exceções Tributárias por NCM (Prioridade Máxima)"
                 subtitle="Quando o item da nota coincidir com o NCM, esta alíquota sobrescreve a regra padrão"
                 headerAction={
                   <Button
                     size="sm"
-                    className="bg-purple-800 hover:bg-purple-900 focus:ring-purple-800"
+                    className="bg-purple-700 hover:bg-purple-800 focus:ring-purple-700 text-white shadow-xs shadow-purple-700/20"
                     onClick={() => handleOpenCreateRegra('excecao')}
                     leftIcon={<Plus className="w-3.5 h-3.5" />}
                   >
@@ -281,59 +285,61 @@ export const PerfisRegrasPage: React.FC = () => {
                 {isLoadingRegras ? (
                   <LoadingSpinner size="sm" message="Carregando exceções..." />
                 ) : regrasExcecao.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic py-4 text-center">
+                  <p className="text-xs text-slate-500 italic py-6 text-center bg-purple-50/20 rounded-xl border border-dashed border-purple-200/80">
                     Nenhuma exceção por NCM configurada. Itens serão calculados pela alíquota padrão da UF.
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs divide-y divide-slate-200">
-                      <thead className="bg-purple-50/60 text-purple-950 font-semibold uppercase tracking-wider text-[11px]">
+                  <div className="overflow-x-auto -mx-5 -my-5">
+                    <table className="w-full text-left text-xs divide-y divide-purple-100/60">
+                      <thead className="bg-purple-50/50 text-purple-900 font-bold uppercase tracking-wider text-[10px]">
                         <tr>
-                          <th className="py-2.5 px-3">Estado</th>
-                          <th className="py-2.5 px-3 font-mono">NCM (8 dígitos)</th>
-                          <th className="py-2.5 px-3">Precedência</th>
-                          <th className="py-2.5 px-3 font-mono text-right">A.DST Específica</th>
-                          <th className="py-2.5 px-3">Descrição da Exceção</th>
-                          <th className="py-2.5 px-3 text-right">Ações</th>
+                          <th className="py-3 px-4">Estado</th>
+                          <th className="py-3 px-4 font-mono">NCM (8 dígitos)</th>
+                          <th className="py-3 px-4">Precedência</th>
+                          <th className="py-3 px-4 font-mono text-right">A.DST Específica</th>
+                          <th className="py-3 px-4">Descrição da Exceção</th>
+                          <th className="py-3 px-4 text-right">Ações</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-purple-100/40">
                         {regrasExcecao.map((regra) => (
                           <tr key={regra.id} className="hover:bg-purple-50/30 transition-colors">
-                            <td className="py-2.5 px-3 font-bold text-slate-800">
+                            <td className="py-3 px-4 font-bold text-slate-800">
                               {regra.uf}
                             </td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-purple-900">
+                            <td className="py-3 px-4 font-mono font-bold text-purple-900">
                               {regra.ncm}
                             </td>
-                            <td className="py-2.5 px-3">
+                            <td className="py-3 px-4">
                               <Badge variant="purple" size="sm">
-                                <Zap className="w-3 h-3 mr-1 text-purple-600" />
-                                Exceção com Prioridade
+                                <Zap className="w-3 h-3 text-purple-600 shrink-0" />
+                                <span>Exceção Prioritária</span>
                               </Badge>
                             </td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-purple-950 text-right">
+                            <td className="py-3 px-4 font-mono font-bold text-purple-950 text-right tabular-nums">
                               {formatPercent(regra.aliquota)}
                             </td>
-                            <td className="py-2.5 px-3 text-slate-600">
+                            <td className="py-3 px-4 text-slate-600">
                               {regra.descricao || '-'}
                             </td>
-                            <td className="py-2.5 px-3 text-right">
+                            <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <button
+                                  type="button"
                                   onClick={() => handleOpenEditRegra(regra)}
-                                  className="p-1 text-slate-400 hover:text-purple-800 hover:bg-purple-50 rounded"
+                                  className="p-1.5 text-slate-400 hover:text-purple-800 hover:bg-purple-50 rounded-lg transition-colors cursor-pointer"
                                   title="Editar exceção"
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={() => {
                                     if (confirm(`Remover exceção NCM ${regra.ncm} para ${regra.uf}?`)) {
                                       deleteRegra(regra.id);
                                     }
                                   }}
-                                  className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded"
+                                  className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   title="Remover exceção"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -366,64 +372,66 @@ export const PerfisRegrasPage: React.FC = () => {
                 {isLoadingRegrasCfop ? (
                   <LoadingSpinner size="sm" message="Carregando regras de CFOP..." />
                 ) : regrasCfopEfetivas.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic py-4 text-center">
-                    Nenhuma regra de CFOP cadastrada (nem mesmo os padrões globais).
+                  <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                    Nenhuma regra de CFOP cadastrada.
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs divide-y divide-slate-200">
-                      <thead className="bg-slate-50 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
+                  <div className="overflow-x-auto -mx-5 -my-5">
+                    <table className="w-full text-left text-xs divide-y divide-slate-100">
+                      <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                         <tr>
-                          <th className="py-2.5 px-3 font-mono">CFOP (sufixo)</th>
-                          <th className="py-2.5 px-3">Planilha de Destino</th>
-                          <th className="py-2.5 px-3">Origem</th>
-                          <th className="py-2.5 px-3">Descrição</th>
-                          <th className="py-2.5 px-3 text-right">Ações</th>
+                          <th className="py-3 px-4 font-mono">CFOP (sufixo)</th>
+                          <th className="py-3 px-4">Planilha de Destino</th>
+                          <th className="py-3 px-4">Origem</th>
+                          <th className="py-3 px-4">Descrição</th>
+                          <th className="py-3 px-4 text-right">Ações</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100/80">
                         {regrasCfopEfetivas.map((regra) => (
                           <tr key={regra.cfop_sufixo} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="py-2.5 px-3">
+                            <td className="py-3 px-4">
                               <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
                                 {regra.cfop_sufixo}
                               </span>
                             </td>
-                            <td className="py-2.5 px-3">
+                            <td className="py-3 px-4">
                               <Badge variant={DESTINO_CFOP_BADGE_VARIANTS[regra.destino]} size="sm">
                                 {DESTINO_CFOP_LABELS[regra.destino]}
                               </Badge>
                             </td>
-                            <td className="py-2.5 px-3">
+                            <td className="py-3 px-4">
                               {regra.origem === 'perfil' ? (
                                 <Badge variant="purple" size="sm">
-                                  <Zap className="w-3 h-3 mr-1 text-purple-600" />
-                                  Exceção deste perfil
+                                  <Zap className="w-3 h-3 text-purple-600 shrink-0" />
+                                  <span>Exceção deste perfil</span>
                                 </Badge>
                               ) : (
                                 <Badge variant="neutral" size="sm">Padrão do sistema</Badge>
                               )}
                             </td>
-                            <td className="py-2.5 px-3 text-slate-600">
+                            <td className="py-3 px-4 text-slate-600">
                               {regra.descricao || '-'}
                             </td>
-                            <td className="py-2.5 px-3 text-right">
+                            <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <button
+                                  type="button"
                                   onClick={() => handleOpenEditRegraCfop(regra)}
-                                  className="p-1 text-slate-400 hover:text-blue-800 hover:bg-blue-50 rounded"
+                                  className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                                   title={regra.origem === 'perfil' ? 'Editar exceção' : 'Sobrescrever para este perfil'}
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                                 {regra.origem === 'perfil' && (
                                   <button
+                                    type="button"
                                     onClick={() => {
                                       if (confirm(`Remover a exceção de CFOP ${regra.cfop_sufixo} deste perfil? Voltará a usar o padrão do sistema.`)) {
                                         deleteRegraCfop(regra.regra_id);
                                       }
                                     }}
-                                    className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded"
+                                    className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                     title="Remover exceção"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -496,32 +504,32 @@ export const PerfisRegrasPage: React.FC = () => {
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label
-                className={`flex items-center gap-2 p-3 rounded-md border cursor-pointer text-xs font-medium transition-colors ${
+                className={`flex items-center gap-2 p-3.5 rounded-xl border cursor-pointer text-xs font-semibold transition-all ${
                   tipoRegraWatch === 'padrao'
-                    ? 'bg-blue-50 border-blue-600 text-blue-900 font-bold'
+                    ? 'bg-blue-50 border-blue-600 text-blue-950 font-bold shadow-2xs'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 <input
                   type="radio"
                   value="padrao"
-                  className="text-blue-800 focus:ring-blue-800"
+                  className="text-blue-600 focus:ring-blue-500 h-4 w-4"
                   {...registerRegra('tipo_regra')}
                 />
                 <span>Padrão do Estado (UF)</span>
               </label>
 
               <label
-                className={`flex items-center gap-2 p-3 rounded-md border cursor-pointer text-xs font-medium transition-colors ${
+                className={`flex items-center gap-2 p-3.5 rounded-xl border cursor-pointer text-xs font-semibold transition-all ${
                   tipoRegraWatch === 'excecao'
-                    ? 'bg-purple-50 border-purple-600 text-purple-900 font-bold'
+                    ? 'bg-purple-50 border-purple-600 text-purple-950 font-bold shadow-2xs'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 <input
                   type="radio"
                   value="excecao"
-                  className="text-purple-800 focus:ring-purple-800"
+                  className="text-purple-600 focus:ring-purple-500 h-4 w-4"
                   {...registerRegra('tipo_regra')}
                 />
                 <span>Exceção por NCM</span>
@@ -602,17 +610,14 @@ export const PerfisRegrasPage: React.FC = () => {
           />
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">
-              Planilha de Destino
-            </label>
-            <select
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-800 text-slate-900"
+            <Select
+              label="Planilha de Destino"
+              options={(Object.keys(DESTINO_CFOP_LABELS) as DestinoCfop[]).map((d) => ({
+                value: d,
+                label: DESTINO_CFOP_LABELS[d],
+              }))}
               {...registerRegraCfop('destino')}
-            >
-              {(Object.keys(DESTINO_CFOP_LABELS) as DestinoCfop[]).map((d) => (
-                <option key={d} value={d}>{DESTINO_CFOP_LABELS[d]}</option>
-              ))}
-            </select>
+            />
           </div>
 
           <Input

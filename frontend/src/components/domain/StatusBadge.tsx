@@ -10,16 +10,17 @@ interface StatusBadgeProps {
 }
 
 const STATUS_ICONS: Partial<Record<StatusSolicitacao, ReactNode>> = {
-  concluido: <CheckCircle2 className="w-3 h-3 mr-1" />,
-  processando: <Clock className="w-3 h-3 mr-1 animate-spin" />,
-  erro: <AlertCircle className="w-3 h-3 mr-1" />,
+  concluido: <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />,
+  processando: <Clock className="w-3 h-3 text-blue-600 animate-spin shrink-0" />,
+  erro: <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />,
+  pendente: <Clock className="w-3 h-3 text-amber-600 shrink-0" />,
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
   return (
     <Badge variant={STATUS_BADGE_VARIANTS[status]} size="sm">
       {STATUS_ICONS[status]}
-      {STATUS_LABELS[status]}
+      <span>{STATUS_LABELS[status]}</span>
     </Badge>
   );
 }

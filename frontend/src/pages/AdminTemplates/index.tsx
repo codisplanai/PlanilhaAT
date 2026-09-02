@@ -3,8 +3,7 @@ import {
   FileCode2,
   Upload,
   ShieldAlert,
-  CheckCircle2,
-  RotateCcw
+  RotateCcw,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -17,6 +16,7 @@ import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
+import { PageHeader } from '../../components/layout/PageHeader';
 import { formatDate } from '../../lib/formatters';
 import { useAdminTemplatesPage } from './useAdminTemplatesPage';
 
@@ -44,33 +44,25 @@ export const AdminTemplatesPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header com Alerta de Área Restrita */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-1 rounded bg-amber-100 text-amber-800 border border-amber-300">
-              <ShieldAlert className="w-4 h-4" />
-            </span>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Administração de Modelos de Planilha (Templates)
-            </h1>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Gestão restrita de arquivos `.xlsx`, mapeamento obrigatório de células de entrada e controle de versões
-          </p>
-        </div>
-
-        <Button
-          onClick={() => handleOpenUploadModal(selectedType)}
-          className="bg-amber-600 hover:bg-amber-700 focus:ring-amber-600 text-white"
-          leftIcon={<Upload className="w-4 h-4" />}
-        >
-          Subir Novo Modelo (.xlsx)
-        </Button>
-      </div>
+      {/* PageHeader Padronizado */}
+      <PageHeader
+        icon={<ShieldAlert className="w-5 h-5 text-amber-600" />}
+        title="Administração de Modelos de Planilha (Templates)"
+        description="Gestão restrita de arquivos .xlsx, mapeamento obrigatório de células de entrada e controle de versões"
+        badge={<Badge variant="warning" size="sm">Área Restrita</Badge>}
+        action={
+          <Button
+            onClick={() => handleOpenUploadModal(selectedType)}
+            className="bg-amber-600 hover:bg-amber-700 focus:ring-amber-600 text-white shadow-xs shadow-amber-600/20"
+            leftIcon={<Upload className="w-4 h-4" />}
+          >
+            Subir Novo Modelo (.xlsx)
+          </Button>
+        }
+      />
 
       {/* Tabs por Tipo de Planilha */}
-      <div className="flex border-b border-slate-200 gap-2">
+      <div className="flex border-b border-slate-200/80 gap-1.5 overflow-x-auto pb-0.5">
         {tiposPlanilha.map((tipo) => {
           const isSelected = selectedType === tipo.id;
           const count = templates.filter((t) => t.tipo === tipo.id).length;
@@ -78,14 +70,16 @@ export const AdminTemplatesPage: React.FC = () => {
             <button
               key={tipo.id}
               onClick={() => setSelectedType(tipo.id)}
-              className={`py-2.5 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-2 ${
+              className={`py-2.5 px-4 text-xs font-bold border-b-2 transition-all duration-150 flex items-center gap-2 cursor-pointer select-none rounded-t-lg shrink-0 ${
                 isSelected
-                  ? 'border-amber-600 text-amber-900 bg-amber-50/50'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-amber-600 text-amber-950 bg-amber-50/60'
+                  : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'
               }`}
             >
               <span>{tipo.nome}</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700">
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                isSelected ? 'bg-amber-200 text-amber-900' : 'bg-slate-200/80 text-slate-700'
+              }`}>
                 {count}
               </span>
             </button>
@@ -100,39 +94,41 @@ export const AdminTemplatesPage: React.FC = () => {
         <ErrorAlert message={getErrorMessage(error)} />
       ) : filteredTemplates.length === 0 ? (
         <EmptyState
-          icon={<FileCode2 className="w-8 h-8 text-amber-600" />}
+          icon={<FileCode2 className="w-7 h-7 text-amber-600" />}
           title={`Nenhum modelo cadastrado para ${tiposPlanilha.find((t) => t.id === selectedType)?.nome}`}
           description="Faça o upload do primeiro arquivo .xlsx modelo e declare o mapeamento obrigatório de colunas para habilitar a geração de planilhas."
           actionLabel="Subir Primeiro Modelo"
           onAction={() => handleOpenUploadModal(selectedType)}
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 animate-fade-in">
           {filteredTemplates.map((template) => {
             const isAtivo = template.ativo;
             const mapping = template.mapeamento_campos;
             return (
               <Card
                 key={template.id}
-                className={isAtivo ? 'border-emerald-300 ring-1 ring-emerald-500/20 shadow-sm' : 'opacity-90'}
+                className={isAtivo ? 'border-emerald-300 ring-2 ring-emerald-500/20 shadow-xs' : 'opacity-95'}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3.5">
                     <div
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm ${
-                        isAtivo ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
+                      className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold font-mono text-sm shadow-2xs ${
+                        isAtivo
+                          ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                          : 'bg-slate-100 text-slate-600'
                       }`}
                     >
                       v{template.versao}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm font-bold text-slate-900">
                           Versão {template.versao} — {tiposPlanilha.find((t) => t.id === template.tipo)?.nome}
                         </h3>
                         {isAtivo ? (
-                          <Badge variant="success" size="sm">
-                            <CheckCircle2 className="w-3 h-3 mr-1" /> Versão Vigente (Ativa)
+                          <Badge variant="success" size="sm" dot>
+                            Versão Vigente (Ativa)
                           </Badge>
                         ) : (
                           <Badge variant="neutral" size="sm">
@@ -142,7 +138,7 @@ export const AdminTemplatesPage: React.FC = () => {
                       </div>
                       <p className="text-[11px] text-slate-500 mt-0.5">
                         Cadastrado em {formatDate(template.criado_em)} • Hash SHA-256:{' '}
-                        <span className="font-mono text-[10px] text-slate-600">{template.arquivo_hash.slice(0, 16)}...</span>
+                        <span className="font-mono text-[10px] text-slate-600 font-medium">{template.arquivo_hash.slice(0, 16)}...</span>
                       </p>
                     </div>
                   </div>
@@ -161,24 +157,24 @@ export const AdminTemplatesPage: React.FC = () => {
                 </div>
 
                 {template.observacoes && (
-                  <p className="text-xs text-slate-600 mt-3 italic bg-slate-50 p-2.5 rounded">
+                  <p className="text-xs text-slate-600 mt-3 italic bg-slate-50/80 p-3 rounded-lg border border-slate-200/60 leading-relaxed">
                     "{template.observacoes}"
                   </p>
                 )}
 
                 {/* Mapeamento Declarado */}
                 <div className="mt-4 pt-3 border-t border-slate-100">
-                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
                     Mapeamento Declarado de Células / Colunas:
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <div className="bg-slate-50 p-2 rounded border border-slate-200">
+                    <div className="bg-slate-50/80 p-2.5 rounded-lg border border-slate-200/80">
                       <span className="text-[10px] text-slate-400 block font-semibold">Linha Inicial</span>
                       <span className="font-bold font-mono text-slate-800">Linha {mapping.start_row}</span>
                     </div>
 
                     {Object.entries(mapping.columns || {}).map(([campo, col]) => (
-                      <div key={campo} className="bg-slate-50 p-2 rounded border border-slate-200">
+                      <div key={campo} className="bg-slate-50/80 p-2.5 rounded-lg border border-slate-200/80">
                         <span className="text-[10px] text-slate-400 block font-semibold truncate">{campo}</span>
                         <span className="font-bold font-mono text-blue-900">Coluna {col}</span>
                       </div>
@@ -218,20 +214,20 @@ export const AdminTemplatesPage: React.FC = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
                 Arquivo Excel (.xlsx)
               </label>
               <input
                 type="file"
                 accept=".xlsx"
                 onChange={selectFile}
-                className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
               />
             </div>
           </div>
 
-          <div className="bg-amber-50/70 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+          <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3.5 text-xs text-amber-900 leading-relaxed">
             <span className="font-bold block mb-0.5">Declaração de Mapeamento Obrigatória:</span>
             Indique a letra da coluna correspondente a cada dado na planilha. O sistema escreverá <strong>exclusivamente</strong> nessas colunas, preservando as fórmulas do Excel intactas.
           </div>
@@ -319,14 +315,14 @@ export const AdminTemplatesPage: React.FC = () => {
             />
           </div>
 
-          <div className="pt-2 flex items-center gap-2">
+          <div className="pt-2 flex items-center gap-2.5">
             <input
               type="checkbox"
               id="promover_ativo"
-              className="rounded border-slate-300 text-blue-800 focus:ring-blue-800 h-4 w-4"
+              className="rounded-md border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
               {...register('promover_ativo')}
             />
-            <label htmlFor="promover_ativo" className="text-xs text-slate-700 font-medium cursor-pointer">
+            <label htmlFor="promover_ativo" className="text-xs text-slate-700 font-medium cursor-pointer select-none">
               Tornar esta versão imediatamente vigente (ativa) para novos processamentos
             </label>
           </div>

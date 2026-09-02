@@ -16,7 +16,7 @@ import {
   CalendarDays,
   FileUp,
   X,
-  AlertTriangle
+  AlertTriangle,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -69,10 +69,27 @@ export const NovaSolicitacaoPage: React.FC = () => {
     startNewRequest,
   } = useNovaSolicitacaoPage();
 
+  // Helper presets for quick period selection
+  const handleSetCurrentMonth = () => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+    setPeriodoInicio(start);
+    setPeriodoFim(end);
+  };
+
+  const handleSetPreviousMonth = () => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
+    const end = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().split('T')[0];
+    setPeriodoInicio(start);
+    setPeriodoFim(end);
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <PageHeader
-        icon={<FileSpreadsheet className="w-6 h-6 text-blue-800" />}
+        icon={<FileSpreadsheet className="w-5 h-5 text-blue-700" />}
         title="Gerar Planilha de Antecipação / DIFAL"
         description="Assistente guiado em 4 etapas para extração de dados e preenchimento determinístico do Excel"
       />
@@ -81,37 +98,40 @@ export const NovaSolicitacaoPage: React.FC = () => {
       {empresasError && <ErrorAlert message={getErrorMessage(empresasError)} />}
       {fileError && <ErrorAlert title="Arquivo não aceito" message={fileError} onDismiss={clearFileError} />}
 
-      {/* Wizard Steps Bar */}
-      <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+      {/* Modern Stepper Bar */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs">
         <div className="flex items-center justify-between">
           {REQUEST_STEPS.map((s, idx) => {
             const isDone = currentStep > s.num || (currentStep === 4 && resultadoSolicitacao?.status === 'concluido');
             const isCurrent = currentStep === s.num;
             return (
               <React.Fragment key={s.num}>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold transition-all duration-200 select-none ${
                       isDone
-                        ? 'bg-emerald-600 text-white shadow-sm'
+                        ? 'bg-emerald-600 text-white shadow-xs shadow-emerald-600/20'
                         : isCurrent
-                        ? 'bg-blue-800 text-white ring-4 ring-blue-100'
+                        ? 'bg-blue-700 text-white shadow-xs shadow-blue-600/25 ring-4 ring-blue-500/15'
                         : 'bg-slate-100 text-slate-400'
                     }`}
                   >
                     {isDone ? <CheckCircle2 className="w-4 h-4" /> : s.num}
                   </div>
-                  <span
-                    className={`text-xs font-semibold hidden sm:inline ${
-                      isCurrent ? 'text-blue-900' : isDone ? 'text-slate-700' : 'text-slate-400'
-                    }`}
-                  >
-                    {s.label}
-                  </span>
+                  <div className="hidden sm:block">
+                    <p
+                      className={`text-xs font-bold leading-tight ${
+                        isCurrent ? 'text-blue-950' : isDone ? 'text-slate-800' : 'text-slate-400'
+                      }`}
+                    >
+                      {s.label}
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-medium">Etapa {s.num}</p>
+                  </div>
                 </div>
                 {idx < REQUEST_STEPS.length - 1 && (
                   <div
-                    className={`flex-1 h-0.5 mx-2 sm:mx-4 transition-colors ${
+                    className={`flex-1 h-0.5 mx-2 sm:mx-4 transition-colors duration-200 rounded-full ${
                       currentStep > s.num ? 'bg-emerald-500' : 'bg-slate-200'
                     }`}
                   />
@@ -123,71 +143,83 @@ export const NovaSolicitacaoPage: React.FC = () => {
       </div>
 
       {/* Main Content by Step */}
-      <Card className="p-6">
+      <Card className="p-6 sm:p-7">
         {/* ETAPA 1: SELEÇÃO DA EMPRESA */}
         {currentStep === 1 && (
-          <div className="space-y-4">
+          <div className="space-y-5 animate-fade-in">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Etapa 1: Selecionar Empresa Cliente</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Etapa 1: Selecionar Empresa Cliente
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                 Escolha a empresa para a qual a planilha será gerada. <strong>Regra fundamental:</strong> Apenas notas fiscais emitidas por fornecedores de UF diferente da empresa cliente (operações interestaduais) são consideradas no cálculo de Antecipação e DIFAL.
               </p>
             </div>
 
             {/* Busca */}
             <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Filtrar por Razão Social, CNPJ ou Estado..."
                 value={empresaSearch}
                 onChange={(e) => setEmpresaSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-800 text-slate-900"
+                className="w-full pl-9 pr-8 py-2.5 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-xl focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 transition-all text-slate-900 placeholder:text-slate-400"
               />
+              {empresaSearch && (
+                <button
+                  type="button"
+                  onClick={() => setEmpresaSearch('')}
+                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
             {isLoadingEmpresas ? (
-              <LoadingSpinner message="Carregando empresas..." />
+              <LoadingSpinner message="Carregando empresas cadastradas..." />
             ) : filteredEmpresas.length === 0 ? (
-              <div className="py-6 text-center text-xs text-slate-500">
+              <div className="py-8 text-center text-xs text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
                 Nenhuma empresa encontrada com o termo pesquisado.
               </div>
             ) : (
-              <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-md">
+              <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
                 {filteredEmpresas.map((empresa) => {
                   const isSelected = selectedEmpresa?.id === empresa.id;
                   return (
                     <div
                       key={empresa.id}
                       onClick={() => setSelectedEmpresa(empresa)}
-                      className={`p-3 text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                      className={`p-3.5 rounded-xl border transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none ${
                         isSelected
-                          ? 'bg-blue-50/80 text-blue-900 font-medium'
-                          : 'hover:bg-slate-50 text-slate-700'
+                          ? 'bg-blue-50/80 border-blue-600 ring-2 ring-blue-600/20 shadow-xs'
+                          : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/60'
                       }`}
                     >
-                      <div className="space-y-0.5">
-                        <div className="font-semibold text-slate-900 flex items-center gap-2">
+                      <div className="space-y-1">
+                        <div className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
                           <span>{empresa.razao_social}</span>
-                          <span className="font-bold text-[10px] bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                          <span className="font-bold text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
                             {empresa.uf}
                           </span>
                         </div>
-                        <div className="text-[11px] font-mono text-slate-500 flex items-center gap-3">
+                        <div className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center gap-3">
                           <span>CNPJ: {formatCNPJ(empresa.cnpj)}</span>
                           {empresa.inscricao_estadual && (
                             <span className="text-slate-600 font-semibold">• I.E.: {empresa.inscricao_estadual}</span>
                           )}
                         </div>
                       </div>
-                      <div>
+
+                      <div className="shrink-0">
                         {isSelected ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Selecionada
                           </span>
                         ) : (
-                          <span className="text-[11px] text-slate-400 group-hover:text-slate-600">
-                            Clique para selecionar
+                          <span className="text-[11px] font-medium text-slate-400 hover:text-slate-600">
+                            Selecionar
                           </span>
                         )}
                       </div>
@@ -211,42 +243,69 @@ export const NovaSolicitacaoPage: React.FC = () => {
 
         {/* ETAPA 2: SELEÇÃO DO PERÍODO */}
         {currentStep === 2 && (
-          <div className="space-y-5">
+          <div className="space-y-5 animate-fade-in">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Etapa 2: Período de Competência</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Etapa 2: Período de Competência
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                 Defina o intervalo de datas das notas fiscais a serem processadas para a empresa <strong>{selectedEmpresa?.razao_social}</strong>.
               </p>
             </div>
 
+            {/* Quick Period Presets */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
+                Atalhos Rápidos:
+              </span>
+              <button
+                type="button"
+                onClick={handleSetCurrentMonth}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                Mês Atual
+              </button>
+              <button
+                type="button"
+                onClick={handleSetPreviousMonth}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                Mês Anterior
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
                   Data Inicial do Período
                 </label>
-                <input
-                  type="date"
-                  value={periodoInicio}
-                  onChange={(e) => setPeriodoInicio(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-800 text-slate-900"
-                />
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={periodoInicio}
+                    onChange={(e) => setPeriodoInicio(e.target.value)}
+                    className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
                   Data Final do Período
                 </label>
-                <input
-                  type="date"
-                  value={periodoFim}
-                  onChange={(e) => setPeriodoFim(e.target.value)}
-                  min={periodoInicio}
-                  className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-800 text-slate-900"
-                />
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={periodoFim}
+                    onChange={(e) => setPeriodoFim(e.target.value)}
+                    min={periodoInicio}
+                    className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-blue-900 flex items-center gap-2">
+            <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3.5 text-xs text-blue-950 flex items-center gap-2.5">
               <Calendar className="w-4 h-4 text-blue-700 shrink-0" />
               <span>
                 Notas fiscais com data de emissão fora deste intervalo serão bloqueadas pela Camada de Sanidade do backend.
@@ -264,25 +323,27 @@ export const NovaSolicitacaoPage: React.FC = () => {
           </div>
         )}
 
-        {/* ETAPA 3: UPLOAD DE ARQUIVOS (XML E/OU SPED FISCAL) + PLANILHA CONTÁBIL */}
+        {/* ETAPA 3: UPLOAD DE ARQUIVOS */}
         {currentStep === 3 && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Etapa 3: Adicionar Arquivos de Entrada</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Etapa 3: Adicionar Arquivos de Entrada
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                 Envie os XMLs de NF-e, o arquivo SPED Fiscal (.txt) da competência, ou ambos simultaneamente.
               </p>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-blue-900">
+            <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3.5 text-xs text-blue-950 leading-relaxed">
               Envie os <strong>XMLs da competência</strong> e o <strong>SPED Fiscal do mesmo mês</strong> para
               separar automaticamente a planilha <strong>Antecipação Parcial — Pago Antecipadamente</strong>:
               as notas emitidas no período que não constarem do SPED ainda não deram entrada no estabelecimento
               e são apuradas em arquivo próprio. Enviando apenas os XMLs, todas entram na planilha normal.
             </div>
 
-            {/* Fonte 1: XMLs de NF-e da competência ou Pacote .ZIP */}
-            <div className="space-y-2">
+            {/* Fonte 1: XMLs / ZIP */}
+            <div className="space-y-2.5">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                 Arquivos XML de NF-e ou Pacote .ZIP (opcional se enviar o SPED)
               </label>
@@ -292,7 +353,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 aria-label="Selecionar XMLs ou arquivos ZIP"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleXmlDrop}
-                className="border-2 border-dashed border-slate-300 hover:border-blue-700 bg-slate-50/50 hover:bg-blue-50/30 rounded-lg p-6 text-center transition-colors cursor-pointer"
+                className="border-2 border-dashed border-slate-300 hover:border-blue-600 bg-slate-50/60 hover:bg-blue-50/30 rounded-2xl p-7 text-center transition-all cursor-pointer group"
                 onClick={() => document.getElementById('xml-file-input')?.click()}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') document.getElementById('xml-file-input')?.click();
@@ -306,46 +367,48 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   onChange={handleXmlInput}
                   className="hidden"
                 />
-                <UploadCloud className="w-8 h-8 text-blue-700 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-slate-800">
-                  Arraste os arquivos XML ou pacotes .ZIP aqui, ou <span className="text-blue-800 underline">clique para selecionar</span>
+                <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mx-auto mb-2.5 transition-transform group-hover:scale-105 shadow-2xs">
+                  <UploadCloud className="w-6 h-6" />
+                </div>
+                <p className="text-xs sm:text-sm font-semibold text-slate-800">
+                  Arraste os arquivos XML ou pacotes .ZIP aqui, ou <span className="text-blue-700 underline font-bold">clique para selecionar</span>
                 </p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <p className="text-[11px] text-slate-400 mt-1">
                   Suporta seleção múltipla de XMLs de NF-e ou arquivos compactados (.zip)
                 </p>
               </div>
 
               {/* Lista de Arquivos XML / ZIP Adicionados */}
               {xmlFiles.length > 0 && (
-                <div className="space-y-1.5 pt-1">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 px-1">
                     <span>Arquivos Selecionados ({xmlFiles.length})</span>
                     <button
                       type="button"
                       onClick={() => setXmlFiles([])}
-                      className="text-red-600 hover:text-red-800 font-medium text-[11px]"
+                      className="text-rose-600 hover:text-rose-800 font-bold text-[11px] cursor-pointer"
                     >
                       Limpar Todos
                     </button>
                   </div>
 
-                  <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-md divide-y divide-slate-100 bg-white">
+                  <div className="max-h-40 overflow-y-auto border border-slate-200/80 rounded-xl divide-y divide-slate-100 bg-white">
                     {xmlFiles.map((file, idx) => {
                       const isZip = file.name.toLowerCase().endsWith('.zip');
                       return (
-                        <div key={`${file.name}-${file.size}-${file.lastModified}`} className="p-2 flex items-center justify-between text-xs hover:bg-slate-50">
-                          <div className="flex items-center gap-2 overflow-hidden">
+                        <div key={`${file.name}-${file.size}-${file.lastModified}`} className="p-2.5 flex items-center justify-between text-xs hover:bg-slate-50/80 transition-colors">
+                          <div className="flex items-center gap-2.5 overflow-hidden">
                             {isZip ? (
-                              <FileArchive className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <FileArchive className="w-4 h-4 text-amber-600 shrink-0" />
                             ) : (
-                              <FileCode className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                              <FileCode className="w-4 h-4 text-blue-700 shrink-0" />
                             )}
-                            <span className="font-medium text-slate-800 truncate">{file.name}</span>
+                            <span className="font-semibold text-slate-800 truncate">{file.name}</span>
                             <span className="text-[10px] text-slate-400 font-mono">
                               ({(file.size / 1024).toFixed(1)} KB)
                             </span>
                             {isZip && (
-                              <span className="text-[10px] bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider">
+                              <span className="text-[9px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
                                 ZIP
                               </span>
                             )}
@@ -354,10 +417,10 @@ export const NovaSolicitacaoPage: React.FC = () => {
                             type="button"
                             onClick={() => removeXmlFile(idx)}
                             aria-label={`Remover ${file.name}`}
-                            className="text-slate-400 hover:text-red-600 p-1 transition-colors"
+                            className="text-slate-400 hover:text-rose-600 p-1 transition-colors cursor-pointer"
                             title="Remover arquivo"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       );
@@ -367,13 +430,13 @@ export const NovaSolicitacaoPage: React.FC = () => {
               )}
             </div>
 
-            {/* Fonte 2: SPED Fiscal da MESMA competência */}
-            <div className="space-y-2">
+            {/* Fonte 2: SPED Fiscal */}
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                   Arquivo SPED Fiscal EFD ICMS/IPI (.txt) (opcional)
                 </label>
-                <span className="text-[11px] font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200/60">
                   ✨ Datas de Entrada Nativas
                 </span>
               </div>
@@ -389,7 +452,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') document.getElementById('sped-file-input')?.click();
                   }}
-                  className="border-2 border-dashed border-indigo-200 hover:border-indigo-600 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-lg p-6 text-center transition-colors cursor-pointer"
+                  className="border-2 border-dashed border-indigo-200/80 hover:border-indigo-600 bg-indigo-50/20 hover:bg-indigo-50/50 rounded-2xl p-6 text-center transition-all cursor-pointer group"
                 >
                   <input
                     id="sped-file-input"
@@ -398,18 +461,20 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     onChange={handleSpedInput}
                     className="hidden"
                   />
-                  <UploadCloud className="w-8 h-8 text-indigo-700 mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-800">
-                    Arraste o arquivo SPED Fiscal (.txt) aqui, ou <span className="text-indigo-700 underline">clique para selecionar</span>
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-105 shadow-2xs">
+                    <UploadCloud className="w-5 h-5" />
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold text-slate-800">
+                    Arraste o arquivo SPED Fiscal (.txt) aqui, ou <span className="text-indigo-700 underline font-bold">clique para selecionar</span>
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Arquivo gerado pelo sistema contábil contendo os registros 0000, 0150, 0200, C100 e C170
                   </p>
                 </div>
               ) : (
-                <div className="border border-indigo-300 bg-indigo-50/80 rounded-lg p-3.5 flex items-center justify-between">
+                <div className="border border-indigo-300/80 bg-indigo-50/70 rounded-xl p-3.5 flex items-center justify-between">
                   <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-8 h-8 rounded bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
                       <FileCheck2 className="w-4 h-4" />
                     </div>
                     <div className="overflow-hidden">
@@ -425,7 +490,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     type="button"
                     onClick={() => setSpedFile(null)}
                     aria-label="Remover arquivo SPED"
-                    className="p-1 rounded text-indigo-800 hover:text-red-700 hover:bg-indigo-100 transition-colors"
+                    className="p-1.5 rounded-lg text-indigo-800 hover:text-rose-700 hover:bg-indigo-100 transition-colors cursor-pointer"
                     title="Remover arquivo SPED"
                   >
                     <X className="w-4 h-4" />
@@ -434,9 +499,9 @@ export const NovaSolicitacaoPage: React.FC = () => {
               )}
             </div>
 
-            {/* Segundo Campo de Upload: Planilha Contábil de Datas de Entrada (Opcional) */}
-            <div className="pt-3 border-t border-slate-200/80 space-y-2">
-              <div className="flex items-center gap-1.5">
+            {/* Fonte 3: Planilha Auxiliar de Datas */}
+            <div className="pt-3 border-t border-slate-200/80 space-y-2.5">
+              <div className="flex items-center gap-2">
                 <CalendarDays className="w-4 h-4 text-emerald-700" />
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-800">
                   Planilha auxiliar de datas de entrada (opcional)
@@ -444,8 +509,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 <Badge variant="neutral" size="sm">Opcional</Badge>
               </div>
 
-              <p className="text-xs text-slate-500">
-                {'Se você tiver a exportação do sistema contábil (Prosoft ou similar) com as datas de entrada das notas, anexe aqui para preencher automaticamente. Caso não possua, a data de entrada permanecerá em branco para preenchimento manual.'}
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Se você tiver a exportação do sistema contábil com as datas de entrada das notas, anexe aqui para preencher automaticamente. Caso não possua, a data de entrada permanecerá em branco para preenchimento manual.
               </p>
 
               {!planilhaEntradaFile ? (
@@ -457,7 +522,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') document.getElementById('planilha-entrada-input')?.click();
                   }}
-                  className="border border-emerald-300/80 bg-emerald-50/40 hover:bg-emerald-50 rounded-lg p-3.5 flex items-center justify-between cursor-pointer transition-colors"
+                  className="border border-emerald-300/80 bg-emerald-50/40 hover:bg-emerald-50 rounded-xl p-3.5 flex items-center justify-between cursor-pointer transition-colors"
                 >
                   <input
                     id="planilha-entrada-input"
@@ -467,11 +532,11 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     className="hidden"
                   />
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
                       <FileUp className="w-4 h-4" />
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-emerald-950">
+                      <p className="text-xs font-bold text-emerald-950">
                         Anexar planilha contábil (.xls / .xlsx)
                       </p>
                       <p className="text-[11px] text-emerald-700">
@@ -479,12 +544,12 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <span className="inline-flex items-center rounded-md px-2.5 py-1.5 text-xs font-medium border border-emerald-400 text-emerald-800 bg-white">
+                  <span className="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-bold border border-emerald-400 text-emerald-800 bg-white shadow-2xs">
                     Selecionar Arquivo
                   </span>
                 </div>
               ) : (
-                <div className="border border-emerald-300 bg-emerald-50/90 rounded-lg p-3 flex items-center justify-between">
+                <div className="border border-emerald-300 bg-emerald-50/80 rounded-xl p-3.5 flex items-center justify-between">
                   <div className="flex items-center gap-2.5 overflow-hidden">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <div className="overflow-hidden">
@@ -500,7 +565,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     type="button"
                     onClick={() => setPlanilhaEntradaFile(null)}
                     aria-label="Remover planilha auxiliar"
-                    className="p-1 rounded text-emerald-800 hover:text-red-700 hover:bg-emerald-100 transition-colors"
+                    className="p-1.5 rounded-lg text-emerald-800 hover:text-rose-700 hover:bg-emerald-100 transition-colors cursor-pointer"
                     title="Remover planilha"
                   >
                     <X className="w-4 h-4" />
@@ -526,39 +591,41 @@ export const NovaSolicitacaoPage: React.FC = () => {
 
         {/* ETAPA 4: REVISÃO, PROCESSAMENTO E DOWNLOAD */}
         {currentStep === 4 && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in">
             {!resultadoSolicitacao && (
               <>
                 <div>
-                  <h2 className="text-base font-bold text-slate-900">Etapa 4: Revisão dos Dados e Geração</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                    Etapa 4: Revisão dos Dados e Geração
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                     Confira as informações antes de executar o motor de cálculo. O sistema roteia cada item pelo CFOP e gera automaticamente as planilhas aplicáveis (Antecipação Parcial, Antecipação Tributária e/ou DIFAL).
                   </p>
                 </div>
 
                 {/* Resumo */}
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-xl p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   <div>
-                    <span className="text-slate-500 block text-[11px] uppercase font-semibold">Empresa Destinatária</span>
-                    <span className="font-bold text-slate-900 text-sm">{selectedEmpresa?.razao_social}</span>
-                    <span className="block font-mono text-slate-600 mt-0.5">CNPJ: {formatCNPJ(selectedEmpresa?.cnpj)}</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Empresa Destinatária</span>
+                    <span className="font-bold text-slate-900 text-sm mt-0.5 block">{selectedEmpresa?.razao_social}</span>
+                    <span className="block font-mono text-slate-500 mt-0.5">CNPJ: {formatCNPJ(selectedEmpresa?.cnpj)}</span>
                   </div>
 
                   <div>
-                    <span className="text-slate-500 block text-[11px] uppercase font-semibold">Estado (UF)</span>
-                    <span className="font-bold text-slate-900">{selectedEmpresa?.uf}</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Estado (UF)</span>
+                    <span className="font-bold text-slate-900 text-sm mt-0.5 block">{selectedEmpresa?.uf}</span>
                   </div>
 
                   <div>
-                    <span className="text-slate-500 block text-[11px] uppercase font-semibold">Período de Competência</span>
-                    <span className="font-medium text-slate-900">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Período de Competência</span>
+                    <span className="font-semibold text-slate-800 text-sm mt-0.5 block">
                       {formatDate(periodoInicio)} a {formatDate(periodoFim)}
                     </span>
                   </div>
 
-                  <div className="sm:col-span-2 pt-2 border-t border-slate-200 space-y-1.5">
+                  <div className="sm:col-span-2 pt-3 border-t border-slate-200/80 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-medium text-slate-700">Fontes anexadas:</span>
+                      <span className="font-medium text-slate-600">Fontes anexadas:</span>
                       <span className="font-bold text-blue-900 font-mono text-sm text-right">
                         {[
                           xmlFiles.length > 0
@@ -572,7 +639,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     </div>
 
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600">Datas de entrada contábeis:</span>
+                      <span className="text-slate-500">Datas de entrada contábeis:</span>
                       {spedFile ? (
                         <span className="font-semibold text-indigo-700 flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Extração nativa do SPED (Registro C100)
@@ -615,12 +682,12 @@ export const NovaSolicitacaoPage: React.FC = () => {
             {/* RESULTADO CONCLUÍDO COM SUCESSO */}
             {resultadoSolicitacao && (
               <div className="space-y-6 animate-fade-in">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6 text-center">
-                  <div className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto mb-3 shadow-md">
-                    <FileCheck2 className="w-6 h-6" />
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-6 text-center shadow-xs">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center mx-auto mb-3 shadow-md shadow-emerald-600/20">
+                    <FileCheck2 className="w-7 h-7" />
                   </div>
-                  <h2 className="text-lg font-bold text-emerald-950">Planilha(s) Gerada(s) com Sucesso!</h2>
-                  <p className="text-xs text-emerald-800 mt-1 max-w-md mx-auto">
+                  <h2 className="text-lg sm:text-xl font-black text-emerald-950 tracking-tight">Planilha(s) Gerada(s) com Sucesso!</h2>
+                  <p className="text-xs text-emerald-800/90 mt-1 max-w-md mx-auto leading-relaxed">
                     Cada item foi roteado pelo CFOP para a planilha correspondente. Uma mesma NF-e pode aparecer em
                     mais de uma planilha, cada uma com os valores dos itens daquela natureza.
                   </p>
@@ -637,7 +704,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Cards das planilhas geradas por destino (Parcial / Tributária / DIFAL) */}
+                {/* Cards das planilhas geradas por destino */}
                 {resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -656,12 +723,12 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                       {resultadoSolicitacao.saidas.map((saida) => (
                         <div
                           key={saida.tipo}
-                          className={`rounded-lg border p-4 space-y-2 ${
-                            saida.arquivo_path ? 'bg-white border-slate-200' : 'bg-amber-50/60 border-amber-200'
+                          className={`rounded-xl border p-4 space-y-3 shadow-2xs transition-all ${
+                            saida.arquivo_path ? 'bg-white border-slate-200/90 hover:border-slate-300' : 'bg-amber-50/60 border-amber-200'
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -672,7 +739,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                           </div>
                           <div className="text-xs text-slate-600 space-y-0.5">
                             <div>{saida.total_notas} nota(s) processada(s)</div>
-                            <div className="font-mono font-semibold text-slate-900">
+                            <div className="font-mono font-bold text-slate-900 text-sm tabular-nums">
                               {formatCurrency(saida.total_valor_devido)}
                             </div>
                           </div>
@@ -683,10 +750,10 @@ export const NovaSolicitacaoPage: React.FC = () => {
                               onClick={() => handleDownload(saida.tipo)}
                               leftIcon={<Download className="w-3.5 h-3.5" />}
                             >
-                              Baixar (.xlsx)
+                              Baixar .xlsx
                             </Button>
                           ) : (
-                            <p className="text-[11px] text-amber-800">
+                            <p className="text-[11px] text-amber-800 leading-relaxed">
                               {saida.aviso || 'Nenhum template ativo cadastrado para este tipo. Cadastre em Admin > Templates.'}
                             </p>
                           )}
@@ -696,56 +763,56 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Resumo de itens com CFOP sem regra de roteamento cadastrada */}
+                {/* Resumo de itens com CFOP sem regra de roteamento */}
                 {resultadoSolicitacao.cfops_sem_regra && Object.keys(resultadoSolicitacao.cfops_sem_regra).length > 0 && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600">
-                    <span className="font-semibold text-slate-700">Itens desconsiderados por CFOP sem regra cadastrada: </span>
+                  <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-600">
+                    <span className="font-bold text-slate-700">Itens desconsiderados por CFOP sem regra cadastrada: </span>
                     {Object.entries(resultadoSolicitacao.cfops_sem_regra)
                       .map(([sufixo, qtd]) => `${sufixo} (${qtd})`)
                       .join(', ')}
                   </div>
                 )}
 
-                {/* Relatório / Aviso de Notas Desconsideradas (Operação Interna ou Fora do Período) */}
+                {/* Relatório / Aviso de Notas Desconsideradas */}
                 {resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0 && (
-                  <div className="bg-amber-50/90 border border-amber-300 rounded-lg p-4 space-y-3 shadow-sm animate-fade-in">
+                  <div className="bg-amber-50/90 border border-amber-300/80 rounded-xl p-4 sm:p-5 space-y-3 shadow-2xs animate-fade-in">
                     <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                      <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
                         <AlertTriangle className="w-4 h-4" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-amber-950">
+                        <h3 className="text-sm font-bold text-amber-950 tracking-tight">
                           Aviso: {resultadoSolicitacao.notas_ignoradas.length} nota(s) fiscal(is) desconsiderada(s)
                         </h3>
-                        <p className="text-xs text-amber-800 mt-0.5">
+                        <p className="text-xs text-amber-800/90 mt-0.5 leading-relaxed">
                           As notas fiscais abaixo foram desconsideradas automaticamente pela Camada de Sanidade e Regras Fiscais (operações internas com mesma UF do cliente ou datas fora do período). As notas válidas foram apuradas normalmente.
                         </p>
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto border border-amber-200/80 rounded-md bg-white">
+                    <div className="overflow-x-auto border border-amber-200 rounded-lg bg-white">
                       <table className="w-full text-left text-xs divide-y divide-amber-100">
-                        <thead className="bg-amber-50/80 text-amber-900 font-semibold uppercase text-[10px]">
+                        <thead className="bg-amber-50/80 text-amber-900 font-bold uppercase text-[10px]">
                           <tr>
-                            <th className="py-2 px-3">Nota / Série</th>
-                            <th className="py-2 px-3">Data Emissão</th>
-                            <th className="py-2 px-3">Arquivo de Origem</th>
-                            <th className="py-2 px-3">Motivo da Desconsideração</th>
+                            <th className="py-2.5 px-3">Nota / Série</th>
+                            <th className="py-2.5 px-3">Data Emissão</th>
+                            <th className="py-2.5 px-3">Arquivo de Origem</th>
+                            <th className="py-2.5 px-3">Motivo da Desconsideração</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-amber-100/60">
                           {resultadoSolicitacao.notas_ignoradas.map((ign, idx) => (
                             <tr key={idx} className="hover:bg-amber-50/50">
-                              <td className="py-2 px-3 font-medium text-slate-900">
+                              <td className="py-2.5 px-3 font-semibold text-slate-900">
                                 NF-e nº {ign.numero_nota} {ign.serie ? `(Série ${ign.serie})` : ''}
                               </td>
-                              <td className="py-2 px-3 text-slate-700 font-medium font-mono">
+                              <td className="py-2.5 px-3 text-slate-700 font-semibold font-mono">
                                 {ign.data_emissao || '-'}
                               </td>
-                              <td className="py-2 px-3 text-slate-500 font-mono text-[11px] truncate max-w-[200px]" title={ign.arquivo || ''}>
+                              <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px] truncate max-w-[200px]" title={ign.arquivo || ''}>
                                 {ign.arquivo || '-'}
                               </td>
-                              <td className="py-2 px-3 text-amber-900 font-medium">
+                              <td className="py-2.5 px-3 text-amber-900 font-medium">
                                 {ign.motivo}
                               </td>
                             </tr>
@@ -763,39 +830,39 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       Conferência de Notas Fiscais Processadas ({resultadoSolicitacao.notas_processadas.length} itens)
                     </h3>
 
-                    <div className="overflow-x-auto border border-slate-200 rounded-md bg-white">
-                      <table className="w-full text-left text-xs divide-y divide-slate-200">
-                        <thead className="bg-slate-50 text-slate-700 font-semibold uppercase text-[10px]">
+                    <div className="overflow-x-auto border border-slate-200/80 rounded-xl bg-white shadow-2xs">
+                      <table className="w-full text-left text-xs divide-y divide-slate-100">
+                        <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
                           <tr>
-                            <th className="py-2 px-3">Nota</th>
-                            <th className="py-2 px-3">Planilha</th>
-                            <th className="py-2 px-3 text-center">UF Origem</th>
-                            <th className="py-2 px-3">Data Emissão</th>
-                            <th className="py-2 px-3">Data Entrada</th>
-                            <th className="py-2 px-3 font-mono">NCM</th>
-                            <th className="py-2 px-3 text-right">V. Total</th>
-                            <th className="py-2 px-3 text-right">Base Cálc.</th>
-                            <th className="py-2 px-3 text-right font-mono">A.ORI</th>
-                            <th className="py-2 px-3 text-right font-mono">A.DST</th>
-                            <th className="py-2 px-3 text-right font-mono">Valor Devido</th>
+                            <th className="py-2.5 px-3">Nota</th>
+                            <th className="py-2.5 px-3">Planilha</th>
+                            <th className="py-2.5 px-3 text-center">UF Origem</th>
+                            <th className="py-2.5 px-3">Data Emissão</th>
+                            <th className="py-2.5 px-3">Data Entrada</th>
+                            <th className="py-2.5 px-3 font-mono">NCM</th>
+                            <th className="py-2.5 px-3 text-right">V. Total</th>
+                            <th className="py-2.5 px-3 text-right">Base Cálc.</th>
+                            <th className="py-2.5 px-3 text-right font-mono">A.ORI</th>
+                            <th className="py-2.5 px-3 text-right font-mono">A.DST</th>
+                            <th className="py-2.5 px-3 text-right font-mono">Valor Devido</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {resultadoSolicitacao.notas_processadas.map((nota, i) => (
-                            <tr key={i} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-medium text-slate-900">{nota.numero_nota}</td>
-                              <td className="py-2 px-3">
+                            <tr key={i} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-2.5 px-3 font-semibold text-slate-900">{nota.numero_nota}</td>
+                              <td className="py-2.5 px-3">
                                 {nota.destino_planilha ? (
                                   <PlanilhaBadge tipo={nota.destino_planilha} detailed />
                                 ) : '-'}
                               </td>
-                              <td className="py-2 px-3 text-center">
-                                <span className="inline-flex items-center justify-center font-bold text-[10px] bg-blue-100 text-blue-900 px-1.5 py-0.5 rounded border border-blue-200">
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="inline-flex items-center justify-center font-bold text-[10px] bg-blue-50 text-blue-900 px-2 py-0.5 rounded border border-blue-200/80">
                                   {nota.uf_emitente || '-'}
                                 </span>
                               </td>
-                              <td className="py-2 px-3 text-slate-600">{formatDate(nota.data_emissao)}</td>
-                              <td className="py-2 px-3">
+                              <td className="py-2.5 px-3 text-slate-600">{formatDate(nota.data_emissao)}</td>
+                              <td className="py-2.5 px-3">
                                 {nota.data_entrada ? (
                                   <div className="flex items-center gap-1.5">
                                     <span className="font-semibold text-slate-900">{formatDate(nota.data_entrada)}</span>
@@ -804,15 +871,15 @@ export const NovaSolicitacaoPage: React.FC = () => {
                                     </Badge>
                                   </div>
                                 ) : (
-                                  <Badge variant="warning" size="sm">Pendente</Badge>
+                                  <Badge variant="warning" size="sm" dot>Pendente</Badge>
                                 )}
                               </td>
-                              <td className="py-2 px-3 font-mono text-slate-700">{nota.ncm}</td>
-                              <td className="py-2 px-3 text-right font-mono">{formatCurrency(nota.v_total)}</td>
-                              <td className="py-2 px-3 text-right font-mono">{formatCurrency(nota.base_calculo)}</td>
-                              <td className="py-2 px-3 text-right font-mono text-slate-600">{formatPercent(nota.a_ori)}</td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-blue-900">{formatPercent(nota.a_dst_resolvida)}</td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-800">
+                              <td className="py-2.5 px-3 font-mono text-slate-700">{nota.ncm}</td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(nota.v_total)}</td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(nota.base_calculo)}</td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{formatPercent(nota.a_ori)}</td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-blue-900">{formatPercent(nota.a_dst_resolvida)}</td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-emerald-800">
                                 {formatCurrency(nota.valor_devido)}
                               </td>
                             </tr>
