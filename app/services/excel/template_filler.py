@@ -68,10 +68,13 @@ class TemplateFiller:
                     raw_value = row.get(field_name)
                     if raw_value is None:
                         continue
-                    FormulaGuard.assert_no_formula_overwrite(worksheet, current_row, column_index, field_name)
-                    worksheet.cell(row=current_row, column=column_index).value = format_excel_value(
-                        field_name, raw_value, percentage_format
-                    )
+                    cell = worksheet.cell(row=current_row, column=column_index)
+                    is_formula = (cell.value is not None and isinstance(cell.value, str) and cell.value.startswith("=")) or cell.data_type == "f"
+                    if is_formula:
+                        if field_name == "base_calculo":
+                            continue
+                        FormulaGuard.assert_no_formula_overwrite(worksheet, current_row, column_index, field_name)
+                    cell.value = format_excel_value(field_name, raw_value, percentage_format)
 
             # Preservação de logo/imagem: se a aba selecionada não tiver imagens mas outra aba contiver,
             # transfere a imagem para a aba selecionada antes de remover as demais abas.

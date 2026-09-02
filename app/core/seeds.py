@@ -47,6 +47,7 @@ DEFAULT_ANTECIPACAO_PARCIAL_MAPPING = {
         "data_emissao": "C",
         "numero_nota": "D",
         "v_total": "E",
+        "base_calculo": "F",
         "ipi_despesas": "G",
         "a_dst": "H",
         "a_ori": "I"
@@ -142,7 +143,18 @@ def seed_default_templates(db: Session) -> None:
         .first()
     )
 
+    deve_subir_parcial = False
     if template_parcial_ativo is None and os.path.exists(DEFAULT_ANTECIPACAO_PARCIAL_TEMPLATE_PATH):
+        deve_subir_parcial = True
+    elif template_parcial_ativo is not None and os.path.exists(DEFAULT_ANTECIPACAO_PARCIAL_TEMPLATE_PATH):
+        with open(DEFAULT_ANTECIPACAO_PARCIAL_TEMPLATE_PATH, "rb") as f:
+            file_bytes = f.read()
+        cur_hash = TemplateManager.calculate_file_hash(file_bytes)
+        cols = template_parcial_ativo.mapeamento_campos.get("columns") or {}
+        if template_parcial_ativo.arquivo_hash != cur_hash or "base_calculo" not in cols or "data_entrada" not in cols:
+            deve_subir_parcial = True
+
+    if deve_subir_parcial and os.path.exists(DEFAULT_ANTECIPACAO_PARCIAL_TEMPLATE_PATH):
         with open(DEFAULT_ANTECIPACAO_PARCIAL_TEMPLATE_PATH, "rb") as f:
             file_bytes = f.read()
 
