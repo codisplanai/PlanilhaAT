@@ -28,6 +28,9 @@ const HistoricoPage = lazy(() =>
 const AdminTemplatesPage = lazy(() =>
   import('./pages/AdminTemplates').then(({ AdminTemplatesPage: page }) => ({ default: page }))
 );
+const UsuariosPage = lazy(() =>
+  import('./pages/Usuarios').then(({ UsuariosPage: page }) => ({ default: page }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,6 +97,14 @@ export function App() {
                 element={
                   <AdminRoute user={user}>
                     <AdminTemplatesPage />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/usuarios"
+                element={
+                  <AdminRoute user={user}>
+                    <UsuariosPage user={user} />
                   </AdminRoute>
                 }
               />
