@@ -9,14 +9,23 @@ from app.api.endpoints.templates import router as templates_router
 from app.api.endpoints.solicitacoes import router as solicitacoes_router
 from app.api.endpoints.usuarios import router as usuarios_router
 
+ROUTERS = (
+    auth_router,
+    perfis_regras_router,
+    empresas_router,
+    regras_aliquotas_router,
+    regras_cfop_router,
+    templates_router,
+    solicitacoes_router,
+    usuarios_router,
+)
+
+
+def include_registered_routers(parent: APIRouter) -> None:
+    """Registra todas as rotas públicas em um prefixo de API."""
+    for router in ROUTERS:
+        parent.include_router(router)
+
+
 api_router = APIRouter(prefix="/api/v1")
-
-api_router.include_router(auth_router)
-api_router.include_router(perfis_regras_router)
-api_router.include_router(empresas_router)
-api_router.include_router(regras_aliquotas_router)
-api_router.include_router(regras_cfop_router)
-api_router.include_router(templates_router)
-api_router.include_router(solicitacoes_router)
-api_router.include_router(usuarios_router)
-
+include_registered_routers(api_router)

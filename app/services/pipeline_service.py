@@ -1,34 +1,28 @@
-import os
 import re
-from datetime import date, datetime
+from datetime import datetime
 from collections import defaultdict
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.empresa import Empresa
 from app.models.solicitacao import Solicitacao
-from app.models.solicitacao_saida import SolicitacaoSaida
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.template_xlsx import TemplateXlsx
-from app.core.config import settings
 from app.core.exceptions import ValidationException, NotFoundException
 from app.services.extraction.nfe_xml_extractor import NFeXMLExtractor
 from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
 from app.services.extraction.data_entrada_matcher import (
     DataEntradaMatcher,
-    PlanilhaEntradaParser,
-    PlanilhaEntradaRecord,
 )
 from app.services.rules_engine.aliquota_resolver import AliquotaResolver
 from app.services.rules_engine.cfop_resolver import CfopResolver
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.calculation.factory import CalculatorFactory
 from app.services.validation.sanity_checker import SanityChecker
-from app.services.excel.template_filler import TemplateFiller
 from app.services.templates_admin.template_manager import TemplateManager
-from app.services.supabase_storage import SupabaseStorageService
+from app.services.pipeline_outputs import GeneratedArtifacts, PipelineOutputService
+from app.services.pipeline_sources import PipelineSourceLoader
 from app.constants import (
     ANTECIPACAO_PARCIAL,
     ANTECIPACAO_PARCIAL_ANTECIPADO,
@@ -36,6 +30,7 @@ from app.constants import (
     DIFAL,
     STATUS_CONCLUIDO,
     STATUS_ERRO,
+    STATUS_PENDENTE,
     STATUS_PROCESSANDO,
     TIPOS_PLANILHA_LEGADO,
 )
@@ -43,6 +38,7 @@ from app.services.pipeline_helpers import (
     build_header_info,
     crossing_keys,
     enrich_sped_with_xml,
+    ignored_note,
     nfe_sort_key,
 )
 
@@ -68,6 +64,8 @@ class ProcessingPipelineService:
         self.sped_extractor = SpedFiscalExtractor()
         self.resolver = AliquotaResolver(db)
         self.cfop_resolver = CfopResolver(db)
+        self.output_service = PipelineOutputService(db)
+        self.source_loader = PipelineSourceLoader(self.extractor, self.sped_extractor)
 
     @staticmethod
     def _chaves_cruzamento(nf: Any) -> List[str]:
@@ -78,119 +76,7 @@ class ProcessingPipelineService:
         enrich_sped_with_xml(nf_sped, nf_xml)
 
     def regenerate_outputs(self, solicitacao: Solicitacao) -> None:
-        """Regenera planilhas após uma edição manual que altera a ordenação.
-
-        Mantém cópias dos arquivos anteriores para restaurá-los caso qualquer
-        template ou upload falhe, evitando divergência entre banco e Excel.
-        """
-        backups: List[Tuple[str, Optional[bytes], str, Optional[bytes]]] = []
-        try:
-            for saida in solicitacao.saidas:
-                if not saida.template_id or not saida.arquivo_path:
-                    continue
-                template = self.db.get(TemplateXlsx, saida.template_id)
-                if not template:
-                    raise ValidationException(f"O template da saída '{saida.tipo}' não existe mais.")
-
-                notes = (
-                    self.db.query(NotaFiscalProcessada)
-                    .filter(
-                        NotaFiscalProcessada.solicitacao_id == solicitacao.id,
-                        NotaFiscalProcessada.destino_planilha == saida.tipo,
-                    )
-                    .order_by(
-                        func.coalesce(NotaFiscalProcessada.data_entrada, NotaFiscalProcessada.data_emissao),
-                        NotaFiscalProcessada.data_emissao,
-                        NotaFiscalProcessada.numero_nota,
-                        NotaFiscalProcessada.item_numero,
-                    )
-                    .all()
-                )
-                rows: List[Dict[str, Any]] = []
-                for note in notes:
-                    metadata = note.metadados_extras or {}
-                    rows.append({
-                        "numero_nota": note.numero_nota,
-                        "serie": note.serie,
-                        "chave_acesso": note.chave_acesso,
-                        "cnpj_emitente": note.cnpj_emitente,
-                        "uf_emitente": note.uf_emitente,
-                        "cnpj_destinatario": note.cnpj_destinatario,
-                        "uf_destinatario": note.uf_destinatario,
-                        "data_emissao": note.data_emissao,
-                        "data_entrada": note.data_entrada or (note.data_emissao.date() if isinstance(note.data_emissao, datetime) else note.data_emissao),
-                        "item_numero": note.item_numero,
-                        "ncm": note.ncm,
-                        "cfop": note.cfop,
-                        "v_total": note.v_total,
-                        "base_calculo": note.base_calculo,
-                        "ipi_despesas": note.ipi_despesas,
-                        "mva": Decimal(str(metadata.get("mva") or "0")),
-                        "reducao": None,
-                        "red": "",
-                        "aliq_simples": metadata.get("aliq_simples") or "N",
-                        "a_ori": note.a_ori,
-                        "a_dst": note.a_dst_resolvida,
-                        "debito": note.debito,
-                        "credito": note.credito,
-                        "valor_devido": note.valor_devido,
-                    })
-
-                filename = os.path.basename(saida.arquivo_path.replace("\\", "/"))
-                output_path = os.path.join(settings.OUTPUTS_DIR, filename)
-                os.makedirs(settings.OUTPUTS_DIR, exist_ok=True)
-                local_backup = None
-                if os.path.isfile(output_path):
-                    with open(output_path, "rb") as existing_output:
-                        local_backup = existing_output.read()
-                cloud_backup = SupabaseStorageService.download_file(
-                    settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename
-                ) if SupabaseStorageService.is_configured() else None
-                backups.append((output_path, local_backup, filename, cloud_backup))
-
-                TemplateFiller.fill_template(
-                    template_path=TemplateManager.resolve_template_path(template),
-                    mapping=template.mapeamento_campos,
-                    rows_data=rows,
-                    output_path=output_path,
-                    header_info=build_header_info(
-                        solicitacao.empresa,
-                        solicitacao.periodo_inicio,
-                        solicitacao.empresa.inscricao_estadual or "",
-                    ),
-                )
-                if SupabaseStorageService.is_configured():
-                    with open(output_path, "rb") as output_file:
-                        if not SupabaseStorageService.upload_file(
-                            settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
-                            filename,
-                            output_file.read(),
-                        ):
-                            raise ValidationException("Não foi possível atualizar a planilha na nuvem.")
-                saida.arquivo_path = output_path
-                if solicitacao.arquivo_saida_path:
-                    solicitacao.arquivo_saida_path = output_path
-
-            self.db.commit()
-        except Exception:
-            self.db.rollback()
-            for output_path, local_backup, filename, cloud_backup in backups:
-                if local_backup is None:
-                    if os.path.isfile(output_path):
-                        os.remove(output_path)
-                else:
-                    with open(output_path, "wb") as output_file:
-                        output_file.write(local_backup)
-                if SupabaseStorageService.is_configured():
-                    if cloud_backup is None:
-                        SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename)
-                    else:
-                        SupabaseStorageService.upload_file(
-                            settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
-                            filename,
-                            cloud_backup,
-                        )
-            raise
+        self.output_service.regenerate(solicitacao)
 
     def process_solicitacao(
         self,
@@ -209,7 +95,7 @@ class ProcessingPipelineService:
             self.db.query(Solicitacao)
             .filter(
                 Solicitacao.id == solicitacao_id,
-                Solicitacao.status.in_(["pendente", STATUS_ERRO]),
+                Solicitacao.status.in_([STATUS_PENDENTE, STATUS_ERRO]),
             )
             .update({Solicitacao.status: STATUS_PROCESSANDO}, synchronize_session=False)
         )
@@ -242,113 +128,24 @@ class ProcessingPipelineService:
         if not xml_files_bytes and not sped_file_bytes:
             raise ValidationException("Nenhum arquivo XML de NF-e ou SPED Fiscal foi enviado para processamento.")
 
-        # Guarda de competência: a partir do momento em que a ausência de uma nota no SPED
-        # passa a significar "mercadoria ainda não entrou", subir o arquivo do mês errado
-        # deixaria de ser inofensivo e passaria a jogar a apuração inteira na planilha
-        # errada, sem sintoma visível. Por isso o período declarado no registro 0000
-        # precisa ter interseção com o período da solicitação.
-        sped_empresa_info: Dict[str, str] = {}
-        if sped_file_bytes:
-            sped_empresa_info = SpedFiscalExtractor.extract_empresa_info(sped_file_bytes)
-            if not empresa.inscricao_estadual and sped_empresa_info.get("ie"):
-                empresa.inscricao_estadual = sped_empresa_info["ie"]
+        sources = self.source_loader.load(
+            solicitacao=solicitacao,
+            empresa=empresa,
+            xml_files=xml_files_bytes,
+            sped_content=sped_file_bytes,
+            sped_filename=sped_filename,
+            entry_sheet_content=planilha_entradas_bytes,
+            entry_sheet_filename=planilha_entradas_filename,
+        )
+        raw_nfs = sources.notes
+        planilha_records = sources.entry_records
+        sped_empresa_info = sources.sped_company_info
 
-            sped_ini, sped_fim = SpedFiscalExtractor.extract_periodo(sped_file_bytes)
-            if sped_ini and sped_fim:
-                sem_intersecao = sped_fim < solicitacao.periodo_inicio or sped_ini > solicitacao.periodo_fim
-                if sem_intersecao:
-                    raise ValidationException(
-                        f"O arquivo SPED enviado refere-se ao período de "
-                        f"{sped_ini.strftime('%d/%m/%Y')} a {sped_fim.strftime('%d/%m/%Y')}, "
-                        f"que não coincide com o período da solicitação "
-                        f"({solicitacao.periodo_inicio.strftime('%d/%m/%Y')} a "
-                        f"{solicitacao.periodo_fim.strftime('%d/%m/%Y')}). "
-                        f"Envie o SPED Fiscal da mesma competência que está sendo apurada."
-                    )
-
-        # Parse opcional da planilha de datas de entrada do sistema contábil
-        planilha_records: List[PlanilhaEntradaRecord] = []
-        if planilha_entradas_bytes:
-            planilha_records = PlanilhaEntradaParser.parse(
-                file_bytes=planilha_entradas_bytes,
-                filename=planilha_entradas_filename or "planilha_entradas.xlsx"
-            )
-
-        # Extração das notas. As duas fontes são complementares e podem vir juntas:
-        # os XMLs trazem o universo de notas EMITIDAS na competência; o SPED traz as que
-        # efetivamente ENTRARAM no estabelecimento no mesmo período. Na interseção, a
-        # escrituração do cliente (SPED) prevalece — é ela que reflete como a nota foi
-        # de fato lançada, inclusive eventual reclassificação de CFOP.
-        raw_nfs: List[Tuple[str, Any]] = []
-        notas_sped: List[Any] = []
-        extraction_errors: List[Dict[str, Any]] = []
-
-        if sped_file_bytes:
-            notas_sped = self.sped_extractor.extract_from_sped(sped_file_bytes)
-            for nf_item in notas_sped:
-                raw_nfs.append((sped_filename or "sped_fiscal.txt", nf_item))
-
-        if xml_files_bytes:
-            # Mapa das notas do SPED por suas chaves de cruzamento para permitir enriquecimento
-            sped_by_chave: Dict[str, Any] = {}
-            for nf_item in notas_sped:
-                for k in self._chaves_cruzamento(nf_item):
-                    sped_by_chave[k] = nf_item
-
-            for filename, xml_bytes in xml_files_bytes:
-                try:
-                    nf_item = self.extractor.extract_from_xml(xml_bytes)
-                except ValidationException as exc:
-                    # Ignora arquivos auxiliares da SEFAZ (ex: eventos de cancelamento, CC-e, resumo)
-                    # presentes no lote/ZIP para não inviabilizar o processamento das NF-e válidas.
-                    if "<infNFe>" not in str(exc):
-                        extraction_errors.append({
-                            "numero_nota": "Não identificado",
-                            "serie": None,
-                            "chave_acesso": None,
-                            "data_emissao": None,
-                            "motivo": str(exc),
-                            "arquivo": filename,
-                        })
-                    continue
-
-                chaves_xml = self._chaves_cruzamento(nf_item)
-
-                sped_match = None
-                for k in chaves_xml:
-                    if k in sped_by_chave:
-                        sped_match = sped_by_chave[k]
-                        break
-
-                if sped_match is not None:
-                    # Já entrou pela via do SPED; enriquecemos os dados do SPED com o XML
-                    self._enrich_sped_with_xml(sped_match, nf_item)
-                    continue
-
-                raw_nfs.append((filename, nf_item))
-
-        if not raw_nfs:
-            raise ValidationException("Nenhum arquivo XML de NF-e ou SPED Fiscal válido foi encontrado para processamento.")
-
-        # O mesmo documento pode aparecer mais de uma vez em lotes diferentes.
-        # Processá-lo novamente duplicaria imposto e linhas no Excel.
-        unique_raw_nfs: List[Tuple[str, Any]] = []
-        seen_documents: set[str] = set()
-        for source_name, nf_data in raw_nfs:
-            keys = self._chaves_cruzamento(nf_data)
-            identity = "||".join(keys) if keys else f"{nf_data.numero_nota}|{nf_data.serie}|{nf_data.cnpj_emitente}"
-            if identity in seen_documents:
-                continue
-            seen_documents.add(identity)
-            unique_raw_nfs.append((source_name, nf_data))
-        raw_nfs = unique_raw_nfs
-
-        generated_paths: List[str] = []
-        generated_cloud_names: List[str] = []
+        generated_artifacts = GeneratedArtifacts()
         try:
             rows_por_destino: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
             notas_criadas: List[NotaFiscalProcessada] = []
-            notas_ignoradas: List[Dict[str, Any]] = list(extraction_errors)
+            notas_ignoradas: List[Dict[str, Any]] = list(sources.ignored_notes)
             cfops_sem_regra: Dict[str, int] = defaultdict(int)
 
             for filename, nf_data in raw_nfs:
@@ -362,15 +159,16 @@ class ProcessingPipelineService:
                 uf_empresa_dest = (empresa.uf or "").strip().upper()
 
                 if uf_fornecedor and uf_empresa_dest and uf_fornecedor == uf_empresa_dest:
-                    dt_str = nf_data.data_emissao.strftime('%d/%m/%Y')
-                    notas_ignoradas.append({
-                        "numero_nota": nf_data.numero_nota,
-                        "serie": nf_data.serie,
-                        "chave_acesso": nf_data.chave_acesso,
-                        "data_emissao": dt_str,
-                        "motivo": f"Operação interna estadual desconsiderada: UF do fornecedor/emitente ({uf_fornecedor}) é igual à UF da empresa ({uf_empresa_dest}). Antecipação e DIFAL aplicam-se exclusivamente a aquisições interestaduais.",
-                        "arquivo": filename
-                    })
+                    notas_ignoradas.append(
+                        ignored_note(
+                            nf_data,
+                            filename,
+                            f"Operação interna estadual desconsiderada: UF do "
+                            f"fornecedor/emitente ({uf_fornecedor}) é igual à UF da "
+                            f"empresa ({uf_empresa_dest}). Antecipação e DIFAL aplicam-se "
+                            f"exclusivamente a aquisições interestaduais.",
+                        )
+                    )
                     continue
 
                 # 4. Camada 7: Checagem de período
@@ -379,14 +177,14 @@ class ProcessingPipelineService:
                     dt_str = nf_data.data_emissao.strftime('%d/%m/%Y')
                     p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
                     p_fim_str = solicitacao.periodo_fim.strftime('%d/%m/%Y')
-                    notas_ignoradas.append({
-                        "numero_nota": nf_data.numero_nota,
-                        "serie": nf_data.serie,
-                        "chave_acesso": nf_data.chave_acesso,
-                        "data_emissao": dt_str,
-                        "motivo": f"Data de emissão ({dt_str}) fora do período informado ({p_ini_str} a {p_fim_str}).",
-                        "arquivo": filename
-                    })
+                    notas_ignoradas.append(
+                        ignored_note(
+                            nf_data,
+                            filename,
+                            f"Data de emissão ({dt_str}) fora do período informado "
+                            f"({p_ini_str} a {p_fim_str}).",
+                        )
+                    )
                     continue
 
                 # 5. Enriquecimento: Correspondência de Data de Entrada
@@ -501,15 +299,15 @@ class ProcessingPipelineService:
 
                     # Se o valor total for zero ou negativo (ex: nota complementar de ICMS, ajuste ou cancelada), ignora e registra no relatório
                     if v_total_grupo <= Decimal("0.00"):
-                        dt_str = nf_data.data_emissao.strftime('%d/%m/%Y')
-                        notas_ignoradas.append({
-                            "numero_nota": nf_data.numero_nota,
-                            "serie": nf_data.serie,
-                            "chave_acesso": nf_data.chave_acesso,
-                            "data_emissao": dt_str,
-                            "motivo": f"Valor total zerado ou sem valor comercial (R$ {v_total_grupo:.2f}). Documento fiscal complementar/ajuste desconsiderado para apuração.",
-                            "arquivo": filename
-                        })
+                        notas_ignoradas.append(
+                            ignored_note(
+                                nf_data,
+                                filename,
+                                f"Valor total zerado ou sem valor comercial "
+                                f"(R$ {v_total_grupo:.2f}). Documento fiscal "
+                                f"complementar/ajuste desconsiderado para apuração.",
+                            )
+                        )
                         continue
 
                     mva_grupo = Decimal("0.00")
@@ -547,15 +345,9 @@ class ProcessingPipelineService:
                             a_dst=a_dst
                         )
                     except ValidationException as val_err:
-                        dt_str = nf_data.data_emissao.strftime('%d/%m/%Y')
-                        notas_ignoradas.append({
-                            "numero_nota": nf_data.numero_nota,
-                            "serie": nf_data.serie,
-                            "chave_acesso": nf_data.chave_acesso,
-                            "data_emissao": dt_str,
-                            "motivo": str(val_err),
-                            "arquivo": filename
-                        })
+                        notas_ignoradas.append(
+                            ignored_note(nf_data, filename, str(val_err))
+                        )
                         continue
 
                     # Criar registro de NotaFiscalProcessada
@@ -665,105 +457,15 @@ class ProcessingPipelineService:
                 ie_final,
             )
 
-            # Camada 8: Geração de saída(s) com proteção de fórmulas
-            if modo_legado:
-                destino = solicitacao.tipo_planilha
-                rows = rows_por_destino.get(destino, [])
-                if not rows:
-                    raise ValidationException(
-                        f"Nenhuma NF-e válida encontrada para o tipo de planilha '{destino}' com base nas regras de CFOP cadastradas."
-                    )
-
-                output_filename = f"planilha_{empresa.cnpj}_{destino}_{solicitacao.id[:8]}.xlsx"
-                output_path = os.path.join(settings.OUTPUTS_DIR, output_filename)
-
-                resolved_template_path = TemplateManager.resolve_template_path(template_legado)
-                TemplateFiller.fill_template(
-                    template_path=resolved_template_path,
-                    mapping=template_legado.mapeamento_campos,
-                    rows_data=rows,
-                    output_path=output_path,
-                    header_info=header_info
-                )
-                generated_paths.append(output_path)
-                if SupabaseStorageService.is_configured():
-                    with open(output_path, "rb") as output_file:
-                        uploaded = SupabaseStorageService.upload_file(
-                            settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
-                            output_filename,
-                            output_file.read(),
-                        )
-                    if not uploaded:
-                        raise ValidationException("Não foi possível armazenar a planilha gerada na nuvem.")
-                    generated_cloud_names.append(output_filename)
-
-                total_valor_devido = sum((r["valor_devido"] for r in rows), Decimal("0.00"))
-                saida = SolicitacaoSaida(
-                    solicitacao_id=solicitacao.id,
-                    tipo=destino,
-                    template_id=template_legado.id,
-                    arquivo_path=output_path,
-                    total_notas=len(rows),
-                    total_valor_devido=total_valor_devido
-                )
-                self.db.add(saida)
-                solicitacao.arquivo_saida_path = output_path
-            else:
-                for destino, rows in rows_por_destino.items():
-                    total_valor_devido = sum((r["valor_devido"] for r in rows), Decimal("0.00"))
-
-                    try:
-                        template = TemplateManager.get_active_template(self.db, destino)
-                    except NotFoundException as nf_err:
-                        saida = SolicitacaoSaida(
-                            solicitacao_id=solicitacao.id,
-                            tipo=destino,
-                            template_id=None,
-                            arquivo_path=None,
-                            total_notas=len(rows),
-                            total_valor_devido=total_valor_devido,
-                            aviso=str(nf_err)
-                        )
-                        self.db.add(saida)
-                        continue
-
-                    output_filename = f"planilha_{empresa.cnpj}_{destino}_{solicitacao.id[:8]}.xlsx"
-                    output_path = os.path.join(settings.OUTPUTS_DIR, output_filename)
-
-                    resolved_template_path = TemplateManager.resolve_template_path(template)
-                    TemplateFiller.fill_template(
-                        template_path=resolved_template_path,
-                        mapping=template.mapeamento_campos,
-                        rows_data=rows,
-                        output_path=output_path,
-                        header_info=header_info
-                    )
-                    generated_paths.append(output_path)
-                    if SupabaseStorageService.is_configured():
-                        with open(output_path, "rb") as output_file:
-                            uploaded = SupabaseStorageService.upload_file(
-                                settings.SUPABASE_STORAGE_BUCKET_OUTPUTS,
-                                output_filename,
-                                output_file.read(),
-                            )
-                        if not uploaded:
-                            raise ValidationException("Não foi possível armazenar a planilha gerada na nuvem.")
-                        generated_cloud_names.append(output_filename)
-
-                    saida = SolicitacaoSaida(
-                        solicitacao_id=solicitacao.id,
-                        tipo=destino,
-                        template_id=template.id,
-                        arquivo_path=output_path,
-                        total_notas=len(rows),
-                        total_valor_devido=total_valor_devido
-                    )
-                    self.db.add(saida)
-
-            if not generated_paths:
-                raise ValidationException(
-                    "Nenhuma planilha pôde ser gerada porque não há template ativo para os tipos apurados."
-                )
+            # Camada 8: geração de saída(s), armazenamento e compensação de artefatos.
+            generated_artifacts = self.output_service.generate(
+                solicitacao=solicitacao,
+                empresa=empresa,
+                rows_by_destination=rows_por_destino,
+                legacy_mode=modo_legado,
+                legacy_template=template_legado,
+                header_info=header_info,
+            )
 
             # Atualizar status e resultado da solicitação
             solicitacao.status = STATUS_CONCLUIDO
@@ -778,14 +480,7 @@ class ProcessingPipelineService:
 
         except Exception as exc:
             self.db.rollback()
-            for path in generated_paths:
-                if os.path.isfile(path):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
-            for filename in generated_cloud_names:
-                SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename)
+            generated_artifacts.cleanup()
             solicitacao.status = STATUS_ERRO
             solicitacao.mensagem_erro = str(exc) if isinstance(exc, ValidationException) else "Falha interna ao processar os arquivos."
             self.db.commit()

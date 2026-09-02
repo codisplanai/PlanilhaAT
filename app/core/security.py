@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.profile import Profile
+from app.constants import ROLE_ADMIN, ROLE_OPERADOR
 
 logger = logging.getLogger(__name__)
 
@@ -25,28 +26,28 @@ LOCAL_USERS_FALLBACK = {
         "nome": "Contador Responsável",
         "email": "admin@contabilidade.com",
         "cargo": "Contador Sênior",
-        "role": "admin",
+        "role": ROLE_ADMIN,
     },
     "admin@codisplan.com": {
         "id": "d7a327b5-7959-47ac-afc8-1850430f0b12",
         "nome": "Contador Responsável",
         "email": "admin@codisplan.com",
         "cargo": "Contador Sênior",
-        "role": "admin",
+        "role": ROLE_ADMIN,
     },
     "admin@admin.com": {
         "id": "e2a336a9-579e-472f-845b-cf3e91284c0b",
         "nome": "Administrador",
         "email": "admin@admin.com",
         "cargo": "Contador Sênior",
-        "role": "admin",
+        "role": ROLE_ADMIN,
     },
     "operador@contabilidade.com": {
         "id": "53ce2b64-1c96-4be8-b232-cf6e4171ee23",
         "nome": "Operador Fiscal",
         "email": "operador@contabilidade.com",
         "cargo": "Analista Fiscal",
-        "role": "operador",
+        "role": ROLE_OPERADOR,
     },
 }
 
@@ -204,7 +205,7 @@ def require_admin(
     db: Session = Depends(get_db),
 ) -> Profile:
     current_user = get_current_user(authorization=authorization, db=db)
-    if current_user.role != "admin":
+    if current_user.role != ROLE_ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acesso restrito. Esta funcionalidade é exclusiva para o Contador Sênior / Administrador.",

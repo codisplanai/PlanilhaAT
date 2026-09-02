@@ -1,8 +1,4 @@
-import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import React from 'react';
 import {
   Building2,
   Plus,
@@ -11,9 +7,7 @@ import {
   Trash2
 } from 'lucide-react';
 
-import { empresasApi } from '../../api/empresas';
 import { getErrorMessage } from '../../api/client';
-import type { Empresa, EmpresaCreate } from '../../types/empresa';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -26,172 +20,32 @@ import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { formatCNPJ, formatDate } from '../../lib/formatters';
 import { UFS_BRASIL } from '../../constants/domain';
-import { useEmpresasQuery, usePerfisQuery } from '../../hooks/useApiQueries';
-
-const empresaSchema = z.object({
-  razao_social: z.string().min(2, 'Razão Social deve ter pelo menos 2 caracteres'),
-  cnpj: z
-    .string()
-    .min(14, 'CNPJ deve conter 14 dígitos')
-    .refine((val) => val.replace(/\D/g, '').length === 14, 'CNPJ deve ter exatamente 14 dígitos numéricos'),
-  inscricao_estadual: z.string().optional(),
-  uf: z.string().length(2, 'Selecione o estado (UF)'),
-  perfil_regras_id: z.number().min(1, 'Selecione um perfil de regras'),
-  ativo: z.boolean(),
-});
-
-type EmpresaFormData = z.infer<typeof empresaSchema>;
+import { useEmpresasPage } from './useEmpresasPage';
 
 export const EmpresasPage: React.FC = () => {
-  const queryClient = useQueryClient();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [ufFilter, setUfFilter] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingEmpresa, setEditingEmpresa] = useState<Empresa | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Queries
-  const { data: empresas = [], isLoading, error } = useEmpresasQuery();
-
-  const { data: perfis = [], error: perfisError } = usePerfisQuery();
-
-  // Form
   const {
+    empresasQuery: { isLoading, error },
+    perfisQuery: { error: perfisError },
+    perfis,
+    filteredEmpresas,
+    getPerfilNome,
+    searchTerm,
+    setSearchTerm,
+    ufFilter,
+    setUfFilter,
+    modalOpen,
+    editingEmpresa,
+    errorMessage,
+    setErrorMessage,
+    openCreateModal: handleOpenCreateModal,
+    openEditModal: handleOpenEditModal,
+    closeModal: handleCloseModal,
+    deleteEmpresa: handleDelete,
+    saveEmpresa,
     register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<EmpresaFormData>({
-    resolver: zodResolver(empresaSchema),
-    defaultValues: {
-      razao_social: '',
-      cnpj: '',
-      inscricao_estadual: '',
-      uf: 'BA',
-      perfil_regras_id: 1,
-      ativo: true,
-    },
-  });
-
-  // Mutations
-  const createMutation = useMutation({
-    mutationFn: (payload: EmpresaCreate) => empresasApi.criar(payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['empresas'] });
-      handleCloseModal();
-    },
-    onError: (err) => {
-      setErrorMessage(getErrorMessage(err));
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: EmpresaCreate }) =>
-      empresasApi.atualizar(id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['empresas'] });
-      handleCloseModal();
-    },
-    onError: (err) => {
-      setErrorMessage(getErrorMessage(err));
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => empresasApi.deletar(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['empresas'] });
-    },
-    onError: (err) => {
-      alert(getErrorMessage(err));
-    },
-  });
-
-  const handleOpenCreateModal = () => {
-    setEditingEmpresa(null);
-    setErrorMessage(null);
-    reset({
-      razao_social: '',
-      cnpj: '',
-      inscricao_estadual: '',
-      uf: 'BA',
-      perfil_regras_id: perfis[0]?.id || 1,
-      ativo: true,
-    });
-    setModalOpen(true);
-  };
-
-  const handleOpenEditModal = (empresa: Empresa) => {
-    setEditingEmpresa(empresa);
-    setErrorMessage(null);
-    reset({
-      razao_social: empresa.razao_social,
-      cnpj: formatCNPJ(empresa.cnpj),
-      inscricao_estadual: empresa.inscricao_estadual || '',
-      uf: empresa.uf,
-      perfil_regras_id: empresa.perfil_regras_id,
-      ativo: empresa.ativo,
-    });
-    setModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setModalOpen(false);
-    setEditingEmpresa(null);
-    setErrorMessage(null);
-  };
-
-  const onSubmit = async (data: EmpresaFormData) => {
-    setErrorMessage(null);
-    const payload: EmpresaCreate = {
-      razao_social: data.razao_social.trim(),
-      cnpj: data.cnpj.replace(/\D/g, ''),
-      inscricao_estadual: data.inscricao_estadual?.trim() || (editingEmpresa ? null : undefined),
-      uf: data.uf,
-      perfil_regras_id: Number(data.perfil_regras_id),
-      ativo: data.ativo,
-    };
-
-    try {
-      if (editingEmpresa) {
-        await updateMutation.mutateAsync({ id: editingEmpresa.id, payload });
-      } else {
-        await createMutation.mutateAsync(payload);
-      }
-    } catch {
-      // onError da mutation apresenta a mensagem no modal.
-    }
-  };
-
-  const handleDelete = (empresa: Empresa) => {
-    if (
-      window.confirm(
-        `Tem certeza que deseja remover a empresa "${empresa.razao_social}" (${formatCNPJ(
-          empresa.cnpj
-        )})?`
-      )
-    ) {
-      deleteMutation.mutate(empresa.id);
-    }
-  };
-
-  // Filtragem
-  const filteredEmpresas = empresas.filter((emp) => {
-    const cleanSearch = searchTerm.toLowerCase();
-    const digitSearch = cleanSearch.replace(/\D/g, '');
-    const matchesSearch =
-      emp.razao_social.toLowerCase().includes(cleanSearch) ||
-      (digitSearch.length > 0 && emp.cnpj.includes(digitSearch)) ||
-      emp.uf.toLowerCase().includes(cleanSearch);
-
-    const matchesUf = !ufFilter || emp.uf === ufFilter;
-    return matchesSearch && matchesUf;
-  });
-
-  const getPerfilNome = (id: number) => {
-    const p = perfis.find((item) => item.id === id);
-    return p ? p.nome : `Perfil #${id}`;
-  };
+    errors,
+    isSaving,
+  } = useEmpresasPage();
 
   return (
     <div className="space-y-6">
@@ -369,7 +223,7 @@ export const EmpresasPage: React.FC = () => {
           />
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={saveEmpresa} className="space-y-4">
           <div>
             <Input
               label="Razão Social"
@@ -440,7 +294,7 @@ export const EmpresasPage: React.FC = () => {
             </Button>
             <Button
               type="submit"
-              isLoading={isSubmitting || createMutation.isPending || updateMutation.isPending}
+              isLoading={isSaving}
             >
               {editingEmpresa ? 'Salvar Alterações' : 'Cadastrar Empresa'}
             </Button>

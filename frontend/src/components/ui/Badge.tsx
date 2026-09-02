@@ -1,8 +1,9 @@
 import React from 'react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import type { BadgeVariant } from '../../types/common';
 
-export type BadgeVariant = 'success' | 'warning' | 'error' | 'info' | 'purple' | 'neutral';
+export type { BadgeVariant } from '../../types/common';
 
 interface BadgeProps {
   children: React.ReactNode;

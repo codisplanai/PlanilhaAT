@@ -3,7 +3,10 @@ from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
-VALID_UFS = frozenset({"AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"})
+from app.constants import UFS_BRASIL
+
+# Compatibilidade pública para integrações que importam este nome.
+VALID_UFS = UFS_BRASIL
 
 def clean_cnpj(v: str) -> str:
     cleaned = re.sub(r"\D", "", v)

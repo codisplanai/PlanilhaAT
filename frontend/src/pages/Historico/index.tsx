@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import React from 'react';
 import {
   History,
   Download,
@@ -10,9 +9,7 @@ import {
   Trash2
 } from 'lucide-react';
 
-import { solicitacoesApi } from '../../api/solicitacoes';
 import { getErrorMessage } from '../../api/client';
-import type { Solicitacao, NotaFiscalProcessada } from '../../types/solicitacao';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
@@ -30,114 +27,40 @@ import {
 } from '../../lib/formatters';
 import { StatusBadge } from '../../components/domain/StatusBadge';
 import { getEntryOriginLabel, getPlanilhaLabel } from '../../constants/domain';
-import { queryKeys } from '../../api/queryKeys';
-import { useEmpresasQuery, useSolicitacoesQuery } from '../../hooks/useApiQueries';
+import { useHistoricoPage } from './useHistoricoPage';
 
 export const HistoricoPage: React.FC = () => {
-  const queryClient = useQueryClient();
-  const [empresaFilter, setEmpresaFilter] = useState<number | undefined>();
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [selectedSolicitacaoId, setSelectedSolicitacaoId] = useState<string | null>(null);
-
-  // Estado para edição manual de data de entrada
-  const [editingNota, setEditingNota] = useState<NotaFiscalProcessada | null>(null);
-  const [manualDateInput, setManualDateInput] = useState<string>('');
-
-  // Estado para exclusão de solicitação
-  const [solicitacaoParaExcluir, setSolicitacaoParaExcluir] = useState<Solicitacao | null>(null);
-
-  // Queries
-  const { data: solicitacoes = [], isLoading, error } = useSolicitacoesQuery(
+  const {
+    solicitacoesQuery: { data: solicitacoes = [], isLoading, error },
+    empresasQuery: { error: empresasError },
+    empresas,
+    detailQuery: {
+      data: solicitacaoDetalhada,
+      isLoading: isLoadingDetalhes,
+      error: detalhesError,
+    },
+    totals,
     empresaFilter,
+    setEmpresaFilter,
     statusFilter,
-  );
-
-  const { data: empresas = [], error: empresasError } = useEmpresasQuery();
-
-  // Query para drill-down da solicitação específica
-  const { data: solicitacaoDetalhada, isLoading: isLoadingDetalhes, error: detalhesError } = useQuery({
-    queryKey: queryKeys.solicitacao(selectedSolicitacaoId),
-    queryFn: () => solicitacoesApi.obter(selectedSolicitacaoId!),
-    enabled: !!selectedSolicitacaoId,
-  });
-
-  // Mutation para atualizar data de entrada manualmente
-  const updateDataEntradaMutation = useMutation({
-    mutationFn: async ({ solicitacaoId, notaId, dataEntrada }: { solicitacaoId: string; notaId: string; dataEntrada: string }) => {
-      return await solicitacoesApi.atualizarDataEntrada(solicitacaoId, notaId, dataEntrada);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['solicitacao', selectedSolicitacaoId] });
-      setEditingNota(null);
-      setManualDateInput('');
-    },
-    onError: (err) => {
-      alert(`Erro ao atualizar data de entrada: ${getErrorMessage(err)}`);
-    },
-  });
-
-  // Mutation para excluir solicitação e planilhas geradas
-  const deleteSolicitacaoMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await solicitacoesApi.excluir(id);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['solicitacoes'] });
-      if (selectedSolicitacaoId === solicitacaoParaExcluir?.id) {
-        setSelectedSolicitacaoId(null);
-      }
-      setSolicitacaoParaExcluir(null);
-    },
-    onError: (err) => {
-      alert(`Erro ao excluir solicitação: ${getErrorMessage(err)}`);
-    },
-  });
-
-  const handleOpenEditDataEntrada = (nota: NotaFiscalProcessada) => {
-    setEditingNota(nota);
-    setManualDateInput(nota.data_entrada ? nota.data_entrada.split('T')[0] : '');
-  };
-
-  const handleSaveDataEntrada = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedSolicitacaoId || !editingNota || !manualDateInput) return;
-    updateDataEntradaMutation.mutate({
-      solicitacaoId: selectedSolicitacaoId,
-      notaId: editingNota.id,
-      dataEntrada: manualDateInput,
-    });
-  };
-
-  const handleDownload = async (solicitacao: Solicitacao) => {
-    try {
-      const emp = empresas.find((e) => e.id === solicitacao.empresa_id);
-      const empNome = emp ? emp.razao_social.slice(0, 15).replace(/\s+/g, '_') : 'Empresa';
-      const filename = `Planilha_${solicitacao.tipo_planilha}_${empNome}_${solicitacao.periodo_inicio.slice(0, 7)}.xlsx`;
-      await solicitacoesApi.downloadPlanilha(solicitacao.id, filename);
-    } catch (err) {
-      alert(getErrorMessage(err));
-    }
-  };
-
-  const getEmpresa = (id: number) => empresas.find((e) => e.id === id);
-
-  // Cálculos consolidados para o modal de drill-down
-  const totalDebito = solicitacaoDetalhada?.notas_processadas?.reduce(
-    (acc, item) => acc + Number(item.debito),
-    0
-  ) || 0;
-  const totalCredito = solicitacaoDetalhada?.notas_processadas?.reduce(
-    (acc, item) => acc + Number(item.credito),
-    0
-  ) || 0;
-  const totalDevido = solicitacaoDetalhada?.notas_processadas?.reduce(
-    (acc, item) => acc + Number(item.valor_devido),
-    0
-  ) || 0;
-  const totalValorNotas = solicitacaoDetalhada?.notas_processadas?.reduce(
-    (acc, item) => acc + Number(item.v_total),
-    0
-  ) || 0;
+    setStatusFilter,
+    selectedSolicitacaoId,
+    setSelectedSolicitacaoId,
+    editingNota,
+    setEditingNota,
+    manualDateInput,
+    setManualDateInput,
+    solicitacaoParaExcluir,
+    setSolicitacaoParaExcluir,
+    openEntryDateEditor: handleOpenEditDataEntrada,
+    saveEntryDate: handleSaveDataEntrada,
+    isUpdatingEntryDate,
+    deleteRequest,
+    isDeletingRequest,
+    downloadRequest: handleDownload,
+    closeDetails,
+    getEmpresa,
+  } = useHistoricoPage();
 
   return (
     <div className="space-y-6">
@@ -286,8 +209,7 @@ export const HistoricoPage: React.FC = () => {
       <Modal
         isOpen={!!selectedSolicitacaoId}
         onClose={() => {
-          setSelectedSolicitacaoId(null);
-          setEditingNota(null);
+          closeDetails();
         }}
         title="Detalhamento da Solicitação e Notas Fiscais"
         subtitle="Conferência fiscal dos valores extraídos do XML, data de entrada e rastreabilidade de origem"
@@ -386,19 +308,19 @@ export const HistoricoPage: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white border border-slate-200 p-3 rounded-md">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Notas</span>
-                <span className="text-sm font-bold font-mono text-slate-900">{formatCurrency(totalValorNotas)}</span>
+                <span className="text-sm font-bold font-mono text-slate-900">{formatCurrency(totals.notas)}</span>
               </div>
               <div className="bg-white border border-slate-200 p-3 rounded-md">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Débito</span>
-                <span className="text-sm font-bold font-mono text-blue-900">{formatCurrency(totalDebito)}</span>
+                <span className="text-sm font-bold font-mono text-blue-900">{formatCurrency(totals.debito)}</span>
               </div>
               <div className="bg-white border border-slate-200 p-3 rounded-md">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Crédito</span>
-                <span className="text-sm font-bold font-mono text-slate-700">{formatCurrency(totalCredito)}</span>
+                <span className="text-sm font-bold font-mono text-slate-700">{formatCurrency(totals.credito)}</span>
               </div>
               <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-md">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 block">Valor Devido Total</span>
-                <span className="text-sm font-bold font-mono text-emerald-900">{formatCurrency(totalDevido)}</span>
+                <span className="text-sm font-bold font-mono text-emerald-900">{formatCurrency(totals.devido)}</span>
               </div>
             </div>
 
@@ -528,8 +450,7 @@ export const HistoricoPage: React.FC = () => {
                   variant="secondary"
                   size="sm"
                   onClick={() => {
-                    setSelectedSolicitacaoId(null);
-                    setEditingNota(null);
+                    closeDetails();
                   }}
                 >
                   Fechar
@@ -577,7 +498,7 @@ export const HistoricoPage: React.FC = () => {
             <Button
               type="submit"
               size="sm"
-              isLoading={updateDataEntradaMutation.isPending}
+              isLoading={isUpdatingEntryDate}
               leftIcon={<Check className="w-3.5 h-3.5" />}
             >
               Salvar Data
@@ -635,15 +556,15 @@ export const HistoricoPage: React.FC = () => {
                 variant="ghost"
                 size="sm"
                 onClick={() => setSolicitacaoParaExcluir(null)}
-                disabled={deleteSolicitacaoMutation.isPending}
+                disabled={isDeletingRequest}
               >
                 Cancelar
               </Button>
               <Button
                 variant="danger"
                 size="sm"
-                onClick={() => deleteSolicitacaoMutation.mutate(solicitacaoParaExcluir.id)}
-                isLoading={deleteSolicitacaoMutation.isPending}
+                onClick={() => deleteRequest(solicitacaoParaExcluir.id)}
+                isLoading={isDeletingRequest}
                 leftIcon={<Trash2 className="w-3.5 h-3.5" />}
               >
                 Sim, Excluir Planilha

@@ -5,12 +5,13 @@ import { templatesApi, type TemplateAtivoResumo } from '../../api/templates';
 import { getPlanilhaLabel } from '../../constants/domain';
 import { getErrorMessage } from '../../api/client';
 import { ErrorAlert } from './ErrorAlert';
+import { queryKeys } from '../../api/queryKeys';
 
 export const TemplateUpdateBanner: React.FC = () => {
   const [dismissed, setDismissed] = useState(false);
 
   const { data: templatesAtivos = [], error } = useQuery<TemplateAtivoResumo[]>({
-    queryKey: ['templates-ativos-resumo'],
+    queryKey: queryKeys.templatesAtivos,
     queryFn: templatesApi.listarAtivosResumo,
     staleTime: 60_000,
   });

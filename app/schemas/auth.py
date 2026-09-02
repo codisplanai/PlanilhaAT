@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field, validator
 from typing import Optional, Any
 
+from app.constants import ROLE_OPERADOR
+
 class LoginRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=254)
     password: str = Field(..., min_length=1, max_length=256)
@@ -20,7 +22,7 @@ class UserOut(BaseModel):
     nome: str
     email: str
     cargo: str
-    role: Optional[str] = "operador"
+    role: Optional[str] = ROLE_OPERADOR
 
     class Config:
         orm_mode = True
@@ -43,4 +45,3 @@ class AlterarSenhaRequest(BaseModel):
 
     class Config:
         extra = "forbid"
-

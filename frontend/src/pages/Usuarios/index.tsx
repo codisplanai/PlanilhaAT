@@ -1,96 +1,33 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import React from 'react';
 import { UserPlus, Users } from 'lucide-react';
 
-import { usuariosApi } from '../../api/usuarios';
-import { getErrorMessage } from '../../api/client';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
-import type { Usuario } from '../../types/usuario';
 import type { User } from '../../types/auth';
-
-const usuarioSchema = z.object({
-  nome: z.string().min(1, 'Informe o nome').max(255, 'Nome muito longo'),
-  email: z.string().min(1, 'Informe o e-mail').email('Formato de e-mail inválido'),
-  password: z.string().min(8, 'A senha deve ter ao menos 8 caracteres'),
-  role: z.enum(['operador', 'admin']),
-});
-
-type UsuarioFormData = z.infer<typeof usuarioSchema>;
+import { useUsuariosPage } from './useUsuariosPage';
 
 interface UsuariosPageProps {
   user: User | null;
 }
 
 export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
-  const [erro, setErro] = useState<string | null>(null);
-  // Erro do formulário separado do erro da página: o Modal é um portal
-  // `fixed inset-0 z-50`, então um alerta no corpo da página fica invisível
-  // atrás dele enquanto o formulário está aberto.
-  const [erroFormulario, setErroFormulario] = useState<string | null>(null);
-  const [modalAberto, setModalAberto] = useState(false);
-  const [salvando, setSalvando] = useState(false);
-
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<UsuarioFormData>({
-    resolver: zodResolver(usuarioSchema),
-    defaultValues: { nome: '', email: '', password: '', role: 'operador' },
-  });
-
-  const carregar = useCallback(async () => {
-    try {
-      setUsuarios(await usuariosApi.listar());
-      setErro(null);
-    } catch (err) {
-      setErro(getErrorMessage(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    void carregar();
-  }, [carregar]);
-
-  const abrirModal = () => {
-    setErroFormulario(null);
-    reset();
-    setModalAberto(true);
-  };
-
-  /** Limpa o formulário: senha em texto claro não pode sobreviver ao fechamento. */
-  const fecharModal = () => {
-    setModalAberto(false);
-    setErroFormulario(null);
-    reset();
-  };
-
-  const onSubmit = async (data: UsuarioFormData) => {
-    setSalvando(true);
-    setErroFormulario(null);
-    try {
-      await usuariosApi.criar(data);
-      fecharModal();
-      await carregar();
-    } catch (err) {
-      setErroFormulario(getErrorMessage(err));
-    } finally {
-      setSalvando(false);
-    }
-  };
-
-  const alternarStatus = async (alvo: Usuario) => {
-    setErro(null);
-    try {
-      await usuariosApi.alterarStatus(alvo.id, !alvo.ativo);
-      await carregar();
-    } catch (err) {
-      setErro(getErrorMessage(err));
-    }
-  };
+  const {
+    usuarios,
+    pageError: erro,
+    formError: erroFormulario,
+    setFormError: setErroFormulario,
+    modalOpen: modalAberto,
+    openModal: abrirModal,
+    closeModal: fecharModal,
+    createUser: onSubmit,
+    toggleStatus: alternarStatus,
+    register,
+    errors,
+    isSaving: salvando,
+  } = useUsuariosPage();
 
   return (
     <div className="space-y-6">
@@ -132,7 +69,7 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
                 <td className="px-4 py-3 text-right">
                   <button
                     type="button"
-                    onClick={() => void alternarStatus(u)}
+                    onClick={() => alternarStatus(u)}
                     disabled={u.id === user?.id}
                     title={u.id === user?.id ? 'Você não pode desativar a sua própria conta' : undefined}
                     className="text-xs font-semibold text-slate-600 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -155,7 +92,7 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
           />
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-4">
           <Input label="Nome" {...register('nome')} error={errors.nome?.message} />
           <Input label="E-mail" type="email" {...register('email')} error={errors.email?.message} />
           <Input label="Senha inicial" type="password" {...register('password')} error={errors.password?.message} />

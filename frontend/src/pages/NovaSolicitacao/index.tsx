@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import React from 'react';
 import {
   FileSpreadsheet,
   CheckCircle2,
@@ -20,10 +19,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-import { solicitacoesApi } from '../../api/solicitacoes';
 import { getErrorMessage } from '../../api/client';
-import type { Empresa } from '../../types/empresa';
-import type { Solicitacao, TipoPlanilha } from '../../types/solicitacao';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -34,24 +30,20 @@ import { PlanilhaBadge } from '../../components/domain/PlanilhaBadge';
 import { getEntryOriginLabel } from '../../constants/domain';
 import { TemplateUpdateBanner } from '../../components/feedback/TemplateUpdateBanner';
 import { formatCNPJ, formatDate, formatCurrency, formatPercent } from '../../lib/formatters';
-import { useEmpresasQuery } from '../../hooks/useApiQueries';
-import { useFiscalInputFiles } from './useFiscalInputFiles';
+import { REQUEST_STEPS, useNovaSolicitacaoPage } from './useNovaSolicitacaoPage';
 
 export const NovaSolicitacaoPage: React.FC = () => {
-  const queryClient = useQueryClient();
-  const [currentStep, setCurrentStep] = useState(1);
-
-  // Form State
-  const [selectedEmpresa, setSelectedEmpresa] = useState<Empresa | null>(null);
-  const [empresaSearch, setEmpresaSearch] = useState('');
-  
-  const today = new Date();
-  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
-  
-  const [periodoInicio, setPeriodoInicio] = useState(firstDay);
-  const [periodoFim, setPeriodoFim] = useState(lastDay);
   const {
+    currentStep,
+    setCurrentStep,
+    selectedEmpresa,
+    setSelectedEmpresa,
+    empresaSearch,
+    setEmpresaSearch,
+    periodoInicio,
+    setPeriodoInicio,
+    periodoFim,
+    setPeriodoFim,
     xmlFiles,
     spedFile,
     planilhaEntradaFile,
@@ -64,90 +56,18 @@ export const NovaSolicitacaoPage: React.FC = () => {
     handleSpedInput,
     handleSpedDrop,
     handlePlanilhaEntradaInput,
-    resetFiles,
     fileError,
     clearFileError,
-  } = useFiscalInputFiles();
-  
-  // Processing State
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [resultadoSolicitacao, setResultadoSolicitacao] = useState<Solicitacao | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Queries
-  const { data: empresas = [], isLoading: isLoadingEmpresas, error: empresasError } = useEmpresasQuery();
-
-  const filteredEmpresas = empresas.filter((e) => {
-    const term = empresaSearch.toLowerCase();
-    const digits = term.replace(/\D/g, '');
-    return e.ativo && (
-      e.razao_social.toLowerCase().includes(term) ||
-      (digits.length > 0 && e.cnpj.includes(digits)) ||
-      e.uf.toLowerCase().includes(term)
-    );
-  });
-
-  // Handlers
-
-  const handleGerarPlanilha = async () => {
-    if (!selectedEmpresa) return;
-    if (!periodoInicio || !periodoFim || periodoFim < periodoInicio) {
-      setErrorMessage('O período final não pode ser anterior ao período inicial.');
-      return;
-    }
-    if (xmlFiles.length === 0 && !spedFile) {
-      setErrorMessage('Envie os XMLs de NF-e, o arquivo SPED Fiscal, ou ambos.');
-      return;
-    }
-
-    setErrorMessage(null);
-    setIsProcessing(true);
-
-    try {
-      // 1. Criar a solicitação (sem tipo_planilha: o roteamento por CFOP decide
-      // automaticamente quais planilhas serão geradas a partir dos dados enviados)
-      const solicitacaoCriada = await solicitacoesApi.criar({
-        empresa_id: selectedEmpresa.id,
-        periodo_inicio: periodoInicio,
-        periodo_fim: periodoFim,
-      });
-
-      // 2. Fazer upload dos XMLs ou SPED + planilha de entrada opcional e processar
-      const solicitacaoProcessada = await solicitacoesApi.processar(
-        solicitacaoCriada.id,
-        xmlFiles.length > 0 ? xmlFiles : undefined,
-        planilhaEntradaFile,
-        spedFile ?? undefined
-      );
-
-      setResultadoSolicitacao(solicitacaoProcessada);
-      await queryClient.invalidateQueries({ queryKey: ['solicitacoes'] });
-    } catch (err) {
-      setErrorMessage(getErrorMessage(err));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleDownload = async (tipo?: TipoPlanilha) => {
-    if (!resultadoSolicitacao) return;
-    try {
-      const nomeEmpresa = selectedEmpresa?.razao_social.slice(0, 15).replace(/\s+/g, '_') || 'Empresa';
-      const sufixoTipo = tipo ? tipo : 'todas';
-      const filename = `Planilha_${sufixoTipo}_${nomeEmpresa}_${periodoInicio.slice(0, 7)}.xlsx`;
-      await solicitacoesApi.downloadPlanilha(resultadoSolicitacao.id, filename, tipo);
-    } catch (err) {
-      alert(getErrorMessage(err));
-    }
-  };
-
-  // Steps Navigator
-  const steps = [
-    { num: 1, label: 'Empresa' },
-    { num: 2, label: 'Período' },
-    { num: 3, label: 'XMLs e Dados' },
-    { num: 4, label: 'Resultado' },
-  ];
+    isProcessing,
+    resultadoSolicitacao,
+    errorMessage,
+    setErrorMessage,
+    empresasQuery: { isLoading: isLoadingEmpresas, error: empresasError },
+    filteredEmpresas,
+    generateSpreadsheet: handleGerarPlanilha,
+    downloadSpreadsheet: handleDownload,
+    startNewRequest,
+  } = useNovaSolicitacaoPage();
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -164,7 +84,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
       {/* Wizard Steps Bar */}
       <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
         <div className="flex items-center justify-between">
-          {steps.map((s, idx) => {
+          {REQUEST_STEPS.map((s, idx) => {
             const isDone = currentStep > s.num || (currentStep === 4 && resultadoSolicitacao?.status === 'concluido');
             const isCurrent = currentStep === s.num;
             return (
@@ -189,7 +109,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     {s.label}
                   </span>
                 </div>
-                {idx < steps.length - 1 && (
+                {idx < REQUEST_STEPS.length - 1 && (
                   <div
                     className={`flex-1 h-0.5 mx-2 sm:mx-4 transition-colors ${
                       currentStep > s.num ? 'bg-emerald-500' : 'bg-slate-200'
@@ -709,9 +629,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     <Button
                       variant="outline"
                       onClick={() => {
-                        setResultadoSolicitacao(null);
-                        resetFiles();
-                        setCurrentStep(1);
+                        startNewRequest();
                       }}
                     >
                       Gerar Nova Solicitação

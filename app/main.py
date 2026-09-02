@@ -12,15 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401 - registra os modelos no metadata do SQLAlchemy
-from app.api.endpoints.auth import router as auth_router
-from app.api.endpoints.empresas import router as empresas_router
-from app.api.endpoints.perfis_regras import router as perfis_regras_router
-from app.api.endpoints.regras_aliquotas import router as regras_aliquotas_router
-from app.api.endpoints.regras_cfop import router as regras_cfop_router
-from app.api.endpoints.solicitacoes import router as solicitacoes_router
-from app.api.endpoints.templates import router as templates_router
-from app.api.endpoints.usuarios import router as usuarios_router
-from app.api.router import api_router
+from app.api.router import api_router, include_registered_routers
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.exceptions import PlanilhaATException
@@ -98,17 +90,7 @@ app.include_router(api_router)
 
 # Alias mantido para integrações legadas.
 v1_router = APIRouter(prefix="/v1")
-for router in (
-    auth_router,
-    perfis_regras_router,
-    empresas_router,
-    regras_aliquotas_router,
-    regras_cfop_router,
-    templates_router,
-    solicitacoes_router,
-    usuarios_router,
-):
-    v1_router.include_router(router)
+include_registered_routers(v1_router)
 app.include_router(v1_router)
 
 

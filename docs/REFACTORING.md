@@ -1,5 +1,45 @@
 # Relatório da refatoração estrutural
 
+## Rodada integral de 02/09/2026
+
+A base inteira foi inventariada antes da primeira alteração: configuração, migrations,
+modelos, schemas, endpoints, serviços fiscais, autenticação/RBAC, integrações Supabase,
+testes, cliente HTTP, tipos, hooks, componentes, páginas, rotas e build. O baseline foi
+registrado com **137 testes aprovados e 1 ignorado**, além de lint e build do frontend.
+
+### Problemas estruturais priorizados
+
+| Prioridade | Problema confirmado | Risco de manutenção |
+|---|---|---|
+| Alta | `pipeline_service.py` acumulava extração, reconciliação XML/SPED, Storage, Excel, compensação e transação. | Alterações locais exigiam compreender quase todo o processamento e ampliavam o raio de falha. |
+| Alta | Seis páginas React misturavam JSX, schemas, estado, queries, mutations e transformação de payload. | Duplicação de invalidações, arquivos extensos e regras difíceis de testar ou reutilizar. |
+| Alta | Gravação, recuperação e exclusão de artefatos eram repetidas e nem sempre atômicas ou confinadas à pasta esperada. | Arquivos parciais e risco de remoção por caminho persistido indevidamente. |
+| Média | Rotas eram enumeradas novamente para cada prefixo da API. | Alias `/v1` podia divergir de `/api/v1` ao adicionar endpoints. |
+| Média | UFs, papéis, cargos, status, tipos de planilha e variantes de CFOP apareciam em mais de uma camada. | Contratos podiam divergir silenciosamente. |
+| Média | Chaves de cache e tipos visuais dependiam de strings ou módulos de domínio dispersos. | Invalidações incompletas e acoplamento de primitivos de UI ao domínio. |
+
+### Refatorações executadas
+
+- O pipeline passou a delegar carregamento/deduplicação a `pipeline_sources.py` e geração,
+  regeneração, backup e compensação de saídas a `pipeline_outputs.py`.
+- Operações locais foram centralizadas em `local_files.py`, com escrita temporária no
+  mesmo volume, promoção atômica e validação de que exclusões permaneçam na raiz esperada.
+- Storage continua opcional; quando configurado, falhas preservam o comportamento
+  transacional e a restauração coordenada entre banco, disco e Supabase.
+- O catálogo de routers passou a ter uma única fonte para `/api/v1` e o alias `/v1`.
+- UFs, papéis, cargo por papel, status e opções de domínio foram centralizados sem mudar os
+  valores aceitos pelos contratos existentes.
+- `Empresas`, `AdminTemplates`, `NovaSolicitacao`, `Historico`, `Usuarios` e
+  `PerfisRegras` receberam hooks privados por feature. O JSX ficou responsável por
+  apresentação; validação, fluxo, cache, mutations e payloads ficaram nos hooks.
+- Chaves adicionais do React Query foram centralizadas e o CRUD de usuários deixou de
+  manter uma segunda fonte manual de estado remoto.
+- Os contratos TypeScript de papel e variantes de badge foram tornados explícitos; o
+  `any` residual no fluxo de alteração de senha foi removido com narrowing seguro.
+
+Nenhum endpoint, payload, fórmula, critério fiscal, rota, classe visual ou sequência de
+interação foi intencionalmente alterado nesta rodada.
+
 ## Diagnóstico inicial
 
 Os pontos de maior impacto encontrados na revisão integral foram:
@@ -56,18 +96,17 @@ Os pontos de maior impacto encontrados na revisão integral foram:
 - Fórmulas, cálculos, cruzamentos XML/SPED e critérios fiscais não foram alterados.
 - Rotas, payloads, mensagens de validação e códigos HTTP permanecem compatíveis.
 - Layout, classes visuais e fluxo de navegação permanecem equivalentes.
-- A autenticação em memória do MVP foi preservada; substituí-la por autenticação
-  persistente exigiria uma mudança funcional separada.
-- A persistência continua em SQLAlchemy/SQLite ou PostgreSQL. Não existia integração
-  Supabase na base analisada e nenhuma dependência externa foi introduzida.
+- A autenticação Supabase e o fallback local restrito a desenvolvimento/testes foram
+  preservados, assim como a autorização baseada nos perfis persistidos.
+- A persistência continua em SQLAlchemy/SQLite ou PostgreSQL. Auth, Admin API e Storage do
+  Supabase permanecem adaptadores opcionais; nenhuma dependência externa foi introduzida.
 
 ## Validação executada
 
 - `python -m compileall -q app tests`: aprovado.
-- `python -m pytest -q`: **85 testes aprovados**.
+- `python -m pytest -q`: **140 testes aprovados e 1 ignorado**.
 - `npm run lint`: aprovado sem erros.
 - `npm run build`: aprovado com TypeScript e Vite.
-- Bundle inicial reduzido de aproximadamente **561 kB para 258 kB** por divisão de rotas.
 
 Os avisos restantes vêm de compatibilidade futura de bibliotecas (`datetime.utcnow` no
 SQLAlchemy e atalho `app` do HTTPX). As versões foram limitadas em `requirements.txt` para

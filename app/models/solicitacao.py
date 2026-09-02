@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 from app.core.time import utcnow_naive
+from app.constants import STATUS_PENDENTE
 
 class Solicitacao(Base):
     __tablename__ = "solicitacoes"
@@ -15,7 +16,7 @@ class Solicitacao(Base):
     periodo_fim = Column(Date, nullable=False)
     tipo_planilha = Column(String(50), nullable=False, default="multi")  # legado: antecipacao_parcial, antecipacao_tributaria, difal, ou 'multi' (roteamento automático por CFOP)
     template_id = Column(Integer, ForeignKey("templates_xlsx.id", ondelete="RESTRICT"), nullable=True)  # legado: usado apenas pelo fluxo de tipo único anterior
-    status = Column(String(20), default="pendente", nullable=False)  # pendente, processando, concluido, erro
+    status = Column(String(20), default=STATUS_PENDENTE, nullable=False)
     mensagem_erro = Column(Text, nullable=True)
     arquivo_saida_path = Column(String(500), nullable=True)
     total_notas_processadas = Column(Integer, default=0, nullable=False)

@@ -1,9 +1,11 @@
+export type UserRole = 'admin' | 'operador';
+
 export interface User {
   id: string | number;
   nome: string;
   email: string;
   cargo: string;
-  role?: string;
+  role?: UserRole;
 }
 
 export interface LoginResponse {
@@ -21,4 +23,3 @@ export interface AlterarSenhaPayload {
   senha_atual: string;
   nova_senha: string;
 }
-

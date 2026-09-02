@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { isAxiosError } from 'axios';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { authApi } from '../../api/auth';
@@ -72,10 +73,13 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
       setTimeout(() => {
         handleClose();
       }, 1800);
-    } catch (err: any) {
+    } catch (err) {
+      const responseData = isAxiosError<{ detail?: string; message?: string }>(err)
+        ? err.response?.data
+        : undefined;
       const msg =
-        err.response?.data?.detail ||
-        err.response?.data?.message ||
+        responseData?.detail ||
+        responseData?.message ||
         'Não foi possível alterar a senha. Verifique os dados e tente novamente.';
       setError(msg);
     } finally {

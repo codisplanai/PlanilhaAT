@@ -1,4 +1,5 @@
-import type { BadgeVariant } from '../components/ui/Badge';
+import type { BadgeVariant } from '../types/common';
+import type { DestinoCfop } from '../types/regraCfop';
 import type { StatusSolicitacao, TipoPlanilha } from '../types/solicitacao';
 
 export const UFS_BRASIL = [
@@ -27,6 +28,27 @@ export const PLANILHA_DETAILED_LABELS: Record<TipoPlanilha, string> = {
   antecipacao_parcial_antecipado: PLANILHA_LABELS.antecipacao_parcial_antecipado,
   antecipacao_tributaria: PLANILHA_LABELS.antecipacao_tributaria,
   difal: 'DIFAL (Diferencial de Alíquota)',
+};
+
+export const TIPOS_PLANILHA_OPTIONS: ReadonlyArray<{
+  id: TipoPlanilha;
+  nome: string;
+}> = (Object.keys(PLANILHA_LABELS) as Array<TipoPlanilha | 'multi'>)
+  .filter((tipo): tipo is TipoPlanilha => tipo !== 'multi')
+  .map((tipo) => ({ id: tipo, nome: PLANILHA_LABELS[tipo] }));
+
+export const DESTINO_CFOP_LABELS: Record<DestinoCfop, string> = {
+  antecipacao_parcial: PLANILHA_LABELS.antecipacao_parcial,
+  antecipacao_tributaria: PLANILHA_LABELS.antecipacao_tributaria,
+  difal: PLANILHA_LABELS.difal,
+  ignorar: 'Ignorar (não apurar)',
+};
+
+export const DESTINO_CFOP_BADGE_VARIANTS: Record<DestinoCfop, BadgeVariant> = {
+  antecipacao_parcial: 'info',
+  antecipacao_tributaria: 'purple',
+  difal: 'success',
+  ignorar: 'neutral',
 };
 
 export const STATUS_LABELS: Record<StatusSolicitacao, string> = {

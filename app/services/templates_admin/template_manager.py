@@ -2,8 +2,7 @@ import os
 import io
 import hashlib
 import logging
-import tempfile
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import openpyxl
@@ -15,6 +14,7 @@ from app.core.config import settings
 from app.core.exceptions import ValidationException, NotFoundException
 from app.constants import TIPOS_PLANILHA
 from app.services.supabase_storage import SupabaseStorageService
+from app.services.local_files import atomic_write, remove_file_if_exists
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +79,9 @@ class TemplateManager:
         stored_filename = f"template_{clean_tipo}_v{proxima_versao}_{file_hash[:8]}{ext}"
         stored_path = os.path.join(settings.TEMPLATES_DIR, stored_filename)
 
-        os.makedirs(settings.TEMPLATES_DIR, exist_ok=True)
-        fd, temporary_path = tempfile.mkstemp(prefix="template_", suffix=".xlsx", dir=settings.TEMPLATES_DIR)
         try:
-            with os.fdopen(fd, "wb") as file_handle:
-                file_handle.write(file_bytes)
-            os.replace(temporary_path, stored_path)
+            atomic_write(stored_path, file_bytes, prefix="template_")
         except Exception:
-            if os.path.exists(temporary_path):
-                os.remove(temporary_path)
             raise ValidationException("Não foi possível armazenar o template enviado.")
 
         # Upload para Supabase Storage se configurado (armazenamento em nuvem)
@@ -96,7 +90,7 @@ class TemplateManager:
             path=stored_filename,
             file_bytes=file_bytes,
         ):
-            os.remove(stored_path)
+            remove_file_if_exists(stored_path)
             raise ValidationException("Não foi possível armazenar o template na nuvem.")
 
         # Se for o primeiro template do tipo, ativa por padrão se não houver ativo
@@ -127,8 +121,7 @@ class TemplateManager:
             return novo_template
         except IntegrityError as exc:
             db.rollback()
-            if os.path.exists(stored_path):
-                os.remove(stored_path)
+            remove_file_if_exists(stored_path)
             SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, stored_filename)
             raise ValidationException("Outro upload criou esta versão simultaneamente; tente novamente.") from exc
 
@@ -190,9 +183,7 @@ class TemplateManager:
             settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, filename
         )
         if file_bytes:
-            os.makedirs(settings.TEMPLATES_DIR, exist_ok=True)
-            with open(runtime_path, "wb") as f:
-                f.write(file_bytes)
+            atomic_write(runtime_path, file_bytes, prefix="template_download_")
             return runtime_path
 
         # 4. Fallback para os modelos oficiais empacotados no repositório

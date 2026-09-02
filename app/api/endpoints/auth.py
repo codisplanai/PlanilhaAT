@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.constants import CARGO_POR_ROLE, ROLE_OPERADOR
 from app.core.database import get_db
 from app.core.security import (
     ACTIVE_DEV_TOKENS,
@@ -131,8 +132,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
                         id=str(user_id),
                         email=email,
                         nome=str(nome)[:255],
-                        cargo=account.get("cargo", "Analista Fiscal"),
-                        role=account.get("role", "operador"),
+                        cargo=account.get("cargo", CARGO_POR_ROLE[ROLE_OPERADOR]),
+                        role=account.get("role", ROLE_OPERADOR),
                     )
                     db.add(profile)
                     try:

@@ -1,8 +1,4 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import React from 'react';
 import {
   Sliders,
   Plus,
@@ -12,13 +8,8 @@ import {
   Zap
 } from 'lucide-react';
 
-import { perfisApi } from '../../api/perfis';
-import { regrasApi } from '../../api/regras';
-import { regrasCfopApi } from '../../api/regrasCfop';
 import { getErrorMessage } from '../../api/client';
-import type { PerfilRegras, PerfilRegrasCreate } from '../../types/perfil';
-import type { RegraAliquota, RegraAliquotaCreate } from '../../types/regra';
-import type { RegraCfopCreate, RegraCfopEfetiva, DestinoCfop } from '../../types/regraCfop';
+import type { DestinoCfop } from '../../types/regraCfop';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -29,362 +20,58 @@ import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { formatPercent } from '../../lib/formatters';
-import { UFS_BRASIL } from '../../constants/domain';
-import { usePerfisQuery } from '../../hooks/useApiQueries';
-
-const DESTINO_LABELS: Record<DestinoCfop, string> = {
-  antecipacao_parcial: 'Antecipação Parcial',
-  antecipacao_tributaria: 'Antecipação Tributária',
-  difal: 'DIFAL',
-  ignorar: 'Ignorar (não apurar)',
-};
-
-const DESTINO_BADGE: Record<DestinoCfop, 'info' | 'purple' | 'success' | 'neutral'> = {
-  antecipacao_parcial: 'info',
-  antecipacao_tributaria: 'purple',
-  difal: 'success',
-  ignorar: 'neutral',
-};
-
-// Schema Perfil
-const perfilSchema = z.object({
-  nome: z.string().min(2, 'Informe o nome do perfil'),
-  descricao: z.string().optional(),
-});
-
-type PerfilFormData = z.infer<typeof perfilSchema>;
-
-// Schema Regra Alíquota
-const regraSchema = z.object({
-  uf: z.string().length(2, 'Selecione a UF'),
-  tipo_regra: z.enum(['padrao', 'excecao']),
-  ncm: z.string().optional(),
-  aliquota: z.number().min(0, 'Alíquota deve ser positiva').max(100, 'Alíquota máxima de 100%'),
-  descricao: z.string().optional(),
-}).refine(
-  (data) => {
-    if (data.tipo_regra === 'excecao') {
-      const clean = data.ncm ? data.ncm.replace(/\D/g, '') : '';
-      return clean.length === 8;
-    }
-    return true;
-  },
-  {
-    message: 'Para regra de exceção, informe um NCM válido de 8 dígitos',
-    path: ['ncm'],
-  }
-);
-
-type RegraFormData = z.infer<typeof regraSchema>;
-
-// Schema Regra de CFOP
-const regraCfopSchema = z.object({
-  cfop_sufixo: z.string()
-    .regex(/^\d{3,4}$/, 'Informe os 3 últimos dígitos do CFOP (ex: 102) ou o CFOP completo (ex: 6102)'),
-  destino: z.enum(['antecipacao_parcial', 'antecipacao_tributaria', 'difal', 'ignorar']),
-  descricao: z.string().optional(),
-});
-
-type RegraCfopFormData = z.infer<typeof regraCfopSchema>;
+import {
+  DESTINO_CFOP_BADGE_VARIANTS,
+  DESTINO_CFOP_LABELS,
+  UFS_BRASIL,
+} from '../../constants/domain';
+import { usePerfisRegrasPage } from './usePerfisRegrasPage';
 
 export const PerfisRegrasPage: React.FC = () => {
-  const queryClient = useQueryClient();
-  const [selectedPerfilId, setSelectedPerfilId] = useState<number | null>(null);
-  
-  // Modais
-  const [perfilModalOpen, setPerfilModalOpen] = useState(false);
-  const [editingPerfil, setEditingPerfil] = useState<PerfilRegras | null>(null);
-  
-  const [regraModalOpen, setRegraModalOpen] = useState(false);
-  const [editingRegra, setEditingRegra] = useState<RegraAliquota | null>(null);
-
-  const [regraCfopModalOpen, setRegraCfopModalOpen] = useState(false);
-  const [editingRegraCfop, setEditingRegraCfop] = useState<RegraCfopEfetiva | null>(null);
-
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Queries
   const {
-    data: perfis = [],
-    isLoading: isLoadingPerfis,
-    error: errorPerfis,
-  } = usePerfisQuery();
-
-  // Perfil ativo selecionado (default para o primeiro se existir)
-  const activePerfil =
-    perfis.find((p) => p.id === selectedPerfilId) || perfis[0] || null;
-
-  const { data: regras = [], isLoading: isLoadingRegras } = useQuery({
-    queryKey: ['regras-aliquotas', activePerfil?.id],
-    queryFn: () => regrasApi.listar({ perfil_id: activePerfil!.id }),
-    enabled: !!activePerfil,
-  });
-
-  const { data: regrasCfopEfetivas = [], isLoading: isLoadingRegrasCfop } = useQuery({
-    queryKey: ['regras-cfop-efetivas', activePerfil?.id],
-    queryFn: () => regrasCfopApi.listarEfetivas(activePerfil!.id),
-    enabled: !!activePerfil,
-  });
-
-  // Forms
-  const {
-    register: registerPerfil,
-    handleSubmit: handleSubmitPerfil,
-    reset: resetPerfil,
-    formState: { errors: errorsPerfil, isSubmitting: isSubmittingPerfil },
-  } = useForm<PerfilFormData>({
-    resolver: zodResolver(perfilSchema),
-  });
-
-  const {
-    register: registerRegra,
-    handleSubmit: handleSubmitRegra,
-    reset: resetRegra,
-    watch: watchRegra,
-    formState: { errors: errorsRegra, isSubmitting: isSubmittingRegra },
-  } = useForm<RegraFormData>({
-    resolver: zodResolver(regraSchema),
-    defaultValues: {
-      uf: 'BA',
-      tipo_regra: 'padrao',
-      ncm: '',
-      aliquota: 20.5,
-      descricao: '',
-    },
-  });
-
-  const tipoRegraWatch = watchRegra('tipo_regra');
-
-  const {
-    register: registerRegraCfop,
-    handleSubmit: handleSubmitRegraCfop,
-    reset: resetRegraCfop,
-    formState: { errors: errorsRegraCfop, isSubmitting: isSubmittingRegraCfop },
-  } = useForm<RegraCfopFormData>({
-    resolver: zodResolver(regraCfopSchema),
-    defaultValues: {
-      cfop_sufixo: '',
-      destino: 'antecipacao_parcial',
-      descricao: '',
-    },
-  });
-
-  // Mutations Perfil
-  const createPerfilMutation = useMutation({
-    mutationFn: (payload: PerfilRegrasCreate) => perfisApi.criar(payload),
-    onSuccess: (newPerfil) => {
-      queryClient.invalidateQueries({ queryKey: ['perfis-regras'] });
-      setSelectedPerfilId(newPerfil.id);
-      setPerfilModalOpen(false);
-    },
-    onError: (err) => setErrorMessage(getErrorMessage(err)),
-  });
-
-  const updatePerfilMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: PerfilRegrasCreate }) =>
-      perfisApi.atualizar(id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['perfis-regras'] });
-      setPerfilModalOpen(false);
-    },
-    onError: (err) => setErrorMessage(getErrorMessage(err)),
-  });
-
-  const deletePerfilMutation = useMutation({
-    mutationFn: (id: number) => perfisApi.deletar(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['perfis-regras'] });
-      setSelectedPerfilId(null);
-    },
-    onError: (err) => alert(getErrorMessage(err)),
-  });
-
-  // Mutations Regras
-  const createRegraMutation = useMutation({
-    mutationFn: (payload: RegraAliquotaCreate) => regrasApi.criar(payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regras-aliquotas', activePerfil?.id] });
-      setRegraModalOpen(false);
-    },
-    onError: (err) => setErrorMessage(getErrorMessage(err)),
-  });
-
-  const updateRegraMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: RegraAliquotaCreate }) =>
-      regrasApi.atualizar(id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regras-aliquotas', activePerfil?.id] });
-      setRegraModalOpen(false);
-    },
-    onError: (err) => setErrorMessage(getErrorMessage(err)),
-  });
-
-  const deleteRegraMutation = useMutation({
-    mutationFn: (id: number) => regrasApi.deletar(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regras-aliquotas', activePerfil?.id] });
-    },
-    onError: (err) => alert(getErrorMessage(err)),
-  });
-
-  // Mutations Regras de CFOP
-  const createRegraCfopMutation = useMutation({
-    mutationFn: (payload: RegraCfopCreate) => regrasCfopApi.criar(payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regras-cfop-efetivas', activePerfil?.id] });
-      setRegraCfopModalOpen(false);
-    },
-    onError: (err) => setErrorMessage(getErrorMessage(err)),
-  });
-
-  const updateRegraCfopMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: RegraCfopCreate }) =>
-      regrasCfopApi.atualizar(id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regras-cfop-efetivas', activePerfil?.id] });
-      setRegraCfopModalOpen(false);
-    },
-    onError: (err) => setErrorMessage(getErrorMessage(err)),
-  });
-
-  const deleteRegraCfopMutation = useMutation({
-    mutationFn: (id: number) => regrasCfopApi.deletar(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regras-cfop-efetivas', activePerfil?.id] });
-    },
-    onError: (err) => alert(getErrorMessage(err)),
-  });
-
-  // Handlers Perfil
-  const handleOpenCreatePerfil = () => {
-    setEditingPerfil(null);
-    setErrorMessage(null);
-    resetPerfil({ nome: '', descricao: '' });
-    setPerfilModalOpen(true);
-  };
-
-  const handleOpenEditPerfil = (p: PerfilRegras) => {
-    setEditingPerfil(p);
-    setErrorMessage(null);
-    resetPerfil({ nome: p.nome, descricao: p.descricao || '' });
-    setPerfilModalOpen(true);
-  };
-
-  const onSubmitPerfil = async (data: PerfilFormData) => {
-    setErrorMessage(null);
-    try {
-      if (editingPerfil) {
-        await updatePerfilMutation.mutateAsync({
-          id: editingPerfil.id,
-          payload: { nome: data.nome, descricao: data.descricao },
-        });
-      } else {
-        await createPerfilMutation.mutateAsync({
-          nome: data.nome,
-          descricao: data.descricao,
-        });
-      }
-    } catch {
-      // onError da mutation exibe a falha no modal.
-    }
-  };
-
-  // Handlers Regra
-  const handleOpenCreateRegra = (tipo: 'padrao' | 'excecao' = 'padrao') => {
-    setEditingRegra(null);
-    setErrorMessage(null);
-    resetRegra({
-      uf: 'BA',
-      tipo_regra: tipo,
-      ncm: '',
-      aliquota: 20.5,
-      descricao: '',
-    });
-    setRegraModalOpen(true);
-  };
-
-  const handleOpenEditRegra = (r: RegraAliquota) => {
-    setEditingRegra(r);
-    setErrorMessage(null);
-    const isExcecao = !!r.ncm;
-    resetRegra({
-      uf: r.uf,
-      tipo_regra: isExcecao ? 'excecao' : 'padrao',
-      ncm: r.ncm || '',
-      aliquota: r.aliquota <= 1 ? r.aliquota * 100 : r.aliquota,
-      descricao: r.descricao || '',
-    });
-    setRegraModalOpen(true);
-  };
-
-  const onSubmitRegra = async (data: RegraFormData) => {
-    if (!activePerfil) return;
-    setErrorMessage(null);
-
-    const aliquotaDecimal = data.aliquota > 1 ? data.aliquota / 100 : data.aliquota;
-    const cleanNcm = data.tipo_regra === 'excecao' && data.ncm ? data.ncm.replace(/\D/g, '') : null;
-
-    const payload: RegraAliquotaCreate = {
-      perfil_regras_id: activePerfil.id,
-      uf: data.uf,
-      ncm: cleanNcm,
-      aliquota: aliquotaDecimal,
-      descricao: data.descricao || (cleanNcm ? `Exceção NCM ${cleanNcm}` : `Alíquota Padrão ${data.uf}`),
-    };
-
-    try {
-      if (editingRegra) {
-        await updateRegraMutation.mutateAsync({ id: editingRegra.id, payload });
-      } else {
-        await createRegraMutation.mutateAsync(payload);
-      }
-    } catch {
-      // onError da mutation exibe a falha no modal.
-    }
-  };
-
-  // Handlers Regra de CFOP
-  const handleOpenCreateRegraCfop = () => {
-    setEditingRegraCfop(null);
-    setErrorMessage(null);
-    resetRegraCfop({ cfop_sufixo: '', destino: 'antecipacao_parcial', descricao: '' });
-    setRegraCfopModalOpen(true);
-  };
-
-  const handleOpenEditRegraCfop = (r: RegraCfopEfetiva) => {
-    setEditingRegraCfop(r);
-    setErrorMessage(null);
-    resetRegraCfop({ cfop_sufixo: r.cfop_sufixo, destino: r.destino, descricao: r.descricao || '' });
-    setRegraCfopModalOpen(true);
-  };
-
-  const onSubmitRegraCfop = async (data: RegraCfopFormData) => {
-    if (!activePerfil) return;
-    setErrorMessage(null);
-
-    const payload: RegraCfopCreate = {
-      perfil_regras_id: activePerfil.id,
-      cfop_sufixo: data.cfop_sufixo,
-      destino: data.destino,
-      descricao: data.descricao || null,
-    };
-
-    // Editando uma regra que hoje é apenas o padrão global (origem 'global'): cria a
-    // sobrescrita para este perfil em vez de tentar atualizar a regra global compartilhada.
-    try {
-      if (editingRegraCfop && editingRegraCfop.origem === 'perfil') {
-        await updateRegraCfopMutation.mutateAsync({ id: editingRegraCfop.regra_id, payload });
-      } else {
-        await createRegraCfopMutation.mutateAsync(payload);
-      }
-    } catch {
-      // onError da mutation exibe a falha no modal.
-    }
-  };
-
-  // Segregação explícita entre Regras Padrão e Exceções
-  const regrasPadrao = regras.filter((r) => !r.ncm);
-  const regrasExcecao = regras.filter((r) => !!r.ncm);
+    perfis,
+    perfisQuery: { isLoading: isLoadingPerfis, error: errorPerfis },
+    activePerfil,
+    setSelectedPerfilId,
+    regrasPadrao,
+    regrasExcecao,
+    isLoadingRegras,
+    regrasCfopEfetivas,
+    isLoadingRegrasCfop,
+    perfilModalOpen,
+    setPerfilModalOpen,
+    editingPerfil,
+    regraModalOpen,
+    setRegraModalOpen,
+    editingRegra,
+    regraCfopModalOpen,
+    setRegraCfopModalOpen,
+    editingRegraCfop,
+    errorMessage,
+    setErrorMessage,
+    openCreatePerfil: handleOpenCreatePerfil,
+    openEditPerfil: handleOpenEditPerfil,
+    deletePerfil,
+    submitPerfil,
+    registerPerfil,
+    errorsPerfil,
+    isSubmittingPerfil,
+    openCreateRegra: handleOpenCreateRegra,
+    openEditRegra: handleOpenEditRegra,
+    deleteRegra,
+    submitRegra,
+    registerRegra,
+    errorsRegra,
+    isSubmittingRegra,
+    tipoRegraWatch,
+    openCreateRegraCfop: handleOpenCreateRegraCfop,
+    openEditRegraCfop: handleOpenEditRegraCfop,
+    deleteRegraCfop,
+    submitRegraCfop,
+    registerRegraCfop,
+    errorsRegraCfop,
+    isSubmittingRegraCfop,
+  } = usePerfisRegrasPage();
 
   return (
     <div className="space-y-6">
@@ -462,7 +149,7 @@ export const PerfisRegrasPage: React.FC = () => {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (confirm(`Deseja remover o perfil "${p.nome}"?`)) {
-                                deletePerfilMutation.mutate(p.id);
+                                deletePerfil(p.id);
                               }
                             }}
                             className="p-1 text-slate-400 hover:text-red-700 rounded transition-colors"
@@ -558,7 +245,7 @@ export const PerfisRegrasPage: React.FC = () => {
                                 <button
                                   onClick={() => {
                                     if (confirm(`Remover regra padrão de ${regra.uf}?`)) {
-                                      deleteRegraMutation.mutate(regra.id);
+                                      deleteRegra(regra.id);
                                     }
                                   }}
                                   className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded"
@@ -643,7 +330,7 @@ export const PerfisRegrasPage: React.FC = () => {
                                 <button
                                   onClick={() => {
                                     if (confirm(`Remover exceção NCM ${regra.ncm} para ${regra.uf}?`)) {
-                                      deleteRegraMutation.mutate(regra.id);
+                                      deleteRegra(regra.id);
                                     }
                                   }}
                                   className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded"
@@ -703,8 +390,8 @@ export const PerfisRegrasPage: React.FC = () => {
                               </span>
                             </td>
                             <td className="py-2.5 px-3">
-                              <Badge variant={DESTINO_BADGE[regra.destino]} size="sm">
-                                {DESTINO_LABELS[regra.destino]}
+                              <Badge variant={DESTINO_CFOP_BADGE_VARIANTS[regra.destino]} size="sm">
+                                {DESTINO_CFOP_LABELS[regra.destino]}
                               </Badge>
                             </td>
                             <td className="py-2.5 px-3">
@@ -733,7 +420,7 @@ export const PerfisRegrasPage: React.FC = () => {
                                   <button
                                     onClick={() => {
                                       if (confirm(`Remover a exceção de CFOP ${regra.cfop_sufixo} deste perfil? Voltará a usar o padrão do sistema.`)) {
-                                        deleteRegraCfopMutation.mutate(regra.regra_id);
+                                        deleteRegraCfop(regra.regra_id);
                                       }
                                     }}
                                     className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded"
@@ -764,7 +451,7 @@ export const PerfisRegrasPage: React.FC = () => {
         subtitle="Perfis agrupam conjuntos de regras e alíquotas compartilhados entre várias empresas"
       >
         {errorMessage && <ErrorAlert message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
-        <form onSubmit={handleSubmitPerfil(onSubmitPerfil)} className="space-y-4">
+        <form onSubmit={submitPerfil} className="space-y-4">
           <Input
             label="Nome do Perfil"
             placeholder="Ex: Comércio Varejista BA - Geral"
@@ -802,7 +489,7 @@ export const PerfisRegrasPage: React.FC = () => {
         subtitle={`Perfil: ${activePerfil?.nome}`}
       >
         {errorMessage && <ErrorAlert message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
-        <form onSubmit={handleSubmitRegra(onSubmitRegra)} className="space-y-4">
+        <form onSubmit={submitRegra} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">
               Tipo da Regra
@@ -904,7 +591,7 @@ export const PerfisRegrasPage: React.FC = () => {
         subtitle={`Perfil: ${activePerfil?.nome}`}
       >
         {errorMessage && <ErrorAlert message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
-        <form onSubmit={handleSubmitRegraCfop(onSubmitRegraCfop)} className="space-y-4">
+        <form onSubmit={submitRegraCfop} className="space-y-4">
           <Input
             label="CFOP (3 últimos dígitos ou completo)"
             placeholder="Ex: 102 ou 6102"
@@ -922,8 +609,8 @@ export const PerfisRegrasPage: React.FC = () => {
               className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-800 text-slate-900"
               {...registerRegraCfop('destino')}
             >
-              {(Object.keys(DESTINO_LABELS) as DestinoCfop[]).map((d) => (
-                <option key={d} value={d}>{DESTINO_LABELS[d]}</option>
+              {(Object.keys(DESTINO_CFOP_LABELS) as DestinoCfop[]).map((d) => (
+                <option key={d} value={d}>{DESTINO_CFOP_LABELS[d]}</option>
               ))}
             </select>
           </div>

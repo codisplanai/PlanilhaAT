@@ -30,6 +30,21 @@ TIPOS_PLANILHA: Final = (
 
 DESTINOS_CFOP: Final = (*TIPOS_PLANILHA_LEGADO, IGNORAR)
 
+UFS_BRASIL: Final = frozenset(
+    {
+        "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
+        "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
+        "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+    }
+)
+
+ROLE_ADMIN: Final = "admin"
+ROLE_OPERADOR: Final = "operador"
+CARGO_POR_ROLE: Final = {
+    ROLE_ADMIN: "Contador Sênior",
+    ROLE_OPERADOR: "Analista Fiscal",
+}
+
 STATUS_PENDENTE: Final = "pendente"
 STATUS_PROCESSANDO: Final = "processando"
 STATUS_CONCLUIDO: Final = "concluido"

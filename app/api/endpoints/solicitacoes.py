@@ -2,8 +2,6 @@ import os
 import io
 import zipfile
 import logging
-import tempfile
-from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -14,6 +12,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.exceptions import PlanilhaATException
 from app.core.config import settings
+from app.constants import ROLE_ADMIN, STATUS_CONCLUIDO, STATUS_ERRO, STATUS_PENDENTE
 from app.models.profile import Profile
 from app.models.solicitacao import Solicitacao
 from app.models.empresa import Empresa
@@ -26,21 +25,22 @@ from app.services.templates_admin.template_manager import TemplateManager
 from app.services.supabase_storage import SupabaseStorageService
 from app.api.upload_utils import has_upload, read_optional_upload, read_xml_uploads
 from app.api.persistence import commit_and_refresh, get_by_id_or_404
+from app.services.local_files import atomic_write, safe_file_within
 
 router = APIRouter(prefix="/solicitacoes", tags=["Solicitações de Processamento"])
 logger = logging.getLogger(__name__)
 
 
 def _authorize_solicitacao(solicitacao: Solicitacao, current_user: Profile) -> None:
-    if current_user.role != "admin" and str(solicitacao.usuario_id or "") != str(current_user.id):
+    if current_user.role != ROLE_ADMIN and str(solicitacao.usuario_id or "") != str(current_user.id):
         raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")
 
 
 def _mark_processing_error(db: Session, solicitacao_id: str, message: str) -> None:
     db.rollback()
     solicitacao = db.get(Solicitacao, solicitacao_id)
-    if solicitacao and solicitacao.status != "concluido":
-        solicitacao.status = "erro"
+    if solicitacao and solicitacao.status != STATUS_CONCLUIDO:
+        solicitacao.status = STATUS_ERRO
         solicitacao.mensagem_erro = message[:2000]
         db.commit()
 
@@ -54,17 +54,8 @@ def _resolve_output_file(raw_path: str) -> Optional[str]:
     content = SupabaseStorageService.download_file(settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename)
     if content is None:
         return None
-    os.makedirs(settings.OUTPUTS_DIR, exist_ok=True)
     destination = os.path.join(settings.OUTPUTS_DIR, filename)
-    descriptor, temporary_path = tempfile.mkstemp(prefix="download_", dir=settings.OUTPUTS_DIR)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
-        os.replace(temporary_path, destination)
-    finally:
-        if os.path.exists(temporary_path):
-            os.remove(temporary_path)
-    return destination
+    return atomic_write(destination, content, prefix="download_")
 
 @router.post("", response_model=SolicitacaoOut, status_code=status.HTTP_201_CREATED)
 def criar_solicitacao(
@@ -101,7 +92,7 @@ def criar_solicitacao(
         periodo_fim=payload.periodo_fim,
         tipo_planilha=payload.tipo_planilha or "multi",
         template_id=template_id,
-        status="pendente"
+        status=STATUS_PENDENTE
     )
     db.add(solicitacao)
     return commit_and_refresh(db, solicitacao)
@@ -200,7 +191,7 @@ def listar_solicitacoes(
     query = db.query(Solicitacao)
 
     # Filtragem por permissão de usuário (Operador vê apenas o seu histórico; Adm vê tudo)
-    if current_user.role != "admin":
+    if current_user.role != ROLE_ADMIN:
         query = query.filter(Solicitacao.usuario_id == current_user.id)
 
     if empresa_id:
@@ -229,7 +220,7 @@ def download_planilha(
     solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
     _authorize_solicitacao(solicitacao, current_user)
 
-    if solicitacao.status != "concluido":
+    if solicitacao.status != STATUS_CONCLUIDO:
         raise HTTPException(status_code=400, detail="Esta solicitação ainda não foi concluída com sucesso.")
 
     saidas_com_arquivo = [s for s in solicitacao.saidas if s.arquivo_path]
@@ -311,13 +302,12 @@ def excluir_solicitacao(
         if saida.arquivo_path:
             arquivos_para_remover.append(saida.arquivo_path)
 
-    output_root = Path(settings.OUTPUTS_DIR).resolve()
     for arq_path in set(arquivos_para_remover):
         filename = os.path.basename((arq_path or "").replace("\\", "/"))
         if filename:
             SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_OUTPUTS, filename)
-        resolved_path = Path(arq_path).resolve() if arq_path else None
-        if resolved_path and resolved_path.is_relative_to(output_root) and resolved_path.is_file():
+        resolved_path = safe_file_within(settings.OUTPUTS_DIR, arq_path)
+        if resolved_path:
             try:
                 resolved_path.unlink()
             except OSError:

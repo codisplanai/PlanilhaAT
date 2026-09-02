@@ -1,8 +1,4 @@
-import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import React from 'react';
 import {
   FileCode2,
   Upload,
@@ -11,9 +7,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 
-import { templatesApi } from '../../api/templates';
 import { getErrorMessage } from '../../api/client';
-import type { TemplateMapping } from '../../types/template';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -24,156 +18,29 @@ import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { formatDate } from '../../lib/formatters';
-import { useTemplatesQuery } from '../../hooks/useApiQueries';
-
-const templateUploadSchema = z.object({
-  tipo: z.enum(['antecipacao_parcial', 'antecipacao_parcial_antecipado', 'antecipacao_tributaria', 'difal']),
-  start_row: z.number().min(1, 'Linha inicial deve ser maior ou igual a 1'),
-  col_numero_nota: z.string().min(1, 'Informe a coluna').toUpperCase(),
-  col_data_emissao: z.string().min(1, 'Informe a coluna').toUpperCase(),
-  col_v_total: z.string().min(1, 'Informe a coluna').toUpperCase(),
-  col_base_calculo: z.string().optional(),
-  col_ipi_despesas: z.string().optional(),
-  col_a_dst: z.string().min(1, 'Informe a coluna').toUpperCase(),
-  col_a_ori: z.string().min(1, 'Informe a coluna').toUpperCase(),
-  header_cell: z.string().optional(),
-  aliquota_format: z.enum(['percent_number', 'decimal']),
-  observacoes: z.string().optional(),
-  promover_ativo: z.boolean(),
-});
-
-type TemplateUploadFormData = z.infer<typeof templateUploadSchema>;
+import { useAdminTemplatesPage } from './useAdminTemplatesPage';
 
 export const AdminTemplatesPage: React.FC = () => {
-  const queryClient = useQueryClient();
-  const [selectedType, setSelectedType] = useState<string>('antecipacao_parcial');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Queries
-  const { data: templates = [], isLoading, error } = useTemplatesQuery();
-
-  // Form
   const {
+    templatesQuery: { isLoading, error },
+    templates,
+    filteredTemplates,
+    tiposPlanilha,
+    selectedType,
+    setSelectedType,
+    modalOpen,
+    closeModal,
+    errorMessage,
+    setErrorMessage,
+    openUploadModal: handleOpenUploadModal,
+    selectFile,
+    promoteTemplate,
+    isPromoting,
+    uploadTemplate,
     register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<TemplateUploadFormData>({
-    resolver: zodResolver(templateUploadSchema),
-    defaultValues: {
-      tipo: 'antecipacao_parcial',
-      start_row: 4,
-      col_numero_nota: 'D',
-      col_data_emissao: 'C',
-      col_v_total: 'E',
-      col_base_calculo: '',
-      col_ipi_despesas: 'G',
-      col_a_dst: 'H',
-      col_a_ori: 'I',
-      header_cell: 'A2',
-      aliquota_format: 'percent_number',
-      promover_ativo: true,
-    },
-  });
-
-  // Mutations
-  const promoteMutation = useMutation({
-    mutationFn: (id: number) => templatesApi.promover(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['templates'] });
-    },
-    onError: (err) => alert(getErrorMessage(err)),
-  });
-
-  const uploadMutation = useMutation({
-    mutationFn: (formData: FormData) => templatesApi.upload(formData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['templates'] });
-      setModalOpen(false);
-      setSelectedFile(null);
-    },
-    onError: (err) => setErrorMessage(getErrorMessage(err)),
-  });
-
-  const handleOpenUploadModal = (tipoDefault = 'antecipacao_parcial') => {
-    setErrorMessage(null);
-    setSelectedFile(null);
-
-    const isAntecipado = tipoDefault === 'antecipacao_parcial_antecipado';
-    const isTributaria = tipoDefault === 'antecipacao_tributaria';
-    const isDifal = tipoDefault === 'difal';
-
-    reset({
-      tipo: tipoDefault as any,
-      start_row: 4,
-      col_numero_nota: 'D',
-      col_data_emissao: 'C',
-      col_v_total: 'E',
-      col_base_calculo: isAntecipado || isTributaria ? 'F' : '',
-      col_ipi_despesas: isDifal ? 'F' : 'G',
-      col_a_dst: isTributaria ? 'J' : isDifal ? 'I' : 'H',
-      col_a_ori: isTributaria ? 'K' : isDifal ? 'J' : 'I',
-      header_cell: 'A2',
-      aliquota_format: 'percent_number',
-      promover_ativo: true,
-    });
-    setModalOpen(true);
-  };
-
-  const onSubmit = async (data: TemplateUploadFormData) => {
-    if (!selectedFile) {
-      setErrorMessage('Por favor, selecione um arquivo de planilha .xlsx modelo.');
-      return;
-    }
-
-    setErrorMessage(null);
-
-    // Montagem do mapeamento rigoroso
-    const columnsMap: Record<string, string> = {
-      numero_nota: data.col_numero_nota.toUpperCase(),
-      data_emissao: data.col_data_emissao.toUpperCase(),
-      v_total: data.col_v_total.toUpperCase(),
-      a_dst: data.col_a_dst.toUpperCase(),
-      a_ori: data.col_a_ori.toUpperCase(),
-    };
-
-    if (data.col_base_calculo) columnsMap.base_calculo = data.col_base_calculo.toUpperCase();
-    if (data.col_ipi_despesas) columnsMap.ipi_despesas = data.col_ipi_despesas.toUpperCase();
-
-    const mappingPayload: TemplateMapping = {
-      start_row: data.start_row,
-      columns: columnsMap,
-      header_cell: data.header_cell || 'A2',
-      extra_options: {
-        header_cell: data.header_cell || 'A2',
-        aliquota_format: data.aliquota_format,
-      },
-    };
-
-    const formData = new FormData();
-    formData.append('tipo', data.tipo);
-    formData.append('file', selectedFile);
-    formData.append('mapeamento_json', JSON.stringify(mappingPayload));
-    if (data.observacoes) formData.append('observacoes', data.observacoes);
-    formData.append('promover_ativo', String(data.promover_ativo));
-
-    try {
-      await uploadMutation.mutateAsync(formData);
-    } catch {
-      // onError da mutation exibe a falha no formulário.
-    }
-  };
-
-  const tiposPlanilha = [
-    { id: 'antecipacao_parcial', nome: 'Antecipação Parcial' },
-    { id: 'antecipacao_parcial_antecipado', nome: 'Antecipação Parcial — Pago Antecipadamente' },
-    { id: 'antecipacao_tributaria', nome: 'Antecipação Tributária' },
-    { id: 'difal', nome: 'DIFAL' },
-  ];
-
-  const filteredTemplates = templates.filter((t) => t.tipo === selectedType);
+    errors,
+    isUploading,
+  } = useAdminTemplatesPage();
 
   return (
     <div className="space-y-6">
@@ -284,8 +151,8 @@ export const AdminTemplatesPage: React.FC = () => {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => promoteMutation.mutate(template.id)}
-                      isLoading={promoteMutation.isPending}
+                      onClick={() => promoteTemplate(template.id)}
+                      isLoading={isPromoting}
                       leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                     >
                       Ativar Esta Versão
@@ -327,7 +194,7 @@ export const AdminTemplatesPage: React.FC = () => {
       {/* Modal de Upload de Template com Mapeamento Obrigatório */}
       <Modal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
         title="Subir Nova Versão de Template Excel"
         subtitle="O mapeamento de coordenadas de entrada é estritamente obrigatório para não corromper fórmulas."
         maxWidth="2xl"
@@ -340,7 +207,7 @@ export const AdminTemplatesPage: React.FC = () => {
           />
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={uploadTemplate} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Select
@@ -358,17 +225,7 @@ export const AdminTemplatesPage: React.FC = () => {
               <input
                 type="file"
                 accept=".xlsx"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] || null;
-                  if (file && (!file.name.toLowerCase().endsWith('.xlsx') || file.size === 0 || file.size > 20 * 1024 * 1024)) {
-                    setSelectedFile(null);
-                    setErrorMessage('Selecione um arquivo .xlsx não vazio, com no máximo 20 MB.');
-                    e.target.value = '';
-                    return;
-                  }
-                  setSelectedFile(file);
-                  setErrorMessage(null);
-                }}
+                onChange={selectFile}
                 className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
             </div>
@@ -475,10 +332,10 @@ export const AdminTemplatesPage: React.FC = () => {
           </div>
 
           <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
-            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+            <Button type="button" variant="outline" onClick={closeModal}>
               Cancelar
             </Button>
-            <Button type="submit" isLoading={isSubmitting || uploadMutation.isPending}>
+            <Button type="submit" isLoading={isUploading}>
               Salvar Nova Versão
             </Button>
           </div>
