@@ -7,6 +7,7 @@ from app.api.endpoints.regras_aliquotas import router as regras_aliquotas_router
 from app.api.endpoints.regras_cfop import router as regras_cfop_router
 from app.api.endpoints.templates import router as templates_router
 from app.api.endpoints.solicitacoes import router as solicitacoes_router
+from app.api.endpoints.usuarios import router as usuarios_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -17,3 +18,5 @@ api_router.include_router(regras_aliquotas_router)
 api_router.include_router(regras_cfop_router)
 api_router.include_router(templates_router)
 api_router.include_router(solicitacoes_router)
+api_router.include_router(usuarios_router)
+
