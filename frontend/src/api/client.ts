@@ -2,7 +2,7 @@ import axios from 'axios';
 
 export const apiClient = axios.create({
   baseURL: '/api/v1',
-  timeout: 30_000,
+  timeout: 60_000,
 });
 
 apiClient.interceptors.response.use(
@@ -31,6 +31,9 @@ apiClient.interceptors.request.use((config) => {
 // Helper para extrair mensagem amigável de erro do backend
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
+    if (error.code === 'ECONNABORTED' || (typeof error.message === 'string' && error.message.toLowerCase().includes('timeout'))) {
+      return 'O processamento demorou mais que o esperado (tempo limite excedido). Tente novamente.';
+    }
     if (error.response?.data?.detail) {
       const detail = error.response.data.detail;
       if (typeof detail === 'string') return detail;

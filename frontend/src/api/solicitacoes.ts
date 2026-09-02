@@ -32,7 +32,9 @@ export const solicitacoesApi = {
     if (planilhaEntradas) {
       formData.append('planilha_entradas', planilhaEntradas);
     }
-    const { data } = await apiClient.post<Solicitacao>(`/solicitacoes/${id}/processar`, formData);
+    const { data } = await apiClient.post<Solicitacao>(`/solicitacoes/${id}/processar`, formData, {
+      timeout: 300_000,
+    });
     return data;
   },
   atualizarDataEntrada: async (
@@ -42,7 +44,8 @@ export const solicitacoesApi = {
   ): Promise<NotaFiscalProcessada> => {
     const { data } = await apiClient.patch<NotaFiscalProcessada>(
       `/solicitacoes/${solicitacaoId}/notas/${notaId}/data-entrada`,
-      { data_entrada: dataEntrada }
+      { data_entrada: dataEntrada },
+      { timeout: 120_000 }
     );
     return data;
   },
@@ -50,6 +53,7 @@ export const solicitacoesApi = {
     const response = await apiClient.get(`/solicitacoes/${id}/download`, {
       responseType: 'blob',
       params: tipo ? { tipo } : undefined,
+      timeout: 120_000,
     });
 
     const isZip = String(response.headers['content-type'] || '').includes('zip');
