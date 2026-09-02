@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import date, datetime
 from collections import defaultdict
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
@@ -117,7 +118,7 @@ class ProcessingPipelineService:
                         "cnpj_destinatario": note.cnpj_destinatario,
                         "uf_destinatario": note.uf_destinatario,
                         "data_emissao": note.data_emissao,
-                        "data_entrada": note.data_entrada,
+                        "data_entrada": note.data_entrada or (note.data_emissao.date() if isinstance(note.data_emissao, datetime) else note.data_emissao),
                         "item_numero": note.item_numero,
                         "ncm": note.ncm,
                         "cfop": note.cfop,
@@ -593,6 +594,12 @@ class ProcessingPipelineService:
                     )
                     notas_criadas.append(nf_proc)
 
+                    data_entrada_excel = data_entrada_resolvida or (
+                        nf_data.data_emissao.date()
+                        if isinstance(nf_data.data_emissao, datetime)
+                        else nf_data.data_emissao
+                    )
+
                     # Dados estruturados para escrita no Excel
                     rows_por_destino[destino_grupo].append({
                         "numero_nota": nf_data.numero_nota,
@@ -603,7 +610,7 @@ class ProcessingPipelineService:
                         "cnpj_destinatario": nf_data.cnpj_destinatario,
                         "uf_destinatario": empresa.uf,
                         "data_emissao": nf_data.data_emissao,
-                        "data_entrada": data_entrada_resolvida,
+                        "data_entrada": data_entrada_excel,
                         "item_numero": split_index,
                         "descricao": descricao_grupo,
                         "ncm": ncm_grupo,

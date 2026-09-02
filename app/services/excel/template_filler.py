@@ -1,10 +1,15 @@
 import os
 import re
 import tempfile
+from io import BytesIO
 from typing import Any, Dict, List, Optional
 
 import openpyxl
 from openpyxl.utils import column_index_from_string
+try:
+    from PIL import Image as PILImage
+except ImportError:
+    PILImage = None
 
 from app.core.exceptions import PlanilhaATException, ValidationException
 from app.services.excel.formula_guard import FormulaGuard
@@ -67,6 +72,28 @@ class TemplateFiller:
                     worksheet.cell(row=current_row, column=column_index).value = format_excel_value(
                         field_name, raw_value, percentage_format
                     )
+
+            # Preservação de logo/imagem: se a aba selecionada não tiver imagens mas outra aba contiver,
+            # transfere a imagem para a aba selecionada antes de remover as demais abas.
+            if PILImage and not getattr(worksheet, "_images", None):
+                for other_sheet in workbook.worksheets:
+                    if other_sheet != worksheet and getattr(other_sheet, "_images", None):
+                        for donor_img in other_sheet._images:
+                            try:
+                                pil_img = (
+                                    donor_img.ref
+                                    if hasattr(donor_img.ref, "save")
+                                    else PILImage.open(donor_img.ref)
+                                )
+                                buf = BytesIO()
+                                pil_img.save(buf, format=getattr(donor_img, "format", None) or "PNG")
+                                buf.seek(0)
+                                new_img = openpyxl.drawing.image.Image(buf)
+                                new_img.anchor = getattr(donor_img, "anchor", "B1") or "B1"
+                                worksheet.add_image(new_img)
+                            except Exception:
+                                pass
+                        break
 
             for other_sheet in [sheet for sheet in workbook.worksheets if sheet != worksheet]:
                 workbook.remove(other_sheet)

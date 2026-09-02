@@ -93,6 +93,14 @@ class NFeXMLExtractor(BaseNFEExtractor):
         data_str = self._get_text(ide, "dhEmi") or self._get_text(ide, "dEmi")
         data_emissao = self._parse_datetime(data_str)
 
+        data_sai_ent_str = self._get_text(ide, "dhSaiEnt") or self._get_text(ide, "dSaiEnt")
+        data_entrada = None
+        if data_sai_ent_str:
+            try:
+                data_entrada = self._parse_datetime(data_sai_ent_str).date()
+            except Exception:
+                data_entrada = None
+
         # Emitente (<emit>)
         emit = self._find_elem(inf_nfe, "emit")
         cnpj_emitente = self._get_text(emit, "CNPJ") or self._get_text(emit, "CPF")
@@ -230,6 +238,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
             cnpj_destinatario=cnpj_destinatario,
             uf_destinatario=uf_destinatario,
             data_emissao=data_emissao,
+            data_entrada=data_entrada,
             v_total_nota=v_total_nota,
             v_bc_nota=v_bc_nota,
             itens=itens,
