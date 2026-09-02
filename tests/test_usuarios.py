@@ -167,3 +167,73 @@ def test_service_role_ausente_da_erro_de_configuracao(client, monkeypatch):
     })
     assert res.status_code == 500
     assert "SUPABASE_SERVICE_ROLE_KEY" in res.json()["detail"]
+
+
+def test_listagem_inclui_inativos(client, db_session, supabase_admin_fake):
+    db_session.add(Profile(
+        id="88888888-8888-8888-8888-888888888888", email="inativo@codisplan.com",
+        nome="Ana Inativa", cargo="Analista Fiscal", role="operador", ativo=False,
+    ))
+    db_session.commit()
+
+    res = client.get("/api/v1/usuarios")
+    assert res.status_code == 200, res.text
+    emails = [u["email"] for u in res.json()]
+    assert "inativo@codisplan.com" in emails
+
+
+def test_operador_nao_lista_usuarios(client_operador):
+    assert client_operador.get("/api/v1/usuarios").status_code == 403
+
+
+def test_perfil_inativo_e_bloqueado_no_acesso(client, db_session, supabase_admin_fake):
+    """A desativação é aplicada em _load_active_profile, por onde passa toda
+    requisição autenticada. Conferir só a flag no banco não provaria nada."""
+    from fastapi import HTTPException
+
+    from app.core.security import _load_active_profile
+
+    criar = client.post("/api/v1/usuarios", json={
+        "nome": "Maria", "email": "maria@codisplan.com",
+        "password": "senhaforte1", "role": "operador",
+    })
+    assert criar.status_code == 201, criar.text
+
+    res = client.patch(f"/api/v1/usuarios/{NOVO_UUID}/status", json={"ativo": False})
+    assert res.status_code == 200, res.text
+    assert res.json()["ativo"] is False
+
+    with pytest.raises(HTTPException) as exc:
+        _load_active_profile(db_session, NOVO_UUID)
+    assert exc.value.status_code == 403
+
+
+def test_reativar_usuario(client, db_session, supabase_admin_fake):
+    db_session.add(Profile(
+        id="88888888-8888-8888-8888-888888888888", email="inativo@codisplan.com",
+        nome="Ana Inativa", cargo="Analista Fiscal", role="operador", ativo=False,
+    ))
+    db_session.commit()
+
+    res = client.patch(
+        "/api/v1/usuarios/88888888-8888-8888-8888-888888888888/status",
+        json={"ativo": True},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["ativo"] is True
+
+
+def test_admin_nao_desativa_a_si_mesmo(client, db_session):
+    me = client.get("/api/v1/auth/me").json()
+    res = client.patch(f"/api/v1/usuarios/{me['id']}/status", json={"ativo": False})
+    assert res.status_code == 400
+    assert "própria conta" in res.json()["detail"]
+
+
+def test_patch_id_inexistente_da_404(client):
+    res = client.patch(
+        "/api/v1/usuarios/00000000-0000-0000-0000-000000000404/status",
+        json={"ativo": False},
+    )
+    assert res.status_code == 404
+

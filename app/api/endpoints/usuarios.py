@@ -1,12 +1,14 @@
 import logging
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.persistence import get_by_id_or_404
 from app.core.database import get_db
 from app.core.security import LOCAL_USERS_FALLBACK, require_admin
 from app.models.profile import Profile
-from app.schemas.usuario import UsuarioCreate, UsuarioOut
+from app.schemas.usuario import UsuarioCreate, UsuarioOut, UsuarioStatusUpdate
 from app.services.supabase_admin import (
     SupabaseAdminNaoConfigurado,
     SupabaseAdminService,
@@ -97,3 +99,35 @@ def criar_usuario(payload: UsuarioCreate, db: Session = Depends(get_db)):
             status_code=500,
             detail="Não foi possível concluir a criação do usuário.",
         )
+
+
+@router.get("", response_model=List[UsuarioOut], dependencies=[Depends(require_admin)])
+def listar_usuarios(db: Session = Depends(get_db)):
+    """Inclui inativos de propósito: sem eles seria impossível reativar alguém."""
+    return db.query(Profile).order_by(Profile.nome).all()
+
+
+@router.patch("/{usuario_id}/status", response_model=UsuarioOut)
+def alterar_status(
+    usuario_id: str,
+    payload: UsuarioStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(require_admin),
+):
+    """``require_admin`` vem como parâmetro, não em ``dependencies=[...]``.
+
+    O FastAPI descarta o retorno de dependências declaradas em
+    ``dependencies=[...]``, e aqui o ``Profile`` do chamador é necessário para
+    impedir a autodesativação.
+    """
+    if payload.ativo is False and str(usuario_id) == str(current_user.id):
+        raise HTTPException(
+            status_code=400,
+            detail="Você não pode desativar a sua própria conta.",
+        )
+
+    profile = get_by_id_or_404(db, Profile, usuario_id, "Usuário não encontrado.")
+    profile.ativo = payload.ativo
+    db.commit()
+    db.refresh(profile)
+    return profile

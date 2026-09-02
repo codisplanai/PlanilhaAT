@@ -28,7 +28,7 @@ LOCAL_USERS_FALLBACK = {
         "role": "admin",
     },
     "admin@codisplan.com": {
-        "id": "184e793c-50b7-4b57-ace1-c02b19649408",
+        "id": "d7a327b5-7959-47ac-afc8-1850430f0b12",
         "nome": "Contador Responsável",
         "email": "admin@codisplan.com",
         "cargo": "Contador Sênior",
@@ -42,7 +42,7 @@ LOCAL_USERS_FALLBACK = {
         "role": "admin",
     },
     "operador@contabilidade.com": {
-        "id": "00000000-0000-0000-0000-000000000002",
+        "id": "53ce2b64-1c96-4be8-b232-cf6e4171ee23",
         "nome": "Operador Fiscal",
         "email": "operador@contabilidade.com",
         "cargo": "Analista Fiscal",
