@@ -16,3 +16,9 @@ export interface LoginCredentials {
   email: string;
   password: string;
 }
+
+export interface AlterarSenhaPayload {
+  senha_atual: string;
+  nova_senha: string;
+}
+

@@ -29,3 +29,18 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class AlterarSenhaRequest(BaseModel):
+    senha_atual: str = Field(..., min_length=1, max_length=256, description="Senha atual do usuário")
+    nova_senha: str = Field(..., min_length=6, max_length=128, description="Nova senha de acesso (mínimo 6 caracteres)")
+
+    @validator("nova_senha")
+    def validate_nova_senha(cls, value: str) -> str:
+        if len(value.strip()) < 6:
+            raise ValueError("A nova senha deve conter no mínimo 6 caracteres.")
+        return value
+
+    class Config:
+        extra = "forbid"
+

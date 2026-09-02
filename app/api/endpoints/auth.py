@@ -16,7 +16,8 @@ from app.core.security import (
     reconcile_known_account,
 )
 from app.models.profile import Profile
-from app.schemas.auth import LoginRequest, TokenResponse, UserOut
+from app.schemas.auth import AlterarSenhaRequest, LoginRequest, TokenResponse, UserOut
+from app.services.supabase_admin import SupabaseAdminService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Autenticação"])
@@ -186,3 +187,64 @@ def logout(authorization: Optional[str] = Header(None)):
 @router.get("/me", response_model=UserOut)
 def get_current_user(current_user: Profile = Depends(security_get_current_user)):
     return _user_out(current_user)
+
+
+@router.post("/alterar-senha")
+def alterar_senha(
+    payload: AlterarSenhaRequest,
+    current_user: Profile = Depends(security_get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.ativo:
+        raise HTTPException(status_code=403, detail="Conta de usuário inativa.")
+
+    if payload.nova_senha == payload.senha_atual:
+        raise HTTPException(
+            status_code=400,
+            detail="A nova senha deve ser diferente da senha atual.",
+        )
+
+    email = current_user.email.strip().lower()
+
+    if settings.SUPABASE_URL and settings.SUPABASE_KEY and SupabaseAdminService.is_configured():
+        auth_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/token?grant_type=password"
+        headers = {"apikey": settings.SUPABASE_KEY, "Content-Type": "application/json"}
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                res_check = client.post(
+                    auth_url,
+                    json={"email": email, "password": payload.senha_atual},
+                    headers=headers,
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Auth indisponível: %s", exc)
+            if not settings.local_auth_enabled:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Serviço de autenticação temporariamente indisponível.",
+                )
+        else:
+            if res_check.status_code == 200:
+                SupabaseAdminService.update_password(str(current_user.id), payload.nova_senha)
+                return {"message": "Senha alterada com sucesso."}
+            elif not settings.local_auth_enabled:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A senha atual informada está incorreta.",
+                )
+
+    if not settings.local_auth_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Nenhum provedor de autenticação está disponível.",
+        )
+
+    user = USERS_DB.get(email)
+    valid_passwords = user.get("valid_passwords", {user["password"]}) if user else set()
+    if not user or not any(secrets.compare_digest(p, payload.senha_atual) for p in valid_passwords):
+        raise HTTPException(status_code=400, detail="A senha atual informada está incorreta.")
+
+    user["password"] = payload.nova_senha
+    user.setdefault("valid_passwords", set()).add(payload.nova_senha)
+    return {"message": "Senha alterada com sucesso."}
+

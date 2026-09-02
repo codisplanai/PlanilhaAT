@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { LoginCredentials, LoginResponse, User } from '../types/auth';
+import type { AlterarSenhaPayload, LoginCredentials, LoginResponse, User } from '../types/auth';
 
 export const authApi = {
   login: async (credentials: LoginCredentials): Promise<LoginResponse> => {
@@ -13,4 +13,9 @@ export const authApi = {
   logout: async (): Promise<void> => {
     await apiClient.post('/auth/logout');
   },
+  alterarSenha: async (payload: AlterarSenhaPayload): Promise<{ message: string }> => {
+    const { data } = await apiClient.post<{ message: string }>('/auth/alterar-senha', payload);
+    return data;
+  },
 };
+

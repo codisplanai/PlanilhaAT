@@ -110,6 +110,32 @@ class SupabaseAdminService:
                 response.status_code,
             )
 
+    @classmethod
+    def update_password(cls, user_id: str, new_password: str) -> None:
+        if not cls.is_configured():
+            raise SupabaseAdminNaoConfigurado()
+
+        payload = {"password": new_password}
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.put(
+                    f"{cls._base_url()}/{user_id}", json=payload, headers=cls._get_headers()
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Auth indisponível ao atualizar senha: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Serviço de autenticação temporariamente indisponível.",
+            )
+
+        if response.status_code not in (200, 201):
+            if response.status_code >= 500:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Serviço de autenticação temporariamente indisponível.",
+                )
+            raise HTTPException(status_code=400, detail=cls._mensagem_de_erro(response))
+
     @staticmethod
     def _mensagem_de_erro(response: httpx.Response) -> str:
         generica = "Não foi possível criar o usuário no serviço de autenticação."

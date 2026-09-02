@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -12,10 +12,12 @@ import {
   ShieldCheck,
   ShieldAlert,
   Users,
+  KeyRound,
   X,
 } from 'lucide-react';
 import { PlanAutLogo } from '../ui/PlanAutLogo';
 import { CodisplanLogo } from '../ui/CodisplanLogo';
+import { AlterarSenhaModal } from '../auth/AlterarSenhaModal';
 import type { User } from '../../types/auth';
 
 interface SidebarProps {
@@ -28,6 +30,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavigate, onClose }) => {
   const isAdmin = user?.role === 'admin';
+  const [isAlterarSenhaOpen, setIsAlterarSenhaOpen] = useState(false);
 
   const mainNav = [
     { to: '/', label: 'Visão Geral', icon: LayoutDashboard, end: true },
@@ -170,14 +173,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
               </div>
             </div>
           </div>
-          <button
-            onClick={onLogout}
-            aria-label="Sair do sistema"
-            title="Sair do sistema"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsAlterarSenhaOpen(true)}
+              aria-label="Alterar minha senha"
+              title="Alterar minha senha"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-700 hover:bg-cyan-50 transition-colors"
+            >
+              <KeyRound className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onLogout}
+              aria-label="Sair do sistema"
+              title="Sair do sistema"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="pt-2 border-t border-slate-200/60 text-center">
@@ -186,6 +201,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
           </p>
         </div>
       </div>
+
+      <AlterarSenhaModal
+        isOpen={isAlterarSenhaOpen}
+        onClose={() => setIsAlterarSenhaOpen(false)}
+      />
     </aside>
   );
 };
