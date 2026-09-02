@@ -30,6 +30,10 @@ interface UsuariosPageProps {
 export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [erro, setErro] = useState<string | null>(null);
+  // Erro do formulário separado do erro da página: o Modal é um portal
+  // `fixed inset-0 z-50`, então um alerta no corpo da página fica invisível
+  // atrás dele enquanto o formulário está aberto.
+  const [erroFormulario, setErroFormulario] = useState<string | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
 
@@ -51,16 +55,28 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
     void carregar();
   }, [carregar]);
 
+  const abrirModal = () => {
+    setErroFormulario(null);
+    reset();
+    setModalAberto(true);
+  };
+
+  /** Limpa o formulário: senha em texto claro não pode sobreviver ao fechamento. */
+  const fecharModal = () => {
+    setModalAberto(false);
+    setErroFormulario(null);
+    reset();
+  };
+
   const onSubmit = async (data: UsuarioFormData) => {
     setSalvando(true);
-    setErro(null);
+    setErroFormulario(null);
     try {
       await usuariosApi.criar(data);
-      setModalAberto(false);
-      reset();
+      fecharModal();
       await carregar();
     } catch (err) {
-      setErro(getErrorMessage(err));
+      setErroFormulario(getErrorMessage(err));
     } finally {
       setSalvando(false);
     }
@@ -83,7 +99,7 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
         title="Gestão de Usuários"
         description="Criação de contas de acesso e controle de quem pode entrar no sistema"
         action={
-          <Button leftIcon={<UserPlus className="w-4 h-4" />} onClick={() => setModalAberto(true)}>
+          <Button leftIcon={<UserPlus className="w-4 h-4" />} onClick={abrirModal}>
             Novo Usuário
           </Button>
         }
@@ -130,7 +146,15 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
         </table>
       </div>
 
-      <Modal isOpen={modalAberto} onClose={() => setModalAberto(false)} title="Novo Usuário">
+      <Modal isOpen={modalAberto} onClose={fecharModal} title="Novo Usuário">
+        {erroFormulario && (
+          <ErrorAlert
+            title="Erro ao criar usuário"
+            message={erroFormulario}
+            onDismiss={() => setErroFormulario(null)}
+          />
+        )}
+
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Input label="Nome" {...register('nome')} error={errors.nome?.message} />
           <Input label="E-mail" type="email" {...register('email')} error={errors.email?.message} />

@@ -237,3 +237,38 @@ def test_patch_id_inexistente_da_404(client):
     )
     assert res.status_code == 404
 
+
+
+def test_guarda_de_autodesativacao_usa_o_perfil_carregado(
+    client, db_session, monkeypatch
+):
+    """A guarda precisa comparar o perfil carregado, não o texto cru da URL.
+
+    Em produção ``profiles.id`` é ``UUID`` (docs/supabase_schema.sql), e o
+    Postgres normaliza o parâmetro: ``/usuarios/<UUID EM MAIÚSCULAS>/status``
+    resolve para a mesma linha. Comparando strings antes do lookup, o admin
+    escapa da guarda, desativa a própria conta e perde o acesso — sem ninguém
+    para reativá-lo se for o único admin. O SQLite dos testes compara texto de
+    forma binária, então a normalização do Postgres é simulada no lookup.
+    """
+    from app.api.endpoints import usuarios as usuarios_module
+
+    me = client.get("/api/v1/auth/me").json()
+    db_session.merge(Profile(
+        id=me["id"], email=me["email"], nome=me["nome"],
+        cargo=me["cargo"], role="admin", ativo=True,
+    ))
+    db_session.commit()
+
+    def resolve_como_no_postgres(db, model, entity_id, detail):
+        return db.query(Profile).filter(Profile.id == str(entity_id).lower()).one()
+
+    monkeypatch.setattr(usuarios_module, "get_by_id_or_404", resolve_como_no_postgres)
+
+    res = client.patch(
+        f"/api/v1/usuarios/{me['id'].upper()}/status", json={"ativo": False}
+    )
+
+    assert res.status_code == 400, res.text
+    assert "própria conta" in res.json()["detail"]
+    assert db_session.query(Profile).filter(Profile.id == me["id"]).one().ativo is True

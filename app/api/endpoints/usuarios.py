@@ -120,13 +120,17 @@ def alterar_status(
     ``dependencies=[...]``, e aqui o ``Profile`` do chamador é necessário para
     impedir a autodesativação.
     """
-    if payload.ativo is False and str(usuario_id) == str(current_user.id):
+    profile = get_by_id_or_404(db, Profile, usuario_id, "Usuário não encontrado.")
+
+    # Compara o perfil carregado, não o texto cru do path: em Postgres
+    # ``profiles.id`` é UUID e a busca normaliza a grafia, então
+    # ``/usuarios/<UUID EM MAIÚSCULAS>/status`` acha esta mesma linha.
+    if payload.ativo is False and str(profile.id) == str(current_user.id):
         raise HTTPException(
             status_code=400,
             detail="Você não pode desativar a sua própria conta.",
         )
 
-    profile = get_by_id_or_404(db, Profile, usuario_id, "Usuário não encontrado.")
     profile.ativo = payload.ativo
     db.commit()
     db.refresh(profile)

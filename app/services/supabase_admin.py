@@ -61,7 +61,14 @@ class SupabaseAdminService:
             )
 
         if response.status_code in (200, 201):
-            user_id = (response.json() or {}).get("id")
+            # Um 200 com corpo não-JSON (gateway interpondo HTML) não pode
+            # escapar como ValueError: o endpoint só compensa a criação quando
+            # recebe HTTPException, e a conta já existe neste ponto.
+            try:
+                corpo = response.json()
+            except ValueError:
+                corpo = None
+            user_id = corpo.get("id") if isinstance(corpo, dict) else None
             if not user_id:
                 raise HTTPException(
                     status_code=502,
@@ -84,11 +91,24 @@ class SupabaseAdminService:
             return
         try:
             with httpx.Client(timeout=15.0) as client:
-                client.delete(
+                response = client.delete(
                     f"{cls._base_url()}/{user_id}", headers=cls._get_headers()
                 )
         except httpx.HTTPError:
             logger.exception("Falha ao remover usuário %s no Supabase Auth", user_id)
+            return
+
+        # 404 significa que a conta já não existe — o objetivo da compensação.
+        # Qualquer outro erro (401 de key rotacionada, 403) devolve normalmente
+        # do httpx e passaria em silêncio, deixando a conta órfã: sem linha em
+        # profiles e com o e-mail bloqueado pelo UNIQUE para sempre.
+        if response.status_code >= 400 and response.status_code != 404:
+            logger.warning(
+                "Supabase Auth recusou a remoção do usuário %s (HTTP %s). "
+                "A conta pode ter ficado órfã, sem perfil correspondente.",
+                user_id,
+                response.status_code,
+            )
 
     @staticmethod
     def _mensagem_de_erro(response: httpx.Response) -> str:
