@@ -103,3 +103,34 @@ def test_sped_fiscal_extractor_arquivo_vazio_ou_sem_entradas():
     with pytest.raises(ValidationException, match="Nenhum documento fiscal de entrada"):
         extractor.extract_from_sped(sped_apenas_saidas.encode("utf-8"))
 
+
+def test_item_vindo_do_c170_tem_descricao_confiavel():
+    from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
+    from tests.conftest import _SPED_JANEIRO_COM_NF901
+
+    notas = SpedFiscalExtractor().extract_from_sped(
+        _SPED_JANEIRO_COM_NF901.encode("utf-8"))
+    itens = [i for nf in notas for i in nf.itens]
+    assert itens
+    assert all(i.descricao_confiavel for i in itens)
+
+
+def test_item_sintetico_do_c190_nao_e_confiavel():
+    """Sem C170 não há descrição real de produto — só o analítico por CFOP."""
+    from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
+
+    sped_so_c190 = (
+        "|0000|019|0|01012026|31012026|Cliente BA|12345678000195||BA|123|2927408|||A|1|\n"
+        "|0150|F1|FORNECEDOR SP|1058|98765432000180||SP|3550308||R|1||C|\n"
+        "|C100|0|1|F1|55|00|1|901|35260198765432000180550010000009011000000901|"
+        "10012026|20012026|2000,00|0|0,00|0,00|2000,00|0|0,00|0,00|0,00|2000,00|"
+        "240,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|\n"
+        "|C190|000|6102|12,00|2000,00|2000,00|240,00|0,00|0,00|0,00|0,00|0,00||\n"
+        "|9999|4|\n"
+    ).encode("utf-8")
+
+    notas = SpedFiscalExtractor().extract_from_sped(sped_so_c190)
+    itens = [i for nf in notas for i in nf.itens]
+    assert itens
+    assert all(not i.descricao_confiavel for i in itens)
+

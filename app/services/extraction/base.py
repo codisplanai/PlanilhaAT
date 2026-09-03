@@ -17,6 +17,10 @@ class ExtractedItemNF(BaseModel):
     cest: str = ""
     cfop: str = ""
     descricao: str = ""
+    # False quando a descrição foi fabricada pelo extrator (SPED sem C170) em vez
+    # de vir do documento. Regras de redução por produto ignoram esses itens: o
+    # texto sintético não é descrição de mercadoria.
+    descricao_confiavel: bool = True
     v_item: Decimal       # Valor do produto/item
     v_total: Decimal      # Valor total correspondente ao item (incluindo rateio de frete/seguro/despesas/IPI se aplicável)
     base_calculo: Decimal # Base de cálculo do ICMS (vBC)
