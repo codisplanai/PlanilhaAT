@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
 from app.constants import UFS_BRASIL
+from app.schemas.regra_aliquota_empresa import TermoAcordoOut
 
 # Compatibilidade pública para integrações que importam este nome.
 VALID_UFS = UFS_BRASIL
@@ -80,6 +81,7 @@ class EmpresaUpdate(BaseModel):
 
 class EmpresaOut(EmpresaBase):
     id: int
+    termo_acordo: Optional[TermoAcordoOut] = None
     criado_em: datetime
     atualizado_em: datetime
 

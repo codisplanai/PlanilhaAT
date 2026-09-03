@@ -6,7 +6,9 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
 from app.models.empresa import Empresa
 from app.models.perfil_regras import PerfilRegras
+from app.models.regra_aliquota_empresa import RegraAliquotaEmpresa
 from app.schemas.empresa import EmpresaCreate, EmpresaUpdate, EmpresaOut
+from app.schemas.regra_aliquota_empresa import TermoAcordoOut, TermoAcordoUpsert
 from app.services.validation.sanity_checker import validate_cnpj_digits
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 
@@ -91,3 +93,40 @@ def deletar_empresa(id: int, db: Session = Depends(get_db)):
     if empresa.solicitacoes:
         raise HTTPException(status_code=409, detail="A empresa possui solicitações e não pode ser excluída.")
     delete_and_commit(db, empresa)
+
+
+@router.put("/{id}/termo-acordo", response_model=TermoAcordoOut, dependencies=[Depends(require_admin)])
+def definir_termo_acordo(id: int, payload: TermoAcordoUpsert, db: Session = Depends(get_db)):
+    """Cria ou substitui o termo de acordo da empresa.
+
+    Upsert em vez de coleção porque a empresa tem no máximo um termo — o cliente
+    não precisa rastrear um id separado.
+    """
+    empresa = get_by_id_or_404(db, Empresa, id, "Empresa não encontrada.")
+
+    termo = (
+        db.query(RegraAliquotaEmpresa)
+        .filter(RegraAliquotaEmpresa.empresa_id == empresa.id)
+        .first()
+    )
+    if termo is None:
+        termo = RegraAliquotaEmpresa(empresa_id=empresa.id)
+        db.add(termo)
+
+    termo.aliquota = payload.aliquota
+    termo.descricao = payload.descricao
+    return commit_and_refresh(db, termo)
+
+
+@router.delete("/{id}/termo-acordo", status_code=status.HTTP_204_NO_CONTENT,
+               dependencies=[Depends(require_admin)])
+def remover_termo_acordo(id: int, db: Session = Depends(get_db)):
+    empresa = get_by_id_or_404(db, Empresa, id, "Empresa não encontrada.")
+    termo = (
+        db.query(RegraAliquotaEmpresa)
+        .filter(RegraAliquotaEmpresa.empresa_id == empresa.id)
+        .first()
+    )
+    if termo is None:
+        raise HTTPException(status_code=404, detail="Esta empresa não possui termo de acordo.")
+    delete_and_commit(db, termo)

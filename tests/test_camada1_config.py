@@ -296,3 +296,51 @@ def test_api_rejeita_perfil_inexistente(client):
         "termos_inclusao": ["vergalh*"], "aliquota": 0.12})
     assert res.status_code == 404, res.text
 
+
+def _criar_empresa(client):
+    perfil_id = _criar_perfil(client)
+    res = client.post("/api/v1/empresas", json={
+        "razao_social": "Cliente BA LTDA", "cnpj": "12345678000195",
+        "uf": "BA", "perfil_regras_id": perfil_id})
+    assert res.status_code == 201, res.text
+    return res.json()["id"]
+
+
+def test_api_empresa_nasce_sem_termo_de_acordo(client):
+    empresa_id = _criar_empresa(client)
+    res = client.get(f"/api/v1/empresas/{empresa_id}")
+    assert res.status_code == 200
+    assert res.json()["termo_acordo"] is None
+
+
+def test_api_upsert_de_termo_de_acordo_nao_duplica(client):
+    empresa_id = _criar_empresa(client)
+
+    primeiro = client.put(f"/api/v1/empresas/{empresa_id}/termo-acordo", json={
+        "aliquota": 12.06, "descricao": "Termo 123/2025"})
+    assert primeiro.status_code == 200, primeiro.text
+    assert float(primeiro.json()["aliquota"]) == 0.1206
+
+    segundo = client.put(f"/api/v1/empresas/{empresa_id}/termo-acordo", json={
+        "aliquota": 0.1000, "descricao": "Termo 456/2026"})
+    assert segundo.status_code == 200
+    assert segundo.json()["id"] == primeiro.json()["id"]
+    assert float(segundo.json()["aliquota"]) == 0.10
+
+    empresa = client.get(f"/api/v1/empresas/{empresa_id}").json()
+    assert empresa["termo_acordo"]["descricao"] == "Termo 456/2026"
+
+
+def test_api_remove_termo_de_acordo(client):
+    empresa_id = _criar_empresa(client)
+    client.put(f"/api/v1/empresas/{empresa_id}/termo-acordo", json={"aliquota": 12.06})
+
+    assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 204
+    assert client.get(f"/api/v1/empresas/{empresa_id}").json()["termo_acordo"] is None
+
+
+def test_api_remover_termo_inexistente_e_404(client):
+    empresa_id = _criar_empresa(client)
+    assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 404
+
+
