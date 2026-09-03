@@ -1,17 +1,14 @@
-import re
 from typing import Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, validator
 from app.schemas.empresa import VALID_UFS
+from app.schemas.validators import clean_ncm, normalizar_aliquota
 
-def clean_ncm(v: Optional[str]) -> Optional[str]:
-    if v is None or v.strip() == "":
-        return None
-    cleaned = re.sub(r"\D", "", v)
-    if len(cleaned) != 8:
-        raise ValueError("NCM deve conter 8 dígitos ou ser vazio/nulo para regra padrão do estado")
-    return cleaned
+# Reexportado: integrações e testes existentes importam clean_ncm daqui.
+__all__ = ["clean_ncm", "RegraAliquotaBase", "RegraAliquotaCreate",
+           "RegraAliquotaUpdate", "RegraAliquotaOut"]
+
 
 class RegraAliquotaBase(BaseModel):
     perfil_regras_id: int = Field(..., example=1)
@@ -34,19 +31,15 @@ class RegraAliquotaBase(BaseModel):
 
     @validator("aliquota")
     def validate_aliquota(cls, v):
-        if v < 0 or v > 1:
-            # Se o usuário passou 18.0 em vez de 0.18, converter para decimal unitário
-            if 1 < v <= 100:
-                v = v / Decimal("100")
-            else:
-                raise ValueError("Alíquota deve estar entre 0 e 1 (ex: 0.1800)")
-        return v
+        return normalizar_aliquota(v)
 
     class Config:
         extra = "forbid"
 
+
 class RegraAliquotaCreate(RegraAliquotaBase):
     pass
+
 
 class RegraAliquotaUpdate(BaseModel):
     uf: Optional[str] = None
@@ -64,22 +57,17 @@ class RegraAliquotaUpdate(BaseModel):
             return clean
         return v
 
-    class Config:
-        extra = "forbid"
-
     @validator("ncm")
     def validate_ncm(cls, v):
         return clean_ncm(v)
 
     @validator("aliquota")
     def validate_aliquota(cls, v):
-        if v is not None:
-            if v < 0 or v > 1:
-                if 1 < v <= 100:
-                    v = v / Decimal("100")
-                else:
-                    raise ValueError("Alíquota deve estar entre 0 e 1 (ex: 0.1800)")
-        return v
+        return normalizar_aliquota(v)
+
+    class Config:
+        extra = "forbid"
+
 
 class RegraAliquotaOut(RegraAliquotaBase):
     id: int

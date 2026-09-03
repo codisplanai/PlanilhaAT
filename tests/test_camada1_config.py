@@ -160,3 +160,58 @@ def test_excluir_regra_de_reducao_leva_as_excecoes_junto(db_session):
     db_session.delete(regra)
     db_session.commit()
     assert db_session.query(ExcecaoReducaoProduto).count() == 0
+
+
+def test_schema_converte_aliquota_percentual_para_decimal():
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    payload = RegraReducaoCreate(
+        perfil_regras_id=1, ncm="72142000", termos_inclusao=["vergalh*"], aliquota=Decimal("12.00"))
+    assert payload.aliquota == Decimal("0.12")
+
+
+def test_schema_rejeita_ncm_sentinela_do_sped():
+    import pytest as _pytest
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    with _pytest.raises(ValueError):
+        RegraReducaoCreate(
+            perfil_regras_id=1, ncm="00000000",
+            termos_inclusao=["vergalh*"], aliquota=Decimal("0.12"))
+
+
+def test_schema_rejeita_lista_de_termos_vazia():
+    import pytest as _pytest
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    with _pytest.raises(ValueError):
+        RegraReducaoCreate(
+            perfil_regras_id=1, ncm="72142000", termos_inclusao=[], aliquota=Decimal("0.12"))
+
+
+def test_schema_normaliza_termos_e_descarta_vazios():
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    payload = RegraReducaoCreate(
+        perfil_regras_id=1, ncm="72142000",
+        termos_inclusao=["  Vergalhão*  ", "", "  "], aliquota=Decimal("0.12"))
+    assert payload.termos_inclusao == ["VERGALHAO*"]
+
+
+def test_schema_de_excecao_normaliza_a_descricao():
+    from app.schemas.regra_reducao_produto import ExcecaoReducaoCreate
+
+    payload = ExcecaoReducaoCreate(descricao_exata="Vergalhão de Cobre", enquadrado=False)
+    assert payload.descricao_exata == "VERGALHAO DE COBRE"
+
+
+def test_schema_de_termo_de_acordo_converte_percentual():
+    from decimal import Decimal
+    from app.schemas.regra_aliquota_empresa import TermoAcordoUpsert
+
+    payload = TermoAcordoUpsert(aliquota=Decimal("12.06"), descricao="Termo 123/2025")
+    assert payload.aliquota == Decimal("0.1206")
