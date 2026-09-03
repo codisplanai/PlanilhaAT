@@ -20,3 +20,6 @@ class PerfilRegras(Base):
     regras_reducao_produto = relationship(
         "RegraReducaoProduto", back_populates="perfil_regras", cascade="all, delete-orphan"
     )
+    regras_reclassificacao_cfop = relationship(
+        "RegraReclassificacaoCfop", back_populates="perfil_regras", cascade="all, delete-orphan"
+    )

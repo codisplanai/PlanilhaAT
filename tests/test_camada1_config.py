@@ -344,3 +344,99 @@ def test_api_remover_termo_inexistente_e_404(client):
     assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 404
 
 
+def test_criar_regra_reclassificacao_cfop_e_excecao(db_session):
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop, ExcecaoReclassificacaoCfop
+
+    perfil = PerfilRegras(nome="Perfil Reclassificacao Teste")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReclassificacaoCfop(
+        perfil_regras_id=perfil.id,
+        ncm="73269090",
+        cfop_origem_sufixo="102",
+        cfop_destino_sufixo="405",
+        termos_inclusao=["GRAMPO*"],
+        termos_exclusao=["PLASTICO"],
+        descricao="Grampos sujeitos a ST",
+    )
+    db_session.add(regra)
+    db_session.commit()
+
+    excecao = ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id,
+        descricao_exata="GRAMPO ESPECIAL INOX",
+        aplicar=False,
+        observacao="Inox nao entra",
+    )
+    db_session.add(excecao)
+    db_session.commit()
+
+    assert regra.id is not None
+    assert len(regra.excecoes) == 1
+    assert regra.excecoes[0].descricao_exata == "GRAMPO ESPECIAL INOX"
+    assert regra.excecoes[0].aplicar is False
+
+
+def test_excecao_reclassificacao_cfop_nao_aceita_descricao_duplicada(db_session):
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop, ExcecaoReclassificacaoCfop
+
+    perfil = PerfilRegras(nome="Perfil Reclassificacao Duplicada")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReclassificacaoCfop(
+        perfil_regras_id=perfil.id,
+        ncm="73269090",
+        cfop_destino_sufixo="405",
+    )
+    db_session.add(regra)
+    db_session.commit()
+
+    db_session.add(ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id, descricao_exata="GRAMPO A", aplicar=False
+    ))
+    db_session.commit()
+
+    db_session.add(ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id, descricao_exata="GRAMPO A", aplicar=True
+    ))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_excluir_regra_reclassificacao_cfop_leva_as_excecoes_junto(db_session):
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop, ExcecaoReclassificacaoCfop
+
+    perfil = PerfilRegras(nome="Perfil Reclassificacao Cascade")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReclassificacaoCfop(
+        perfil_regras_id=perfil.id,
+        ncm="73269090",
+        cfop_destino_sufixo="405",
+    )
+    db_session.add(regra)
+    db_session.commit()
+
+    db_session.add(ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id, descricao_exata="GRAMPO B", aplicar=False
+    ))
+    db_session.commit()
+
+    regra_id = regra.id
+    db_session.delete(regra)
+    db_session.commit()
+
+    sobras = db_session.query(ExcecaoReclassificacaoCfop).filter_by(regra_reclassificacao_id=regra_id).all()
+    assert len(sobras) == 0
+
+
+
