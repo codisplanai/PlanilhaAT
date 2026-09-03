@@ -3,6 +3,8 @@ from app.models.profile import Profile
 from app.models.perfil_regras import PerfilRegras
 from app.models.empresa import Empresa
 from app.models.regra_aliquota import RegraAliquotaDestino
+from app.models.regra_aliquota_empresa import RegraAliquotaEmpresa
+from app.models.regra_reducao_produto import ExcecaoReducaoProduto, RegraReducaoProduto
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.template_xlsx import TemplateXlsx
 from app.models.solicitacao import Solicitacao
@@ -15,6 +17,9 @@ __all__ = [
     "PerfilRegras",
     "Empresa",
     "RegraAliquotaDestino",
+    "RegraAliquotaEmpresa",
+    "RegraReducaoProduto",
+    "ExcecaoReducaoProduto",
     "RegraCfopDestino",
     "TemplateXlsx",
     "Solicitacao",

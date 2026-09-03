@@ -19,3 +19,6 @@ class Empresa(Base):
 
     perfil_regras = relationship("PerfilRegras", back_populates="empresas")
     solicitacoes = relationship("Solicitacao", back_populates="empresa", passive_deletes=True)
+    regras_aliquotas_empresa = relationship(
+        "RegraAliquotaEmpresa", back_populates="empresa", cascade="all, delete-orphan"
+    )

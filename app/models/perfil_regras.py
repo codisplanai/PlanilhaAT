@@ -17,3 +17,6 @@ class PerfilRegras(Base):
     empresas = relationship("Empresa", back_populates="perfil_regras", passive_deletes=True)
     regras_aliquotas = relationship("RegraAliquotaDestino", back_populates="perfil_regras", cascade="all, delete-orphan")
     regras_cfop = relationship("RegraCfopDestino", back_populates="perfil_regras", cascade="all, delete-orphan")
+    regras_reducao_produto = relationship(
+        "RegraReducaoProduto", back_populates="perfil_regras", cascade="all, delete-orphan"
+    )
