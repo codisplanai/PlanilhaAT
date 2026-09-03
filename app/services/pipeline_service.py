@@ -200,10 +200,11 @@ class ProcessingPipelineService:
                         planilha_records=planilha_records
                     )
 
-                # Se não foi fornecida/encontrada na planilha auxiliar, mas veio nativa no SPED ou NF:
-                if data_entrada_resolvida is None and nf_data.data_entrada is not None:
+                # Se não foi fornecida/encontrada na planilha auxiliar, mas veio nativa no SPED:
+                # Regra estrita: Apenas o SPED Fiscal (ou planilha auxiliar) fornece data de entrada real.
+                if data_entrada_resolvida is None and nf_data.data_entrada is not None and nf_data.origem_extracao == "sped":
                     data_entrada_resolvida = nf_data.data_entrada
-                    origem_data = "sped_fiscal" if nf_data.origem_extracao == "sped" else "xml_nfe"
+                    origem_data = "sped_fiscal"
 
                 # 5.1. Após a união das fontes, uma nota com origem_extracao == "xml" é uma nota
                 # que foi EMITIDA na competência mas NÃO consta do SPED da mesma competência —
@@ -350,6 +351,22 @@ class ProcessingPipelineService:
                         )
                         continue
 
+                    # Regra estrita de Data de Entrada:
+                    # 1. Na planilha/destino de Parcial Pago Antecipadamente, as mercadorias ainda não
+                    #    deram entrada. A data de entrada DEVE ser estritamente None (vazia/nula) no banco e Excel.
+                    # 2. Nas demais planilhas, a data de entrada é a informada no SPED Fiscal (ou planilha auxiliar).
+                    #    Nunca deduzir ou utilizar data de emissão como fallback.
+                    data_entrada_efetiva = (
+                        None
+                        if destino_grupo == ANTECIPACAO_PARCIAL_ANTECIPADO
+                        else data_entrada_resolvida
+                    )
+                    origem_data_efetiva = (
+                        None
+                        if destino_grupo == ANTECIPACAO_PARCIAL_ANTECIPADO
+                        else origem_data
+                    )
+
                     # Criar registro de NotaFiscalProcessada
                     nf_proc = NotaFiscalProcessada(
                         solicitacao_id=solicitacao.id,
@@ -361,8 +378,8 @@ class ProcessingPipelineService:
                         cnpj_destinatario=nf_data.cnpj_destinatario,
                         uf_destinatario=empresa.uf,
                         data_emissao=nf_data.data_emissao,
-                        data_entrada=data_entrada_resolvida,
-                        origem_data_entrada=origem_data,
+                        data_entrada=data_entrada_efetiva,
+                        origem_data_entrada=origem_data_efetiva,
                         item_numero=split_index,
                         ncm=ncm_grupo,
                         cfop=cfop_grupo,
@@ -386,12 +403,6 @@ class ProcessingPipelineService:
                     )
                     notas_criadas.append(nf_proc)
 
-                    data_entrada_excel = data_entrada_resolvida or (
-                        nf_data.data_emissao.date()
-                        if isinstance(nf_data.data_emissao, datetime)
-                        else nf_data.data_emissao
-                    )
-
                     # Dados estruturados para escrita no Excel
                     rows_por_destino[destino_grupo].append({
                         "numero_nota": nf_data.numero_nota,
@@ -402,7 +413,7 @@ class ProcessingPipelineService:
                         "cnpj_destinatario": nf_data.cnpj_destinatario,
                         "uf_destinatario": empresa.uf,
                         "data_emissao": nf_data.data_emissao,
-                        "data_entrada": data_entrada_excel,
+                        "data_entrada": data_entrada_efetiva,
                         "item_numero": split_index,
                         "descricao": descricao_grupo,
                         "ncm": ncm_grupo,

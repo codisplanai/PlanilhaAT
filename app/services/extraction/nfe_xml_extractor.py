@@ -93,13 +93,10 @@ class NFeXMLExtractor(BaseNFEExtractor):
         data_str = self._get_text(ide, "dhEmi") or self._get_text(ide, "dEmi")
         data_emissao = self._parse_datetime(data_str)
 
-        data_sai_ent_str = self._get_text(ide, "dhSaiEnt") or self._get_text(ide, "dSaiEnt")
+        # No XML da NF-e, a tag <dhSaiEnt>/<dSaiEnt> representa a data/hora de saída
+        # do emitente/fornecedor, e NUNCA a data de entrada no estabelecimento do cliente.
+        # A data de entrada deve ser consultada exclusivamente no SPED Fiscal (C100 DT_E_S).
         data_entrada = None
-        if data_sai_ent_str:
-            try:
-                data_entrada = self._parse_datetime(data_sai_ent_str).date()
-            except Exception:
-                data_entrada = None
 
         # Emitente (<emit>)
         emit = self._find_elem(inf_nfe, "emit")

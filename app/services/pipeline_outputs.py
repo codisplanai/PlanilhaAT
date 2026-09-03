@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Mapping, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.constants import ANTECIPACAO_PARCIAL_ANTECIPADO
 from app.core.config import settings
 from app.core.exceptions import NotFoundException, ValidationException
 from app.models.empresa import Empresa
@@ -53,7 +54,7 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
     """Converte a entidade persistida no contrato de entrada do TemplateFiller."""
     metadata = note.metadados_extras or {}
     issue_date = note.data_emissao
-    fallback_entry = issue_date.date() if isinstance(issue_date, datetime) else issue_date
+    entry_date = None if note.destino_planilha == ANTECIPACAO_PARCIAL_ANTECIPADO else note.data_entrada
     return {
         "numero_nota": note.numero_nota,
         "serie": note.serie,
@@ -63,7 +64,7 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
         "cnpj_destinatario": note.cnpj_destinatario,
         "uf_destinatario": note.uf_destinatario,
         "data_emissao": issue_date,
-        "data_entrada": note.data_entrada or fallback_entry,
+        "data_entrada": entry_date,
         "item_numero": note.item_numero,
         "ncm": note.ncm,
         "cfop": note.cfop,

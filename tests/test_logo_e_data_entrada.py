@@ -11,7 +11,7 @@ from app.services.extraction.nfe_xml_extractor import NFeXMLExtractor
 from tests.conftest import build_xml_nfe, CHAVE_NF901
 
 
-def test_xml_extractor_extrai_dhsaient_quando_presente():
+def test_xml_extractor_nao_deduz_data_entrada_de_dhsaient():
     xml_com_saida = f"""<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
   <NFe>
@@ -36,7 +36,8 @@ def test_xml_extractor_extrai_dhsaient_quando_presente():
     extractor = NFeXMLExtractor()
     nf_data = extractor.extract_from_xml(xml_com_saida)
 
-    assert nf_data.data_entrada == datetime.date(2026, 6, 18)
+    # dhSaiEnt no XML é apenas saída do emitente; data_entrada da empresa deve ser None
+    assert nf_data.data_entrada is None
     assert nf_data.data_emissao.date() == datetime.date(2026, 6, 10)
 
 
@@ -99,7 +100,7 @@ def test_template_filler_preserva_logo_em_qualquer_mes():
                 os.remove(out_path)
 
 
-def test_geracao_planilha_preenche_data_entrada_com_fallback(client, db_session, sample_xml_nfe):
+def test_geracao_planilha_sem_sped_deixa_data_entrada_vazia(client, db_session, sample_xml_nfe):
     from app.core.seeds import seed_default_templates
     from app.models.perfil_regras import PerfilRegras
     from app.models.empresa import Empresa
@@ -150,12 +151,11 @@ def test_geracao_planilha_preenche_data_entrada_com_fallback(client, db_session,
     wb = openpyxl.load_workbook(io.BytesIO(res_download.content))
     ws = wb.active
 
-    # Verifica que a coluna B (data_entrada) foi preenchida com a data de emissão (fallback)
-    assert ws["B4"].value is not None
-    if isinstance(ws["B4"].value, (datetime.datetime, datetime.date)):
-        assert ws["B4"].value.strftime("%d/%m/%Y") == "15/01/2026"
-    else:
-        assert ws["B4"].value == "15/01/2026"
+    # Verifica que sem SPED Fiscal a coluna B (data_entrada) NUNCA deduz emissão e fica vazia (None)
+    assert ws["B4"].value is None
+
+    # Verifica que a data de emissão foi preenchida corretamente na coluna C
+    assert ws["C4"].value is not None
 
     # Verifica que a imagem do logo da Codisplan está presente
     assert len(getattr(ws, "_images", [])) >= 1

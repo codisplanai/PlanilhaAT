@@ -52,3 +52,30 @@ def test_regras_de_cfop_nao_oferecem_o_tipo_novo():
     from app.schemas.regra_cfop import VALID_DESTINOS
 
     assert "antecipacao_parcial_antecipado" not in VALID_DESTINOS
+
+
+def test_nota_em_parcial_antecipado_tem_data_entrada_nula(
+    db_session, cenario_janeiro, xml_nf901, xml_nf902, sped_janeiro_com_nf901
+):
+    """Notas ausentes do SPED são classificadas como Parcial Antecipado e NÃO possuem data de entrada."""
+    from app.constants import ANTECIPACAO_PARCIAL, ANTECIPACAO_PARCIAL_ANTECIPADO
+    from app.services.pipeline_service import ProcessingPipelineService
+
+    sol = cenario_janeiro()
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id,
+        xml_files_bytes=[("901.xml", xml_nf901), ("902.xml", xml_nf902)],
+        sped_file_bytes=sped_janeiro_com_nf901,
+    )
+    db_session.refresh(res)
+
+    notas_por_num = {n.numero_nota: n for n in res.notas_processadas}
+    
+    # 901 estava no SPED (deu entrada):
+    assert notas_por_num["901"].destino_planilha == ANTECIPACAO_PARCIAL
+    assert notas_por_num["901"].data_entrada is not None
+
+    # 902 estava apenas no XML (não deu entrada no SPED):
+    assert notas_por_num["902"].destino_planilha == ANTECIPACAO_PARCIAL_ANTECIPADO
+    assert notas_por_num["902"].data_entrada is None
+
