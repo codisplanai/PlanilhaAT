@@ -344,3 +344,214 @@ def test_api_remover_termo_inexistente_e_404(client):
     assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 404
 
 
+def test_criar_regra_reclassificacao_cfop_e_excecao(db_session):
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop, ExcecaoReclassificacaoCfop
+
+    perfil = PerfilRegras(nome="Perfil Reclassificacao Teste")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReclassificacaoCfop(
+        perfil_regras_id=perfil.id,
+        ncm="73269090",
+        cfop_origem_sufixo="102",
+        cfop_destino_sufixo="405",
+        termos_inclusao=["GRAMPO*"],
+        termos_exclusao=["PLASTICO"],
+        descricao="Grampos sujeitos a ST",
+    )
+    db_session.add(regra)
+    db_session.commit()
+
+    excecao = ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id,
+        descricao_exata="GRAMPO ESPECIAL INOX",
+        aplicar=False,
+        observacao="Inox nao entra",
+    )
+    db_session.add(excecao)
+    db_session.commit()
+
+    assert regra.id is not None
+    assert len(regra.excecoes) == 1
+    assert regra.excecoes[0].descricao_exata == "GRAMPO ESPECIAL INOX"
+    assert regra.excecoes[0].aplicar is False
+
+
+def test_excecao_reclassificacao_cfop_nao_aceita_descricao_duplicada(db_session):
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop, ExcecaoReclassificacaoCfop
+
+    perfil = PerfilRegras(nome="Perfil Reclassificacao Duplicada")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReclassificacaoCfop(
+        perfil_regras_id=perfil.id,
+        ncm="73269090",
+        cfop_destino_sufixo="405",
+    )
+    db_session.add(regra)
+    db_session.commit()
+
+    db_session.add(ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id, descricao_exata="GRAMPO A", aplicar=False
+    ))
+    db_session.commit()
+
+    db_session.add(ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id, descricao_exata="GRAMPO A", aplicar=True
+    ))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_excluir_regra_reclassificacao_cfop_leva_as_excecoes_junto(db_session):
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop, ExcecaoReclassificacaoCfop
+
+    perfil = PerfilRegras(nome="Perfil Reclassificacao Cascade")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReclassificacaoCfop(
+        perfil_regras_id=perfil.id,
+        ncm="73269090",
+        cfop_destino_sufixo="405",
+    )
+    db_session.add(regra)
+    db_session.commit()
+
+    db_session.add(ExcecaoReclassificacaoCfop(
+        regra_reclassificacao_id=regra.id, descricao_exata="GRAMPO B", aplicar=False
+    ))
+    db_session.commit()
+
+    regra_id = regra.id
+    db_session.delete(regra)
+    db_session.commit()
+
+    sobras = db_session.query(ExcecaoReclassificacaoCfop).filter_by(regra_reclassificacao_id=regra_id).all()
+    assert len(sobras) == 0
+
+
+def test_schema_reclassificacao_converte_cfop_4_digitos_para_sufixo_3():
+    from app.schemas.regra_reclassificacao_cfop import RegraReclassificacaoCreate
+
+    payload = RegraReclassificacaoCreate(
+        perfil_regras_id=1,
+        ncm="7326.90.90",
+        cfop_origem_sufixo="6102",
+        cfop_destino_sufixo="6405",
+        termos_inclusao=["  Grampo*  "],
+    )
+    assert payload.ncm == "73269090"
+    assert payload.cfop_origem_sufixo == "102"
+    assert payload.cfop_destino_sufixo == "405"
+    assert payload.termos_inclusao == ["GRAMPO*"]
+
+
+def test_schema_reclassificacao_normaliza_termos_e_excecoes():
+    from app.schemas.regra_reclassificacao_cfop import ExcecaoReclassificacaoCreate
+
+    exc = ExcecaoReclassificacaoCreate(
+        descricao_exata="  Grampo cb.aço leve... ",
+        aplicar=False,
+    )
+    assert exc.descricao_exata == "GRAMPO CB ACO LEVE"
+
+
+def test_schema_reclassificacao_rejeita_cfop_invalido():
+    import pytest
+    from app.schemas.regra_reclassificacao_cfop import RegraReclassificacaoCreate
+
+    with pytest.raises(ValueError, match="CFOP deve conter 3 ou 4 dígitos"):
+        RegraReclassificacaoCreate(
+            perfil_regras_id=1,
+            ncm="73269090",
+            cfop_destino_sufixo="99",  # 2 dígitos é inválido
+        )
+
+
+def test_api_cria_e_lista_regra_de_reclassificacao_cfop(client):
+    perfil_id = _criar_perfil(client)
+
+    res = client.post("/api/v1/regras-reclassificacao-cfop", json={
+        "perfil_regras_id": perfil_id,
+        "ncm": "7326.90.90",
+        "cfop_origem_sufixo": "6102",
+        "cfop_destino_sufixo": "6405",
+        "termos_inclusao": ["grampo*"],
+        "termos_exclusao": ["plastico"],
+        "descricao": "Grampos sujeitos a ST",
+    })
+    assert res.status_code == 201, res.text
+    criada = res.json()
+    assert criada["ncm"] == "73269090"
+    assert criada["cfop_origem_sufixo"] == "102"
+    assert criada["cfop_destino_sufixo"] == "405"
+    assert criada["termos_inclusao"] == ["GRAMPO*"]
+
+    listagem = client.get(f"/api/v1/regras-reclassificacao-cfop?perfil_id={perfil_id}")
+    assert listagem.status_code == 200
+    assert len(listagem.json()) == 1
+
+
+def test_api_rejeita_regra_reclassificacao_duplicada(client):
+    perfil_id = _criar_perfil(client)
+    corpo = {
+        "perfil_regras_id": perfil_id,
+        "ncm": "73269090",
+        "cfop_origem_sufixo": "102",
+        "cfop_destino_sufixo": "405",
+        "termos_inclusao": ["grampo*"],
+    }
+    assert client.post("/api/v1/regras-reclassificacao-cfop", json=corpo).status_code == 201
+    repetida = client.post("/api/v1/regras-reclassificacao-cfop", json=corpo)
+    assert repetida.status_code == 409, repetida.text
+
+
+def test_api_cria_e_remove_excecao_reclassificacao(client):
+    perfil_id = _criar_perfil(client)
+    regra_id = client.post("/api/v1/regras-reclassificacao-cfop", json={
+        "perfil_regras_id": perfil_id,
+        "ncm": "73269090",
+        "cfop_destino_sufixo": "405",
+        "termos_inclusao": ["grampo*"],
+    }).json()["id"]
+
+    res = client.post(f"/api/v1/regras-reclassificacao-cfop/{regra_id}/excecoes", json={
+        "descricao_exata": "Grampo Especial Inox",
+        "aplicar": False,
+        "observacao": "Inox nao deve ir para ST",
+    })
+    assert res.status_code == 201, res.text
+    excecao = res.json()
+    assert excecao["descricao_exata"] == "GRAMPO ESPECIAL INOX"
+    assert excecao["aplicar"] is False
+
+    detalhe = client.get(f"/api/v1/regras-reclassificacao-cfop/{regra_id}")
+    assert len(detalhe.json()["excecoes"]) == 1
+
+    apagar = client.delete(
+        f"/api/v1/regras-reclassificacao-cfop/{regra_id}/excecoes/{excecao['id']}"
+    )
+    assert apagar.status_code == 204
+
+
+def test_api_reclassificacao_rejeita_perfil_inexistente(client):
+    res = client.post("/api/v1/regras-reclassificacao-cfop", json={
+        "perfil_regras_id": 99999,
+        "ncm": "73269090",
+        "cfop_destino_sufixo": "405",
+    })
+    assert res.status_code == 404, res.text
+
+
+
+
+
