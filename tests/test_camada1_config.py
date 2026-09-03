@@ -215,3 +215,84 @@ def test_schema_de_termo_de_acordo_converte_percentual():
 
     payload = TermoAcordoUpsert(aliquota=Decimal("12.06"), descricao="Termo 123/2025")
     assert payload.aliquota == Decimal("0.1206")
+
+
+def _criar_perfil(client):
+    res = client.post("/api/v1/perfis-regras", json={"nome": "Perfil API Reducao"})
+    assert res.status_code in (200, 201), res.text
+    return res.json()["id"]
+
+
+def test_api_cria_e_lista_regra_de_reducao(client):
+    perfil_id = _criar_perfil(client)
+
+    res = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "7214.20.00",
+        "termos_inclusao": ["vergalh*"], "termos_exclusao": ["cobre"],
+        "aliquota": 12.00, "descricao": "Vergalhoes"})
+    assert res.status_code == 201, res.text
+    criada = res.json()
+    assert criada["ncm"] == "72142000"
+    assert criada["termos_inclusao"] == ["VERGALH*"]
+    assert float(criada["aliquota"]) == 0.12
+
+    listagem = client.get(f"/api/v1/regras-reducao-produto?perfil_id={perfil_id}")
+    assert listagem.status_code == 200
+    assert len(listagem.json()) == 1
+
+
+def test_api_rejeita_regra_duplicada_com_os_mesmos_termos(client):
+    perfil_id = _criar_perfil(client)
+    corpo = {"perfil_regras_id": perfil_id, "ncm": "72142000",
+             "termos_inclusao": ["vergalh*"], "aliquota": 0.12}
+
+    assert client.post("/api/v1/regras-reducao-produto", json=corpo).status_code == 201
+    repetida = client.post("/api/v1/regras-reducao-produto", json=corpo)
+    assert repetida.status_code == 409, repetida.text
+
+
+def test_api_aceita_segundo_termo_para_o_mesmo_ncm(client):
+    perfil_id = _criar_perfil(client)
+    assert client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "72142000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12}).status_code == 201
+    assert client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "72142000",
+        "termos_inclusao": ["barra chata"], "aliquota": 0.18}).status_code == 201
+
+
+def test_api_rejeita_ncm_sentinela(client):
+    perfil_id = _criar_perfil(client)
+    res = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "00000000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12})
+    assert res.status_code == 422, res.text
+
+
+def test_api_cria_e_remove_excecao(client):
+    perfil_id = _criar_perfil(client)
+    regra_id = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "72142000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12}).json()["id"]
+
+    res = client.post(f"/api/v1/regras-reducao-produto/{regra_id}/excecoes", json={
+        "descricao_exata": "Vergalhão de Cobre", "enquadrado": False,
+        "observacao": "Cobre nao entra no decreto"})
+    assert res.status_code == 201, res.text
+    excecao = res.json()
+    assert excecao["descricao_exata"] == "VERGALHAO DE COBRE"
+
+    detalhe = client.get(f"/api/v1/regras-reducao-produto/{regra_id}")
+    assert len(detalhe.json()["excecoes"]) == 1
+
+    apagar = client.delete(
+        f"/api/v1/regras-reducao-produto/{regra_id}/excecoes/{excecao['id']}")
+    assert apagar.status_code == 204
+
+
+def test_api_rejeita_perfil_inexistente(client):
+    res = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": 9999, "ncm": "72142000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12})
+    assert res.status_code == 404, res.text
+
