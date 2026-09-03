@@ -1,6 +1,6 @@
 # Alíquotas Reduzidas — Plano de Implementação
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Permitir que a alíquota de destino (A.DST) seja reduzida por termo de acordo da empresa e por enquadramento de produto (NCM + descrição), sem alterar o comportamento de quem não cadastrar nada.
 
@@ -41,7 +41,7 @@ Funções puras de normalização e casamento de termos. Sem banco, sem imports 
   - `casa_termo(descricao_normalizada: str, termo: str) -> bool`
   - `casa_algum(descricao_normalizada: str, termos: Optional[List[str]]) -> bool`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Criar `tests/test_descricao_matcher.py`:
 
@@ -104,12 +104,12 @@ def test_casa_algum_encontra_o_segundo_termo():
     assert casa_algum(normalizar("VG CA50 10.0"), ["vergalhao", "vg ca50"]) is True
 ```
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_descricao_matcher.py -v`
 Expected: FAIL com `ModuleNotFoundError: No module named 'app.services.rules_engine.descricao_matcher'`
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Criar `app/services/rules_engine/descricao_matcher.py`:
 
@@ -169,12 +169,12 @@ def casa_algum(descricao_normalizada: str, termos: Optional[List[str]]) -> bool:
     return any(casa_termo(descricao_normalizada, t) for t in (termos or []))
 ```
 
-- [ ] **Step 4: Rodar para confirmar que passa**
+- [x] **Step 4: Rodar para confirmar que passa**
 
 Run: `python -m pytest tests/test_descricao_matcher.py -v`
 Expected: PASS — 13 testes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/services/rules_engine/descricao_matcher.py tests/test_descricao_matcher.py
@@ -204,7 +204,7 @@ As três tabelas novas. `regras_aliquotas_destino` não é tocada.
   - `RegraAliquotaEmpresa` — campos `id, empresa_id, aliquota, descricao, vigencia_inicio, vigencia_fim, criado_em, atualizado_em`; relacionamento `empresa`.
   - `PerfilRegras.regras_reducao_produto` (lista), `Empresa.regras_aliquotas_empresa` (lista).
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Acrescentar ao final de `tests/test_camada1_config.py`:
 
@@ -314,12 +314,12 @@ def test_excluir_regra_de_reducao_leva_as_excecoes_junto(db_session):
 
 Conferir que `import pytest` já existe no topo de `tests/test_camada1_config.py`; se não existir, adicionar.
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_camada1_config.py -v`
 Expected: FAIL com `ModuleNotFoundError: No module named 'app.models.regra_reducao_produto'`
 
-- [ ] **Step 3: Criar os modelos**
+- [x] **Step 3: Criar os modelos**
 
 Criar `app/models/regra_reducao_produto.py`:
 
@@ -442,7 +442,7 @@ class RegraAliquotaEmpresa(Base):
     )
 ```
 
-- [ ] **Step 4: Ligar os relacionamentos e o registro dos modelos**
+- [x] **Step 4: Ligar os relacionamentos e o registro dos modelos**
 
 Em `app/models/perfil_regras.py`, acrescentar depois da linha `regras_cfop = relationship(...)`:
 
@@ -475,14 +475,14 @@ e as entradas em `__all__`, depois de `"RegraAliquotaDestino",`:
     "ExcecaoReducaoProduto",
 ```
 
-- [ ] **Step 5: Rodar para confirmar que passa**
+- [x] **Step 5: Rodar para confirmar que passa**
 
 Run: `python -m pytest tests/test_camada1_config.py -v`
 Expected: PASS — os 2 testes existentes e os 4 novos.
 
 Se `test_excecao_nao_aceita_descricao_duplicada_na_mesma_regra` ou `test_empresa_tem_no_maximo_um_termo_de_acordo` não levantarem `IntegrityError`, o SQLite não está aplicando a restrição — confirme que `UniqueConstraint` / `unique=True` estão nos modelos exatamente como acima e que `Base.metadata.create_all` rodou depois da alteração (a fixture `db_session` recria o schema a cada teste).
 
-- [ ] **Step 6: Escrever a migração**
+- [x] **Step 6: Escrever a migração**
 
 Criar `alembic/versions/010_aliquotas_reduzidas.py`:
 
@@ -577,7 +577,7 @@ def downgrade() -> None:
     op.drop_table("regras_reducao_produto")
 ```
 
-- [ ] **Step 7: Verificar a migração**
+- [x] **Step 7: Verificar a migração**
 
 Run: `python -m alembic heads`
 Expected: uma única head, `010_aliquotas_reduzidas`.
@@ -585,7 +585,7 @@ Expected: uma única head, `010_aliquotas_reduzidas`.
 Run: `python -m pytest tests/test_schema_lifecycle.py -v`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add app/models/regra_reducao_produto.py app/models/regra_aliquota_empresa.py \
@@ -616,7 +616,7 @@ Extrai os validadores duplicados de `regra_aliquota.py` e cria os schemas das en
   - `RegraReducaoCreate`, `RegraReducaoUpdate`, `RegraReducaoOut`, `ExcecaoReducaoCreate`, `ExcecaoReducaoOut`
   - `TermoAcordoUpsert`, `TermoAcordoOut`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Acrescentar ao final de `tests/test_camada1_config.py`:
 
@@ -680,12 +680,12 @@ O wildcard `*` sobrevive à normalização de termos porque ele é retirado ante
 `normalizar()` dentro de `casa_termo`. Aqui a normalização do termo preserva o
 sufixo: `"  Vergalhão*  "` vira `"VERGALHAO*"`.
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_camada1_config.py -v -k schema`
 Expected: FAIL com `ModuleNotFoundError: No module named 'app.schemas.regra_reducao_produto'`
 
-- [ ] **Step 3: Criar o módulo de validadores compartilhados**
+- [x] **Step 3: Criar o módulo de validadores compartilhados**
 
 Criar `app/schemas/validators.py`:
 
@@ -752,7 +752,7 @@ def normalizar_termos(termos: Optional[List[str]]) -> List[str]:
     return limpos
 ```
 
-- [ ] **Step 4: Apontar `regra_aliquota.py` para os validadores compartilhados**
+- [x] **Step 4: Apontar `regra_aliquota.py` para os validadores compartilhados**
 
 Em `app/schemas/regra_aliquota.py`, remover a definição local de `clean_ncm`
 (linhas 8-15) e o corpo dos quatro validadores de alíquota, substituindo o topo
@@ -782,7 +782,7 @@ e trocar os corpos dos dois `validate_aliquota` (em `RegraAliquotaBase` e em
 
 O `import re` no topo pode sair se nada mais no arquivo o usar.
 
-- [ ] **Step 5: Criar os schemas novos**
+- [x] **Step 5: Criar os schemas novos**
 
 Criar `app/schemas/regra_reducao_produto.py`:
 
@@ -939,12 +939,12 @@ class TermoAcordoOut(BaseModel):
         orm_mode = True
 ```
 
-- [ ] **Step 6: Rodar para confirmar que passa**
+- [x] **Step 6: Rodar para confirmar que passa**
 
 Run: `python -m pytest tests/test_camada1_config.py tests/test_camada5_rules_engine.py -v`
 Expected: PASS — inclusive os testes anteriores, que provam que a extração dos validadores não mudou comportamento.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/schemas/validators.py app/schemas/regra_reducao_produto.py \
@@ -971,7 +971,7 @@ O núcleo. Muda o tipo de retorno de `resolve_a_dst` e atualiza o único call si
   - `AliquotaResolver.resolve_a_dst(perfil_regras_id, uf, ncm=None, descricao=None, empresa_id=None) -> ResolucaoAliquota`
   - `AliquotaResolver.preload(perfil_regras_id, empresa_id=None) -> None`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Substituir o conteúdo de `tests/test_camada5_rules_engine.py` por:
 
@@ -1189,12 +1189,12 @@ def test_preload_resolve_sem_novas_consultas(db_session, cenario):
     assert res.aliquota == Decimal("0.1200")
 ```
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_camada5_rules_engine.py -v`
 Expected: FAIL — `AttributeError: 'decimal.Decimal' object has no attribute 'aliquota'` nos primeiros testes, e `TypeError` de argumento inesperado nos demais.
 
-- [ ] **Step 3: Reescrever o resolver**
+- [x] **Step 3: Reescrever o resolver**
 
 Substituir o conteúdo de `app/services/rules_engine/aliquota_resolver.py` por:
 
@@ -1450,7 +1450,7 @@ class AliquotaResolver:
         )
 ```
 
-- [ ] **Step 4: Ajustar o call site do pipeline (mínimo, sem mudar comportamento)**
+- [x] **Step 4: Ajustar o call site do pipeline (mínimo, sem mudar comportamento)**
 
 Em `app/services/pipeline_service.py`, na linha ~247, trocar:
 
@@ -1475,7 +1475,7 @@ por:
 
 A ligação com descrição, empresa e auditoria vem na Task 6.
 
-- [ ] **Step 5: Rodar a suíte inteira**
+- [x] **Step 5: Rodar a suíte inteira**
 
 Run: `python -m pytest tests/test_camada5_rules_engine.py -v`
 Expected: PASS — 13 testes.
@@ -1483,7 +1483,7 @@ Expected: PASS — 13 testes.
 Run: `python -m pytest -q`
 Expected: PASS — nenhuma regressão. `test_rules_engine_precedencia_ncm` provar que os três asserts originais continuam válidos é o sinal de que nada mudou para quem não cadastra.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/services/rules_engine/aliquota_resolver.py app/services/pipeline_service.py \
@@ -1506,7 +1506,7 @@ O SPED gera descrições sintéticas **não vazias** quando não há dados de it
 - Consumes: nada.
 - Produces: `ExtractedItemNF.descricao_confiavel: bool` (default `True`).
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Acrescentar ao final de `tests/test_sped_fiscal_extractor.py`:
 
@@ -1551,12 +1551,12 @@ Se o nome for outro, ajustar as duas chamadas nos testes. Confirmar também que
 `_SPED_JANEIRO_COM_NF901` é importável de `tests.conftest` — ele é um módulo de
 nível superior no arquivo, então o import funciona.
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_sped_fiscal_extractor.py -v -k confiavel`
 Expected: FAIL com `AttributeError: 'ExtractedItemNF' object has no attribute 'descricao_confiavel'`
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Em `app/services/extraction/base.py`, dentro de `ExtractedItemNF`, logo depois da linha `descricao: str = ""`:
 
@@ -1583,12 +1583,12 @@ E no fallback da capa C100 (linha ~144):
 
 O caminho do C170 (linha ~364) não muda — o default `True` já vale.
 
-- [ ] **Step 4: Rodar para confirmar que passa**
+- [x] **Step 4: Rodar para confirmar que passa**
 
 Run: `python -m pytest tests/test_sped_fiscal_extractor.py tests/test_end_to_end_sped.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/services/extraction/base.py app/services/extraction/sped_fiscal_extractor.py \
@@ -1610,7 +1610,7 @@ Liga tudo e corrige o handler que hoje engole a mensagem do resolver.
 - Consumes: `ResolucaoAliquota`, `AliquotaResolver.preload` (Task 4); `descricao_confiavel` (Task 5).
 - Produces: `metadados_extras["origem_a_dst"]` (lista de strings) e `metadados_extras["detalhe_a_dst"]` (string) em cada `NotaFiscalProcessada`.
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Criar `tests/test_reducao_produto_pipeline.py`:
 
@@ -1734,12 +1734,12 @@ def test_conflito_interrompe_com_mensagem_que_chega_ao_usuario(db_session, cenar
     assert "Falha interna" not in (sol.mensagem_erro or "")
 ```
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_reducao_produto_pipeline.py -v`
 Expected: FAIL — as alíquotas saem todas iguais (a descrição ainda não é passada ao resolver) e `metadados_extras` não tem `origem_a_dst`.
 
-- [ ] **Step 3: Chamar o preload antes do loop de notas**
+- [x] **Step 3: Chamar o preload antes do loop de notas**
 
 Em `app/services/pipeline_service.py`, imediatamente antes da linha `for filename, nf_data in raw_nfs:` (~151):
 
@@ -1749,7 +1749,7 @@ Em `app/services/pipeline_service.py`, imediatamente antes da linha `for filenam
             self.resolver.preload(empresa.perfil_regras_id, empresa.id)
 ```
 
-- [ ] **Step 4: Passar descrição e empresa, e capturar as resoluções por grupo**
+- [x] **Step 4: Passar descrição e empresa, e capturar as resoluções por grupo**
 
 Ainda em `pipeline_service.py`, trocar a declaração de `grupos` (~229) por:
 
@@ -1800,7 +1800,7 @@ Acrescentar `RuleResolutionException` ao import da linha 12:
 from app.core.exceptions import ValidationException, NotFoundException, RuleResolutionException
 ```
 
-- [ ] **Step 5: Gravar a origem nos metadados**
+- [x] **Step 5: Gravar a origem nos metadados**
 
 Trocar o cabeçalho do loop de grupos (~272) para preservar a chave:
 
@@ -1821,7 +1821,7 @@ E dentro do bloco que monta `NotaFiscalProcessada` (~401), acrescentar as duas e
 A chave de agrupamento **não muda**: incluir a origem nela desdobraria a nota em
 linhas extras quando duas origens diferentes dessem a mesma alíquota numérica.
 
-- [ ] **Step 6: Corrigir o handler que engole a mensagem**
+- [x] **Step 6: Corrigir o handler que engole a mensagem**
 
 Em `app/services/pipeline_service.py:502`, trocar:
 
@@ -1849,7 +1849,7 @@ from app.core.exceptions import (
 )
 ```
 
-- [ ] **Step 7: Rodar a suíte inteira**
+- [x] **Step 7: Rodar a suíte inteira**
 
 Run: `python -m pytest tests/test_reducao_produto_pipeline.py -v`
 Expected: PASS — 4 testes.
@@ -1857,7 +1857,7 @@ Expected: PASS — 4 testes.
 Run: `python -m pytest -q`
 Expected: PASS, sem regressões. Atenção especial a `test_end_to_end.py`, `test_end_to_end_sped.py`, `test_pipeline_multi_planilha.py` e `test_consolidation.py` — são os que exercitam o agrupamento.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add app/services/pipeline_service.py tests/test_reducao_produto_pipeline.py
@@ -1877,7 +1877,7 @@ git commit -m "feat(pipeline): aplica reducao por produto e grava origem da aliq
 - Consumes: schemas da Task 3; modelos da Task 2.
 - Produces: rotas sob `/api/v1/regras-reducao-produto`.
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Acrescentar ao final de `tests/test_camada1_config.py`:
 
@@ -1968,12 +1968,12 @@ Run: `grep -n "prefix=" app/api/endpoints/perfis_regras.py`
 
 Se o prefixo não for `/perfis-regras`, ajustar `_criar_perfil`.
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_camada1_config.py -v -k api_`
 Expected: FAIL com 404 — as rotas não existem.
 
-- [ ] **Step 3: Implementar o endpoint**
+- [x] **Step 3: Implementar o endpoint**
 
 Criar `app/api/endpoints/regras_reducao_produto.py`:
 
@@ -2114,7 +2114,7 @@ def deletar_excecao(id: int, excecao_id: int, db: Session = Depends(get_db)):
     delete_and_commit(db, excecao)
 ```
 
-- [ ] **Step 4: Registrar o router**
+- [x] **Step 4: Registrar o router**
 
 Em `app/api/router.py`, acrescentar o import depois de `regras_aliquotas`:
 
@@ -2128,7 +2128,7 @@ e a entrada na tupla `ROUTERS`, depois de `regras_aliquotas_router,`:
     regras_reducao_produto_router,
 ```
 
-- [ ] **Step 5: Rodar para confirmar que passa**
+- [x] **Step 5: Rodar para confirmar que passa**
 
 Run: `python -m pytest tests/test_camada1_config.py -v`
 Expected: PASS.
@@ -2136,7 +2136,7 @@ Expected: PASS.
 Run: `python -m pytest -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/api/endpoints/regras_reducao_produto.py app/api/router.py tests/test_camada1_config.py
@@ -2158,7 +2158,7 @@ Pendurado em `/empresas/{id}` porque a cardinalidade é 1:1 — o frontend não 
 - Consumes: `TermoAcordoUpsert`, `TermoAcordoOut` (Task 3); `RegraAliquotaEmpresa` (Task 2).
 - Produces: `PUT`/`DELETE /empresas/{id}/termo-acordo`; campo `termo_acordo` em `EmpresaOut`.
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Acrescentar ao final de `tests/test_camada1_config.py`:
 
@@ -2210,12 +2210,12 @@ def test_api_remover_termo_inexistente_e_404(client):
     assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 404
 ```
 
-- [ ] **Step 2: Rodar para confirmar que falha**
+- [x] **Step 2: Rodar para confirmar que falha**
 
 Run: `python -m pytest tests/test_camada1_config.py -v -k termo`
 Expected: FAIL — `KeyError: 'termo_acordo'` e 405/404 nas rotas.
 
-- [ ] **Step 3: Expor `termo_acordo` em `EmpresaOut`**
+- [x] **Step 3: Expor `termo_acordo` em `EmpresaOut`**
 
 Em `app/schemas/empresa.py`, acrescentar o import no topo:
 
@@ -2236,7 +2236,7 @@ class EmpresaOut(EmpresaBase):
         orm_mode = True
 ```
 
-- [ ] **Step 4: Adicionar a propriedade no modelo**
+- [x] **Step 4: Adicionar a propriedade no modelo**
 
 Em `app/models/empresa.py`, depois do relacionamento adicionado na Task 2:
 
@@ -2251,7 +2251,7 @@ Em `app/models/empresa.py`, depois do relacionamento adicionado na Task 2:
         return self.regras_aliquotas_empresa[0] if self.regras_aliquotas_empresa else None
 ```
 
-- [ ] **Step 5: Implementar as rotas**
+- [x] **Step 5: Implementar as rotas**
 
 Em `app/api/endpoints/empresas.py`, acrescentar aos imports:
 
@@ -2300,7 +2300,7 @@ def remover_termo_acordo(id: int, db: Session = Depends(get_db)):
     delete_and_commit(db, termo)
 ```
 
-- [ ] **Step 6: Rodar para confirmar que passa**
+- [x] **Step 6: Rodar para confirmar que passa**
 
 Run: `python -m pytest tests/test_camada1_config.py -v`
 Expected: PASS.
@@ -2308,7 +2308,7 @@ Expected: PASS.
 Run: `python -m pytest -q`
 Expected: PASS. Se `test_header_inscricao_estadual.py` ou outros testes que serializam empresa falharem, verificar que `termo_acordo` está como `Optional[...] = None`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/api/endpoints/empresas.py app/schemas/empresa.py app/models/empresa.py \
@@ -2334,7 +2334,7 @@ Componente próprio: `PerfisRegras/index.tsx` já tem 642 linhas, 3 Cards e 3 Mo
 - Consumes: rotas da Task 7.
 - Produces: `RegraReducao`, `RegraReducaoCreate`, `ExcecaoReducao`, `regrasReducaoApi`, `<ReducaoProdutoSection perfilId={number} />`.
 
-- [ ] **Step 1: Tipos**
+- [x] **Step 1: Tipos**
 
 Criar `frontend/src/types/regraReducao.ts`:
 
@@ -2386,7 +2386,7 @@ export interface ExcecaoReducaoCreate {
 }
 ```
 
-- [ ] **Step 2: Camada de API**
+- [x] **Step 2: Camada de API**
 
 Criar `frontend/src/api/regrasReducao.ts`:
 
@@ -2430,7 +2430,7 @@ Em `frontend/src/api/queryKeys.ts`, acrescentar dentro do objeto:
   regrasReducaoProduto: (perfilId?: number) => ['regras-reducao-produto', perfilId] as const,
 ```
 
-- [ ] **Step 3: Hook da seção**
+- [x] **Step 3: Hook da seção**
 
 Criar `frontend/src/pages/PerfisRegras/useReducaoProdutoSection.ts`:
 
@@ -2491,7 +2491,7 @@ export function useReducaoProdutoSection(perfilId?: number) {
 }
 ```
 
-- [ ] **Step 4: Componente da seção**
+- [x] **Step 4: Componente da seção**
 
 Criar `frontend/src/pages/PerfisRegras/ReducaoProdutoSection.tsx`:
 
@@ -2779,7 +2779,7 @@ As assinaturas usadas acima foram conferidas contra o código atual:
 (`label`, `options: {value, label}[]`), `Button` (`variant`, `size`,
 `isLoading`, `leftIcon`) e `ErrorAlert` (`message`) — todos named exports.
 
-- [ ] **Step 5: Montar a seção na página e corrigir os títulos**
+- [x] **Step 5: Montar a seção na página e corrigir os títulos**
 
 Em `frontend/src/pages/PerfisRegras/index.tsx`:
 
@@ -2789,7 +2789,7 @@ Em `frontend/src/pages/PerfisRegras/index.tsx`:
    - Linha ~271: trocar o título `"Exceções Tributárias por NCM (Prioridade Máxima)"` por `"Exceções Tributárias por NCM"`, e o subtítulo por `"Sobrescreve a alíquota padrão do estado. É superada pelas reduções por produto e pelo termo de acordo da empresa."`
    - Linha ~188: manter o título da seção padrão e trocar o subtítulo para `"Alíquota base do estado. Vale quando não há redução por produto, termo de acordo nem exceção de NCM."`
 
-- [ ] **Step 6: Verificar**
+- [x] **Step 6: Verificar**
 
 Run: `cd frontend && npm run build`
 Expected: build sem erro de TypeScript.
@@ -2797,7 +2797,7 @@ Expected: build sem erro de TypeScript.
 Run: `cd frontend && npm run lint`
 Expected: sem erros novos.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/types/regraReducao.ts frontend/src/api/regrasReducao.ts \
@@ -2819,7 +2819,7 @@ git commit -m "feat(ui): adiciona secao de reducoes por produto e corrige rotulo
 - Consumes: rotas da Task 8.
 - Produces: `empresasApi.definirTermoAcordo`, `empresasApi.removerTermoAcordo`.
 
-- [ ] **Step 1: Tipo**
+- [x] **Step 1: Tipo**
 
 Em `frontend/src/types/empresa.ts`, acrescentar:
 
@@ -2840,7 +2840,7 @@ e o campo na interface `Empresa`:
   termo_acordo?: TermoAcordo | null;
 ```
 
-- [ ] **Step 2: API**
+- [x] **Step 2: API**
 
 Em `frontend/src/api/empresas.ts`, acrescentar ao objeto exportado:
 
@@ -2862,7 +2862,7 @@ Em `frontend/src/api/empresas.ts`, acrescentar ao objeto exportado:
 
 Importar `TermoAcordo` de `../types/empresa` e garantir que `apiClient` já está importado no arquivo.
 
-- [ ] **Step 3: Mutations no hook**
+- [x] **Step 3: Mutations no hook**
 
 Em `frontend/src/pages/Empresas/useEmpresasPage.ts`, acrescentar duas mutations seguindo o padrão das que já existem no arquivo, ambas invalidando `queryKeys.empresas`:
 
@@ -2882,7 +2882,7 @@ Em `frontend/src/pages/Empresas/useEmpresasPage.ts`, acrescentar duas mutations 
 
 Confirmar os nomes reais de `queryClient` e `empresasApi` no arquivo antes de colar, e devolver as duas mutations no `return` do hook.
 
-- [ ] **Step 4: Bloco na tela**
+- [x] **Step 4: Bloco na tela**
 
 Em `frontend/src/pages/Empresas/index.tsx`, acrescentar na listagem/detalhe da empresa um bloco "Termo de Acordo":
 
@@ -2893,7 +2893,7 @@ Em `frontend/src/pages/Empresas/index.tsx`, acrescentar na listagem/detalhe da e
 
 Seguir o padrão de `Modal`, `Input`, `Button` já usado no arquivo.
 
-- [ ] **Step 5: Verificar**
+- [x] **Step 5: Verificar**
 
 Run: `cd frontend && npm run build`
 Expected: build sem erro de TypeScript.
@@ -2901,7 +2901,7 @@ Expected: build sem erro de TypeScript.
 Run: `cd frontend && npm run lint`
 Expected: sem erros novos.
 
-- [ ] **Step 6: Verificação final de ponta a ponta**
+- [x] **Step 6: Verificação final de ponta a ponta**
 
 Run: `python -m pytest -q`
 Expected: PASS — suíte inteira.
@@ -2909,7 +2909,7 @@ Expected: PASS — suíte inteira.
 Run: `python -m alembic upgrade head`
 Expected: aplica a `010_aliquotas_reduzidas` sem erro.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/types/empresa.ts frontend/src/api/empresas.ts frontend/src/pages/Empresas/
