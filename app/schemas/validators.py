@@ -58,3 +58,24 @@ def normalizar_termos(termos: Optional[List[str]]) -> List[str]:
             continue
         limpos.append(f"{alvo}*" if prefixo else alvo)
     return limpos
+
+
+def clean_cfop_sufixo(v: Optional[str]) -> Optional[str]:
+    """Aceita CFOP de 3 dígitos (sufixo) ou 4 dígitos completos, devolvendo o sufixo de 3 dígitos."""
+    if v is None or str(v).strip() == "":
+        return None
+    cleaned = re.sub(r"\D", "", str(v))
+    if len(cleaned) == 4:
+        return cleaned[-3:]
+    if len(cleaned) == 3:
+        return cleaned
+    raise ValueError("CFOP deve conter 3 ou 4 dígitos numéricos (ex: 405 ou 6405)")
+
+
+def clean_cfop_sufixo_obrigatorio(v: str) -> str:
+    """CFOP de destino obrigatório normalizado para sufixo de 3 dígitos."""
+    sufixo = clean_cfop_sufixo(v)
+    if sufixo is None:
+        raise ValueError("CFOP de destino é obrigatório")
+    return sufixo
+

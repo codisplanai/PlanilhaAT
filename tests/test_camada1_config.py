@@ -439,4 +439,43 @@ def test_excluir_regra_reclassificacao_cfop_leva_as_excecoes_junto(db_session):
     assert len(sobras) == 0
 
 
+def test_schema_reclassificacao_converte_cfop_4_digitos_para_sufixo_3():
+    from app.schemas.regra_reclassificacao_cfop import RegraReclassificacaoCreate
+
+    payload = RegraReclassificacaoCreate(
+        perfil_regras_id=1,
+        ncm="7326.90.90",
+        cfop_origem_sufixo="6102",
+        cfop_destino_sufixo="6405",
+        termos_inclusao=["  Grampo*  "],
+    )
+    assert payload.ncm == "73269090"
+    assert payload.cfop_origem_sufixo == "102"
+    assert payload.cfop_destino_sufixo == "405"
+    assert payload.termos_inclusao == ["GRAMPO*"]
+
+
+def test_schema_reclassificacao_normaliza_termos_e_excecoes():
+    from app.schemas.regra_reclassificacao_cfop import ExcecaoReclassificacaoCreate
+
+    exc = ExcecaoReclassificacaoCreate(
+        descricao_exata="  Grampo cb.aço leve... ",
+        aplicar=False,
+    )
+    assert exc.descricao_exata == "GRAMPO CB ACO LEVE"
+
+
+def test_schema_reclassificacao_rejeita_cfop_invalido():
+    import pytest
+    from app.schemas.regra_reclassificacao_cfop import RegraReclassificacaoCreate
+
+    with pytest.raises(ValueError, match="CFOP deve conter 3 ou 4 dígitos"):
+        RegraReclassificacaoCreate(
+            perfil_regras_id=1,
+            ncm="73269090",
+            cfop_destino_sufixo="99",  # 2 dígitos é inválido
+        )
+
+
+
 
