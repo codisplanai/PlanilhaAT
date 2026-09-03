@@ -244,11 +244,12 @@ class ProcessingPipelineService:
                         continue
 
                     # Camada 5: Resolução determinística de A.DST (NCM vs Estado)
-                    a_dst = self.resolver.resolve_a_dst(
+                    resolucao = self.resolver.resolve_a_dst(
                         perfil_regras_id=empresa.perfil_regras_id,
                         uf=empresa.uf,
                         ncm=item.ncm
                     )
+                    a_dst = resolucao.aliquota
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
 
