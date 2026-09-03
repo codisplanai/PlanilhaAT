@@ -477,5 +477,81 @@ def test_schema_reclassificacao_rejeita_cfop_invalido():
         )
 
 
+def test_api_cria_e_lista_regra_de_reclassificacao_cfop(client):
+    perfil_id = _criar_perfil(client)
+
+    res = client.post("/api/v1/regras-reclassificacao-cfop", json={
+        "perfil_regras_id": perfil_id,
+        "ncm": "7326.90.90",
+        "cfop_origem_sufixo": "6102",
+        "cfop_destino_sufixo": "6405",
+        "termos_inclusao": ["grampo*"],
+        "termos_exclusao": ["plastico"],
+        "descricao": "Grampos sujeitos a ST",
+    })
+    assert res.status_code == 201, res.text
+    criada = res.json()
+    assert criada["ncm"] == "73269090"
+    assert criada["cfop_origem_sufixo"] == "102"
+    assert criada["cfop_destino_sufixo"] == "405"
+    assert criada["termos_inclusao"] == ["GRAMPO*"]
+
+    listagem = client.get(f"/api/v1/regras-reclassificacao-cfop?perfil_id={perfil_id}")
+    assert listagem.status_code == 200
+    assert len(listagem.json()) == 1
+
+
+def test_api_rejeita_regra_reclassificacao_duplicada(client):
+    perfil_id = _criar_perfil(client)
+    corpo = {
+        "perfil_regras_id": perfil_id,
+        "ncm": "73269090",
+        "cfop_origem_sufixo": "102",
+        "cfop_destino_sufixo": "405",
+        "termos_inclusao": ["grampo*"],
+    }
+    assert client.post("/api/v1/regras-reclassificacao-cfop", json=corpo).status_code == 201
+    repetida = client.post("/api/v1/regras-reclassificacao-cfop", json=corpo)
+    assert repetida.status_code == 409, repetida.text
+
+
+def test_api_cria_e_remove_excecao_reclassificacao(client):
+    perfil_id = _criar_perfil(client)
+    regra_id = client.post("/api/v1/regras-reclassificacao-cfop", json={
+        "perfil_regras_id": perfil_id,
+        "ncm": "73269090",
+        "cfop_destino_sufixo": "405",
+        "termos_inclusao": ["grampo*"],
+    }).json()["id"]
+
+    res = client.post(f"/api/v1/regras-reclassificacao-cfop/{regra_id}/excecoes", json={
+        "descricao_exata": "Grampo Especial Inox",
+        "aplicar": False,
+        "observacao": "Inox nao deve ir para ST",
+    })
+    assert res.status_code == 201, res.text
+    excecao = res.json()
+    assert excecao["descricao_exata"] == "GRAMPO ESPECIAL INOX"
+    assert excecao["aplicar"] is False
+
+    detalhe = client.get(f"/api/v1/regras-reclassificacao-cfop/{regra_id}")
+    assert len(detalhe.json()["excecoes"]) == 1
+
+    apagar = client.delete(
+        f"/api/v1/regras-reclassificacao-cfop/{regra_id}/excecoes/{excecao['id']}"
+    )
+    assert apagar.status_code == 204
+
+
+def test_api_reclassificacao_rejeita_perfil_inexistente(client):
+    res = client.post("/api/v1/regras-reclassificacao-cfop", json={
+        "perfil_regras_id": 99999,
+        "ncm": "73269090",
+        "cfop_destino_sufixo": "405",
+    })
+    assert res.status_code == 404, res.text
+
+
+
 
 
