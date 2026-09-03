@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Sliders,
   Plus,
@@ -28,6 +28,7 @@ import {
 } from '../../constants/domain';
 import { usePerfisRegrasPage } from './usePerfisRegrasPage';
 import { ReducaoProdutoSection } from './ReducaoProdutoSection';
+import { ReclassificacaoCfopSection } from './ReclassificacaoCfopSection';
 
 export const PerfisRegrasPage: React.FC = () => {
   const {
@@ -74,6 +75,8 @@ export const PerfisRegrasPage: React.FC = () => {
     errorsRegraCfop,
     isSubmittingRegraCfop,
   } = usePerfisRegrasPage();
+
+  const [cfopTab, setCfopTab] = useState<'geral' | 'reclassificacao'>('geral');
 
   return (
     <div className="space-y-6">
@@ -361,25 +364,54 @@ export const PerfisRegrasPage: React.FC = () => {
               {/* Seção 3: Roteamento por CFOP -> Planilha */}
               <Card
                 title="Roteamento por CFOP -> Planilha"
-                subtitle="Define em qual planilha (Antecipação Parcial, Antecipação Tributária ou DIFAL) cada item da nota entra, a partir do CFOP"
+                subtitle="Define em qual planilha cada item da nota entra a partir do CFOP, e reclassifica produtos específicos por NCM"
                 headerAction={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleOpenCreateRegraCfop}
-                    leftIcon={<Plus className="w-3.5 h-3.5" />}
-                  >
-                    Nova Exceção de CFOP
-                  </Button>
+                  cfopTab === 'geral' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleOpenCreateRegraCfop}
+                      leftIcon={<Plus className="w-3.5 h-3.5" />}
+                    >
+                      Nova Exceção de CFOP
+                    </Button>
+                  ) : null
                 }
               >
-                {isLoadingRegrasCfop ? (
-                  <LoadingSpinner size="sm" message="Carregando regras de CFOP..." />
-                ) : regrasCfopEfetivas.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                    Nenhuma regra de CFOP cadastrada.
-                  </p>
-                ) : (
+                {/* Abas internas do Card de CFOP */}
+                <div className="flex border-b border-slate-200 -mt-1 mb-4 gap-6">
+                  <button
+                    type="button"
+                    onClick={() => setCfopTab('geral')}
+                    className={`pb-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+                      cfopTab === 'geral'
+                        ? 'border-blue-600 text-blue-900'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Roteamento Geral (Sufixo CFOP → Planilha)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCfopTab('reclassificacao')}
+                    className={`pb-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+                      cfopTab === 'reclassificacao'
+                        ? 'border-blue-600 text-blue-900'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Reclassificação por NCM / Produto
+                  </button>
+                </div>
+
+                {cfopTab === 'geral' && (
+                  isLoadingRegrasCfop ? (
+                    <LoadingSpinner size="sm" message="Carregando regras de CFOP..." />
+                  ) : regrasCfopEfetivas.length === 0 ? (
+                    <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                      Nenhuma regra de CFOP cadastrada.
+                    </p>
+                  ) : (
                   <div className="overflow-x-auto -mx-5 -my-5">
                     <table className="w-full text-left text-xs divide-y divide-slate-100">
                       <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
@@ -448,6 +480,9 @@ export const PerfisRegrasPage: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                ))}
+                {cfopTab === 'reclassificacao' && (
+                  <ReclassificacaoCfopSection perfilId={activePerfil.id} />
                 )}
               </Card>
             </div>
