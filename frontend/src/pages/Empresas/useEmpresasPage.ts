@@ -84,6 +84,28 @@ export function useEmpresasPage() {
     onError: (error) => alert(getErrorMessage(error)),
   });
 
+  const definirTermoAcordo = useMutation({
+    mutationFn: ({
+      empresaId,
+      aliquota,
+      descricao,
+    }: {
+      empresaId: number;
+      aliquota: number;
+      descricao?: string | null;
+    }) => empresasApi.definirTermoAcordo(empresaId, { aliquota, descricao }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.empresas });
+    },
+  });
+
+  const removerTermoAcordo = useMutation({
+    mutationFn: (empresaId: number) => empresasApi.removerTermoAcordo(empresaId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.empresas });
+    },
+  });
+
   const openCreateModal = () => {
     setEditingEmpresa(null);
     setErrorMessage(null);
@@ -169,6 +191,8 @@ export function useEmpresasPage() {
     closeModal,
     deleteEmpresa,
     saveEmpresa,
+    definirTermoAcordo,
+    removerTermoAcordo,
     register: form.register,
     errors: form.formState.errors,
     isSaving:

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Building2,
   Plus,
@@ -19,7 +19,7 @@ import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { formatCNPJ, formatDate, maskCNPJ } from '../../lib/formatters';
+import { formatCNPJ, formatDate, formatPercent, maskCNPJ } from '../../lib/formatters';
 import { UFS_BRASIL } from '../../constants/domain';
 import { useEmpresasPage } from './useEmpresasPage';
 
@@ -43,10 +43,62 @@ export const EmpresasPage: React.FC = () => {
     closeModal: handleCloseModal,
     deleteEmpresa: handleDelete,
     saveEmpresa,
+    definirTermoAcordo,
+    removerTermoAcordo,
     register,
     errors,
     isSaving,
   } = useEmpresasPage();
+
+  const [empresaTermo, setEmpresaTermo] = useState<typeof filteredEmpresas[0] | null>(null);
+  const [aliquotaTermo, setAliquotaTermo] = useState('');
+  const [descricaoTermo, setDescricaoTermo] = useState('');
+  const [erroTermo, setErroTermo] = useState<string | null>(null);
+
+  const handleOpenTermoModal = (empresa: typeof filteredEmpresas[0]) => {
+    setEmpresaTermo(empresa);
+    setErroTermo(null);
+    if (empresa.termo_acordo) {
+      setAliquotaTermo((Number(empresa.termo_acordo.aliquota) * 100).toFixed(2));
+      setDescricaoTermo(empresa.termo_acordo.descricao || '');
+    } else {
+      setAliquotaTermo('');
+      setDescricaoTermo('');
+    }
+  };
+
+  const handleSalvarTermo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!empresaTermo) return;
+    const aliqNum = Number(aliquotaTermo.replace(',', '.'));
+    if (isNaN(aliqNum) || aliqNum <= 0) {
+      setErroTermo('Informe uma alíquota válida.');
+      return;
+    }
+    definirTermoAcordo.mutate(
+      {
+        empresaId: empresaTermo.id,
+        aliquota: aliqNum,
+        descricao: descricaoTermo.trim() || null,
+      },
+      {
+        onSuccess: () => {
+          setEmpresaTermo(null);
+        },
+        onError: (err) => {
+          setErroTermo(getErrorMessage(err));
+        },
+      },
+    );
+  };
+
+  const handleRemoverTermo = (empresa: typeof filteredEmpresas[0]) => {
+    if (confirm(`Remover termo de acordo da empresa "${empresa.razao_social}"?`)) {
+      removerTermoAcordo.mutate(empresa.id, {
+        onError: (err) => alert(getErrorMessage(err)),
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -144,6 +196,7 @@ export const EmpresasPage: React.FC = () => {
                   <th className="py-3.5 px-4 font-mono">Inscrição Estadual</th>
                   <th className="py-3.5 px-4 text-center">UF</th>
                   <th className="py-3.5 px-4">Perfil de Regras</th>
+                  <th className="py-3.5 px-4">Termo de Acordo</th>
                   <th className="py-3.5 px-4 text-center">Status</th>
                   <th className="py-3.5 px-4">Cadastro</th>
                   <th className="py-3.5 px-4 text-right">Ações</th>
@@ -177,6 +230,46 @@ export const EmpresasPage: React.FC = () => {
                       <span className="text-blue-950 font-medium">
                         {getPerfilNome(empresa.perfil_regras_id)}
                       </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      {empresa.termo_acordo ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px] border border-emerald-200">
+                            {formatPercent(empresa.termo_acordo.aliquota)}
+                          </span>
+                          {empresa.termo_acordo.descricao && (
+                            <span className="text-slate-500 text-[11px] truncate max-w-[120px]" title={empresa.termo_acordo.descricao}>
+                              {empresa.termo_acordo.descricao}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenTermoModal(empresa)}
+                            className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                            title="Editar termo de acordo"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverTermo(empresa)}
+                            className="p-1 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer"
+                            title="Remover termo de acordo"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-slate-400 hover:text-blue-700 text-[11px] h-6 px-1.5"
+                          onClick={() => handleOpenTermoModal(empresa)}
+                          leftIcon={<Plus className="w-3 h-3" />}
+                        >
+                          Cadastrar
+                        </Button>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       {empresa.ativo ? (
@@ -320,6 +413,47 @@ export const EmpresasPage: React.FC = () => {
               isLoading={isSaving}
             >
               {editingEmpresa ? 'Salvar Alterações' : 'Cadastrar Empresa'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal de Termo de Acordo */}
+      <Modal
+        isOpen={empresaTermo !== null}
+        onClose={() => setEmpresaTermo(null)}
+        title={empresaTermo?.termo_acordo ? 'Editar Termo de Acordo' : 'Cadastrar Termo de Acordo'}
+        subtitle={`Empresa: ${empresaTermo?.razao_social ?? ''}`}
+      >
+        {erroTermo && (
+          <ErrorAlert
+            title="Erro ao salvar termo de acordo"
+            message={erroTermo}
+            onDismiss={() => setErroTermo(null)}
+          />
+        )}
+
+        <form onSubmit={handleSalvarTermo} className="space-y-4">
+          <Input
+            label="Alíquota"
+            value={aliquotaTermo}
+            onChange={(e) => setAliquotaTermo(e.target.value)}
+            placeholder="12,06"
+            helperText="Aceita 12,06 ou 0.1206. Alíquota de destino própria desta empresa. Vale para todas as mercadorias, exceto as que tiverem redução por produto cadastrada no perfil de regras."
+            required
+          />
+          <Input
+            label="Identificação do Termo / Legislação (opcional)"
+            value={descricaoTermo}
+            onChange={(e) => setDescricaoTermo(e.target.value)}
+            placeholder="Termo de Acordo nº 123/2025"
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setEmpresaTermo(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" isLoading={definirTermoAcordo.isPending}>
+              Salvar Termo
             </Button>
           </div>
         </form>

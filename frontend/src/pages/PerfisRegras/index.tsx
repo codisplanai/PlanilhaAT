@@ -27,6 +27,7 @@ import {
   UFS_BRASIL,
 } from '../../constants/domain';
 import { usePerfisRegrasPage } from './usePerfisRegrasPage';
+import { ReducaoProdutoSection } from './ReducaoProdutoSection';
 
 export const PerfisRegrasPage: React.FC = () => {
   const {
@@ -179,14 +180,17 @@ export const PerfisRegrasPage: React.FC = () => {
                 </div>
                 <div className="leading-relaxed">
                   <span className="font-bold text-white tracking-tight">Como o motor resolve a alíquota (A.DST): </span>
-                  O sistema busca primeiro por uma <strong>Exceção (UF + NCM)</strong>. Se não existir regra específica para aquele NCM, aplica automaticamente a <strong>Alíquota Padrão do Estado (UF)</strong>. A alíquota de origem (A.ORI) vem pronta do XML.
+                  O sistema resolve a A.DST em três níveis de precedência: <strong>1. Redução por Produto (NCM + Descrição)</strong> &gt; <strong>2. Termo de Acordo da Empresa</strong> &gt; <strong>3. Padrão do Estado (Exceção NCM ou Base UF)</strong>. A alíquota de origem (A.ORI) vem do XML/SPED.
                 </div>
               </div>
+
+              {/* Seção 0: Reduções por Produto (NCM + Descrição) */}
+              <ReducaoProdutoSection perfilId={activePerfil.id} />
 
               {/* Seção 1: Regras Padrão por Estado */}
               <Card
                 title={`Alíquotas Padrão por Estado — ${activePerfil.nome}`}
-                subtitle="Alíquota base aplicada a qualquer mercadoria que não possua exceção de NCM"
+                subtitle="Alíquota base do estado. Vale quando não há redução por produto, termo de acordo nem exceção de NCM."
                 headerAction={
                   <Button
                     size="sm"
@@ -269,8 +273,8 @@ export const PerfisRegrasPage: React.FC = () => {
 
               {/* Seção 2: Exceções por Estado + NCM */}
               <Card
-                title="Exceções Tributárias por NCM (Prioridade Máxima)"
-                subtitle="Quando o item da nota coincidir com o NCM, esta alíquota sobrescreve a regra padrão"
+                title="Exceções Tributárias por NCM"
+                subtitle="Sobrescreve a alíquota padrão do estado. É superada pelas reduções por produto e pelo termo de acordo da empresa."
                 headerAction={
                   <Button
                     size="sm"

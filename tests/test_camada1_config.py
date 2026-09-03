@@ -1,3 +1,4 @@
+import pytest
 from decimal import Decimal
 from app.models.perfil_regras import PerfilRegras
 from app.models.empresa import Empresa
@@ -56,3 +57,290 @@ def test_criar_regras_aliquotas_padrao_e_excecao(db_session):
 
     regras = db_session.query(RegraAliquotaDestino).filter_by(perfil_regras_id=perfil.id).all()
     assert len(regras) == 2
+
+
+def test_mesmo_ncm_aceita_mais_de_uma_regra_de_reducao(db_session):
+    """O mesmo NCM comporta produtos que se enquadram e produtos que não:
+    7214.20 tem vergalhão a 12% e barra chata a 18%."""
+    from decimal import Decimal
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reducao_produto import RegraReducaoProduto
+
+    perfil = PerfilRegras(nome="Perfil Reducao")
+    db_session.add(perfil)
+    db_session.commit()
+
+    db_session.add(RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72142000",
+        termos_inclusao=["vergalh*"], termos_exclusao=[],
+        aliquota=Decimal("0.1200"), descricao="Vergalhoes"))
+    db_session.add(RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72142000",
+        termos_inclusao=["barra chata"], termos_exclusao=[],
+        aliquota=Decimal("0.1800"), descricao="Barras chatas"))
+    db_session.commit()
+
+    regras = db_session.query(RegraReducaoProduto).filter(
+        RegraReducaoProduto.ncm == "72142000").all()
+    assert len(regras) == 2
+
+
+def test_excecao_nao_aceita_descricao_duplicada_na_mesma_regra(db_session):
+    from decimal import Decimal
+    from sqlalchemy.exc import IntegrityError
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reducao_produto import ExcecaoReducaoProduto, RegraReducaoProduto
+
+    perfil = PerfilRegras(nome="Perfil Excecao")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72142000",
+        termos_inclusao=["vergalh*"], termos_exclusao=[],
+        aliquota=Decimal("0.1200"))
+    db_session.add(regra)
+    db_session.commit()
+
+    db_session.add(ExcecaoReducaoProduto(
+        regra_reducao_id=regra.id, descricao_exata="VERGALHAO DE COBRE", enquadrado=False))
+    db_session.commit()
+
+    db_session.add(ExcecaoReducaoProduto(
+        regra_reducao_id=regra.id, descricao_exata="VERGALHAO DE COBRE", enquadrado=True))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_empresa_tem_no_maximo_um_termo_de_acordo(db_session):
+    from decimal import Decimal
+    from sqlalchemy.exc import IntegrityError
+    from app.models.empresa import Empresa
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_aliquota_empresa import RegraAliquotaEmpresa
+
+    perfil = PerfilRegras(nome="Perfil Acordo")
+    db_session.add(perfil)
+    db_session.commit()
+    empresa = Empresa(razao_social="Cliente BA", cnpj="12345678000195",
+                      uf="BA", perfil_regras_id=perfil.id)
+    db_session.add(empresa)
+    db_session.commit()
+
+    db_session.add(RegraAliquotaEmpresa(
+        empresa_id=empresa.id, aliquota=Decimal("0.1206"), descricao="Termo 123/2025"))
+    db_session.commit()
+
+    db_session.add(RegraAliquotaEmpresa(
+        empresa_id=empresa.id, aliquota=Decimal("0.1000")))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_excluir_regra_de_reducao_leva_as_excecoes_junto(db_session):
+    from decimal import Decimal
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_reducao_produto import ExcecaoReducaoProduto, RegraReducaoProduto
+
+    perfil = PerfilRegras(nome="Perfil Cascade")
+    db_session.add(perfil)
+    db_session.commit()
+
+    regra = RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72142000",
+        termos_inclusao=["vergalh*"], termos_exclusao=[],
+        aliquota=Decimal("0.1200"))
+    regra.excecoes.append(ExcecaoReducaoProduto(
+        descricao_exata="VERGALHAO DE COBRE", enquadrado=False))
+    db_session.add(regra)
+    db_session.commit()
+
+    db_session.delete(regra)
+    db_session.commit()
+    assert db_session.query(ExcecaoReducaoProduto).count() == 0
+
+
+def test_schema_converte_aliquota_percentual_para_decimal():
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    payload = RegraReducaoCreate(
+        perfil_regras_id=1, ncm="72142000", termos_inclusao=["vergalh*"], aliquota=Decimal("12.00"))
+    assert payload.aliquota == Decimal("0.12")
+
+
+def test_schema_rejeita_ncm_sentinela_do_sped():
+    import pytest as _pytest
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    with _pytest.raises(ValueError):
+        RegraReducaoCreate(
+            perfil_regras_id=1, ncm="00000000",
+            termos_inclusao=["vergalh*"], aliquota=Decimal("0.12"))
+
+
+def test_schema_rejeita_lista_de_termos_vazia():
+    import pytest as _pytest
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    with _pytest.raises(ValueError):
+        RegraReducaoCreate(
+            perfil_regras_id=1, ncm="72142000", termos_inclusao=[], aliquota=Decimal("0.12"))
+
+
+def test_schema_normaliza_termos_e_descarta_vazios():
+    from decimal import Decimal
+    from app.schemas.regra_reducao_produto import RegraReducaoCreate
+
+    payload = RegraReducaoCreate(
+        perfil_regras_id=1, ncm="72142000",
+        termos_inclusao=["  Vergalhão*  ", "", "  "], aliquota=Decimal("0.12"))
+    assert payload.termos_inclusao == ["VERGALHAO*"]
+
+
+def test_schema_de_excecao_normaliza_a_descricao():
+    from app.schemas.regra_reducao_produto import ExcecaoReducaoCreate
+
+    payload = ExcecaoReducaoCreate(descricao_exata="Vergalhão de Cobre", enquadrado=False)
+    assert payload.descricao_exata == "VERGALHAO DE COBRE"
+
+
+def test_schema_de_termo_de_acordo_converte_percentual():
+    from decimal import Decimal
+    from app.schemas.regra_aliquota_empresa import TermoAcordoUpsert
+
+    payload = TermoAcordoUpsert(aliquota=Decimal("12.06"), descricao="Termo 123/2025")
+    assert payload.aliquota == Decimal("0.1206")
+
+
+def _criar_perfil(client):
+    res = client.post("/api/v1/perfis-regras", json={"nome": "Perfil API Reducao"})
+    assert res.status_code in (200, 201), res.text
+    return res.json()["id"]
+
+
+def test_api_cria_e_lista_regra_de_reducao(client):
+    perfil_id = _criar_perfil(client)
+
+    res = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "7214.20.00",
+        "termos_inclusao": ["vergalh*"], "termos_exclusao": ["cobre"],
+        "aliquota": 12.00, "descricao": "Vergalhoes"})
+    assert res.status_code == 201, res.text
+    criada = res.json()
+    assert criada["ncm"] == "72142000"
+    assert criada["termos_inclusao"] == ["VERGALH*"]
+    assert float(criada["aliquota"]) == 0.12
+
+    listagem = client.get(f"/api/v1/regras-reducao-produto?perfil_id={perfil_id}")
+    assert listagem.status_code == 200
+    assert len(listagem.json()) == 1
+
+
+def test_api_rejeita_regra_duplicada_com_os_mesmos_termos(client):
+    perfil_id = _criar_perfil(client)
+    corpo = {"perfil_regras_id": perfil_id, "ncm": "72142000",
+             "termos_inclusao": ["vergalh*"], "aliquota": 0.12}
+
+    assert client.post("/api/v1/regras-reducao-produto", json=corpo).status_code == 201
+    repetida = client.post("/api/v1/regras-reducao-produto", json=corpo)
+    assert repetida.status_code == 409, repetida.text
+
+
+def test_api_aceita_segundo_termo_para_o_mesmo_ncm(client):
+    perfil_id = _criar_perfil(client)
+    assert client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "72142000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12}).status_code == 201
+    assert client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "72142000",
+        "termos_inclusao": ["barra chata"], "aliquota": 0.18}).status_code == 201
+
+
+def test_api_rejeita_ncm_sentinela(client):
+    perfil_id = _criar_perfil(client)
+    res = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "00000000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12})
+    assert res.status_code == 422, res.text
+
+
+def test_api_cria_e_remove_excecao(client):
+    perfil_id = _criar_perfil(client)
+    regra_id = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": perfil_id, "ncm": "72142000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12}).json()["id"]
+
+    res = client.post(f"/api/v1/regras-reducao-produto/{regra_id}/excecoes", json={
+        "descricao_exata": "Vergalhão de Cobre", "enquadrado": False,
+        "observacao": "Cobre nao entra no decreto"})
+    assert res.status_code == 201, res.text
+    excecao = res.json()
+    assert excecao["descricao_exata"] == "VERGALHAO DE COBRE"
+
+    detalhe = client.get(f"/api/v1/regras-reducao-produto/{regra_id}")
+    assert len(detalhe.json()["excecoes"]) == 1
+
+    apagar = client.delete(
+        f"/api/v1/regras-reducao-produto/{regra_id}/excecoes/{excecao['id']}")
+    assert apagar.status_code == 204
+
+
+def test_api_rejeita_perfil_inexistente(client):
+    res = client.post("/api/v1/regras-reducao-produto", json={
+        "perfil_regras_id": 9999, "ncm": "72142000",
+        "termos_inclusao": ["vergalh*"], "aliquota": 0.12})
+    assert res.status_code == 404, res.text
+
+
+def _criar_empresa(client):
+    perfil_id = _criar_perfil(client)
+    res = client.post("/api/v1/empresas", json={
+        "razao_social": "Cliente BA LTDA", "cnpj": "12345678000195",
+        "uf": "BA", "perfil_regras_id": perfil_id})
+    assert res.status_code == 201, res.text
+    return res.json()["id"]
+
+
+def test_api_empresa_nasce_sem_termo_de_acordo(client):
+    empresa_id = _criar_empresa(client)
+    res = client.get(f"/api/v1/empresas/{empresa_id}")
+    assert res.status_code == 200
+    assert res.json()["termo_acordo"] is None
+
+
+def test_api_upsert_de_termo_de_acordo_nao_duplica(client):
+    empresa_id = _criar_empresa(client)
+
+    primeiro = client.put(f"/api/v1/empresas/{empresa_id}/termo-acordo", json={
+        "aliquota": 12.06, "descricao": "Termo 123/2025"})
+    assert primeiro.status_code == 200, primeiro.text
+    assert float(primeiro.json()["aliquota"]) == 0.1206
+
+    segundo = client.put(f"/api/v1/empresas/{empresa_id}/termo-acordo", json={
+        "aliquota": 0.1000, "descricao": "Termo 456/2026"})
+    assert segundo.status_code == 200
+    assert segundo.json()["id"] == primeiro.json()["id"]
+    assert float(segundo.json()["aliquota"]) == 0.10
+
+    empresa = client.get(f"/api/v1/empresas/{empresa_id}").json()
+    assert empresa["termo_acordo"]["descricao"] == "Termo 456/2026"
+
+
+def test_api_remove_termo_de_acordo(client):
+    empresa_id = _criar_empresa(client)
+    client.put(f"/api/v1/empresas/{empresa_id}/termo-acordo", json={"aliquota": 12.06})
+
+    assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 204
+    assert client.get(f"/api/v1/empresas/{empresa_id}").json()["termo_acordo"] is None
+
+
+def test_api_remover_termo_inexistente_e_404(client):
+    empresa_id = _criar_empresa(client)
+    assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 404
+
+

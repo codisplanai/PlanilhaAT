@@ -54,7 +54,10 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
     """Converte a entidade persistida no contrato de entrada do TemplateFiller."""
     metadata = note.metadados_extras or {}
     issue_date = note.data_emissao
-    entry_date = None if note.destino_planilha == ANTECIPACAO_PARCIAL_ANTECIPADO else note.data_entrada
+    if note.destino_planilha == ANTECIPACAO_PARCIAL_ANTECIPADO and note.origem_data_entrada != "manual":
+        entry_date = None
+    else:
+        entry_date = note.data_entrada
     return {
         "numero_nota": note.numero_nota,
         "serie": note.serie,

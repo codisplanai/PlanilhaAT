@@ -19,3 +19,16 @@ class Empresa(Base):
 
     perfil_regras = relationship("PerfilRegras", back_populates="empresas")
     solicitacoes = relationship("Solicitacao", back_populates="empresa", passive_deletes=True)
+    regras_aliquotas_empresa = relationship(
+        "RegraAliquotaEmpresa", back_populates="empresa", cascade="all, delete-orphan"
+    )
+
+    @property
+    def termo_acordo(self):
+        """O termo de acordo vigente, ou None.
+
+        A relação é lista (preparada para o histórico por vigência), mas hoje o
+        índice único em empresa_id garante no máximo um.
+        """
+        return self.regras_aliquotas_empresa[0] if self.regras_aliquotas_empresa else None
+

@@ -1,3 +1,12 @@
+export interface TermoAcordo {
+  id: number;
+  empresa_id: number;
+  aliquota: number;
+  descricao?: string | null;
+  criado_em: string;
+  atualizado_em: string;
+}
+
 export interface Empresa {
   id: number;
   razao_social: string;
@@ -6,6 +15,7 @@ export interface Empresa {
   uf: string;
   perfil_regras_id: number;
   ativo: boolean;
+  termo_acordo?: TermoAcordo | null;
   criado_em: string;
   atualizado_em: string;
 }
