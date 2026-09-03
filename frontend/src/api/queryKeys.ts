@@ -10,4 +10,5 @@ export const queryKeys = {
   solicitacao: (id: string | null) => ['solicitacao', id] as const,
   regrasAliquotas: (perfilId?: number) => ['regras-aliquotas', perfilId] as const,
   regrasCfopEfetivas: (perfilId?: number) => ['regras-cfop-efetivas', perfilId] as const,
+  regrasReducaoProduto: (perfilId?: number) => ['regras-reducao-produto', perfilId] as const,
 };
