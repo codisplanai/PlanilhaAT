@@ -206,15 +206,21 @@ class ProcessingPipelineService:
                     data_entrada_resolvida = nf_data.data_entrada
                     origem_data = "sped_fiscal"
 
-                # 5.1. Após a união das fontes, uma nota com origem_extracao == "xml" é uma nota
-                # que foi EMITIDA na competência mas NÃO consta do SPED da mesma competência —
-                # ou seja, a mercadoria ainda não deu entrada no estabelecimento. A antecipação
-                # parcial dela é paga adiantada e apurada em planilha separada.
-                # Só vale quando um SPED foi de fato enviado: sem ele, "ausente" não informa nada.
+                # 5.1. Comprovação de Entrada e Antecipação Parcial Paga Antecipadamente:
+                # O SPED Fiscal e a Planilha Auxiliar de Entradas são as fontes válidas de comprovação de entrada.
+                # Se ao menos uma dessas fontes foi enviada, uma nota é considerada com entrada comprovada se:
+                #   - Constar no SPED Fiscal (nf_data.origem_extracao == "sped"); OU
+                #   - Constar na Planilha Auxiliar (data_entrada_resolvida is not None).
+                # Caso uma fonte tenha sido enviada mas a nota não tenha entrada comprovada em nenhuma delas,
+                # entende-se que a mercadoria ainda não deu entrada física. A antecipação parcial é paga
+                # adiantada e apurada na planilha 'Parcial Pago Antecipadamente'.
+                # Se NENHUMA fonte de entradas foi enviada (apenas XMLs puros), nada é considerado antecipado.
+                tem_fonte_entradas = (sped_file_bytes is not None) or bool(planilha_records)
+                teve_entrada_comprovada = (nf_data.origem_extracao == "sped") or (data_entrada_resolvida is not None)
                 pago_antecipadamente = (
-                    sped_file_bytes is not None
+                    tem_fonte_entradas
                     and not modo_legado
-                    and nf_data.origem_extracao == "xml"
+                    and not teve_entrada_comprovada
                 )
 
                 # 6. Roteamento por CFOP: cada item é classificado em qual planilha (destino) se aplica.
