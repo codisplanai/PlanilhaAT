@@ -40,6 +40,16 @@ export function formatCNPJ(cnpj: string | null | undefined): string {
   return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 }
 
+export function maskCNPJ(value: string | null | undefined): string {
+  if (!value) return '';
+  const clean = value.replace(/\D/g, '').slice(0, 14);
+  if (clean.length <= 2) return clean;
+  if (clean.length <= 5) return clean.replace(/^(\d{2})(\d+)/, '$1.$2');
+  if (clean.length <= 8) return clean.replace(/^(\d{2})(\d{3})(\d+)/, '$1.$2.$3');
+  if (clean.length <= 12) return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d+)/, '$1.$2.$3/$4');
+  return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d+)/, '$1.$2.$3/$4-$5');
+}
+
 export function formatCompetencia(periodoInicio: string): string {
   if (!periodoInicio) return '-';
 

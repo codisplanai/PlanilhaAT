@@ -19,7 +19,7 @@ import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { formatCNPJ, formatDate } from '../../lib/formatters';
+import { formatCNPJ, formatDate, maskCNPJ } from '../../lib/formatters';
 import { UFS_BRASIL } from '../../constants/domain';
 import { useEmpresasPage } from './useEmpresasPage';
 
@@ -256,7 +256,12 @@ export const EmpresasPage: React.FC = () => {
               <Input
                 label="CNPJ (14 dígitos)"
                 placeholder="00.000.000/0000-00"
-                {...register('cnpj')}
+                maxLength={18}
+                {...register('cnpj', {
+                  onChange: (e) => {
+                    e.target.value = maskCNPJ(e.target.value);
+                  },
+                })}
                 error={errors.cnpj?.message}
               />
             </div>

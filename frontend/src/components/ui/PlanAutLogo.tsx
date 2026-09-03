@@ -5,6 +5,7 @@ export interface PlanAutLogoProps {
   theme?: 'light' | 'dark';
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
+  svgClassName?: string;
   showTagline?: boolean;
 }
 
@@ -23,6 +24,7 @@ export const PlanAutLogo: React.FC<PlanAutLogoProps> = ({
   theme = 'light',
   size = 'md',
   className = '',
+  svgClassName = '',
   showTagline = true,
 }) => {
   const isLight = theme === 'light';
@@ -32,9 +34,9 @@ export const PlanAutLogo: React.FC<PlanAutLogoProps> = ({
   const hasTagline = variant === 'full' && showTagline;
 
   const sizeClasses = {
-    sm: 'h-6',
-    md: 'h-8',
-    lg: 'h-10',
+    sm: 'h-7',
+    md: 'h-9',
+    lg: 'h-11',
     xl: 'h-14',
   }[size];
 
@@ -44,7 +46,7 @@ export const PlanAutLogo: React.FC<PlanAutLogoProps> = ({
       title="PlanAut — Automação Fiscal"
     >
       <svg
-        className={`${sizeClasses} w-auto max-w-full`}
+        className={`${sizeClasses} ${svgClassName} w-auto max-w-full`}
         viewBox={hasTagline ? '0 0 190 52' : '0 0 190 40'}
         fill="none"
         xmlns="http://www.w3.org/2000/svg"

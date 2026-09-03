@@ -49,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
     >
       {/* Brand Header */}
       <div className="h-16 flex items-center justify-between px-5 border-b border-slate-200/80 bg-slate-50/70">
-        <PlanAutLogo variant="full" theme="light" size="sm" />
+        <PlanAutLogo variant="full" theme="light" size="md" />
         <button
           type="button"
           aria-label="Fechar menu"
