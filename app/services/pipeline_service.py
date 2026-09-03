@@ -18,7 +18,7 @@ from app.services.extraction.data_entrada_matcher import (
     DataEntradaMatcher,
 )
 from app.services.rules_engine.aliquota_resolver import AliquotaResolver, ResolucaoAliquota
-from app.services.rules_engine.cfop_resolver import CfopResolver
+from app.services.rules_engine.cfop_resolver import CfopResolver, ResolucaoCfop
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.calculation.factory import CalculatorFactory
 from app.services.validation.sanity_checker import SanityChecker
@@ -152,6 +152,7 @@ class ProcessingPipelineService:
             # Carrega as regras dos três níveis uma vez: o resolver é chamado
             # item a item e sem isto faria consultas repetidas por nota.
             self.resolver.preload(empresa.perfil_regras_id, empresa.id)
+            self.cfop_resolver.preload_reclassificacoes(empresa.perfil_regras_id)
 
             for filename, nf_data in raw_nfs:
                 # 2. Camada 3: Validação de destinatário
@@ -234,14 +235,24 @@ class ProcessingPipelineService:
                 # também são descartados aqui, restringindo a apuração ao tipo solicitado.
                 grupos: Dict[Tuple[str, Decimal, Decimal, str, str], List[Any]] = {}
                 resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoAliquota]] = {}
+                resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoCfop]] = {}
 
                 for item in nf_data.itens:
-                    destino_item = self.cfop_resolver.resolve_destino(empresa.perfil_regras_id, item.cfop)
+                    resolucao_cfop = self.cfop_resolver.reclassificar_cfop(
+                        perfil_regras_id=empresa.perfil_regras_id,
+                        ncm=item.ncm,
+                        descricao=item.descricao if item.descricao_confiavel else None,
+                        cfop_original=item.cfop,
+                    )
+                    destino_item = resolucao_cfop.destino
                     if destino_item is None:
                         sufixo = re.sub(r"\D", "", item.cfop or "")
                         sufixo = sufixo[-3:] if len(sufixo) >= 3 else (sufixo or "????")
                         cfops_sem_regra[sufixo] += 1
                         continue
+
+                    if resolucao_cfop.reclassificado:
+                        item.cfop = resolucao_cfop.cfop_efetivo
 
                     if destino_item == ANTECIPACAO_PARCIAL and pago_antecipadamente:
                         destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO
@@ -277,8 +288,10 @@ class ProcessingPipelineService:
                     if key not in grupos:
                         grupos[key] = []
                         resolucoes[key] = []
+                        resolucoes_cfop[key] = []
                     grupos[key].append(item)
                     resolucoes[key].append(resolucao)
+                    resolucoes_cfop[key].append(resolucao_cfop)
 
                 if not grupos:
                     # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
@@ -426,6 +439,12 @@ class ProcessingPipelineService:
                             "detalhe_a_dst": "; ".join(
                                 sorted({r.detalhe for r in resolucoes.get(grupo_key, [])})
                             ),
+                            "cfop_reclassificado": any(
+                                rc.reclassificado for rc in resolucoes_cfop.get(grupo_key, [])
+                            ),
+                            "detalhe_cfop": "; ".join(
+                                sorted({rc.motivo for rc in resolucoes_cfop.get(grupo_key, []) if rc.motivo})
+                            ),
                             **calc_result.detalhes
                         }
                     )
@@ -488,7 +507,7 @@ class ProcessingPipelineService:
             for nf_proc in notas_criadas:
                 self.db.add(nf_proc)
 
-            ie_final = (empresa.inscricao_estadual or "").strip() or (sped_empresa_info.get("ie") if "sped_empresa_info" in locals() else "") or ""
+            ie_final = (empresa.inscricao_estadual or "").strip() or (sped_empresa_info.get("ie") if sped_empresa_info else "") or ""
 
             header_info = build_header_info(
                 empresa,
