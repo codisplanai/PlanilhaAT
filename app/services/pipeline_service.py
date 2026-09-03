@@ -9,13 +9,15 @@ from app.models.empresa import Empresa
 from app.models.solicitacao import Solicitacao
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.template_xlsx import TemplateXlsx
-from app.core.exceptions import ValidationException, NotFoundException
+from app.core.exceptions import (
+    ValidationException, NotFoundException, RuleResolutionException, PlanilhaATException,
+)
 from app.services.extraction.nfe_xml_extractor import NFeXMLExtractor
 from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
 from app.services.extraction.data_entrada_matcher import (
     DataEntradaMatcher,
 )
-from app.services.rules_engine.aliquota_resolver import AliquotaResolver
+from app.services.rules_engine.aliquota_resolver import AliquotaResolver, ResolucaoAliquota
 from app.services.rules_engine.cfop_resolver import CfopResolver
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.calculation.factory import CalculatorFactory
@@ -147,6 +149,9 @@ class ProcessingPipelineService:
             notas_criadas: List[NotaFiscalProcessada] = []
             notas_ignoradas: List[Dict[str, Any]] = list(sources.ignored_notes)
             cfops_sem_regra: Dict[str, int] = defaultdict(int)
+            # Carrega as regras dos três níveis uma vez: o resolver é chamado
+            # item a item e sem isto faria consultas repetidas por nota.
+            self.resolver.preload(empresa.perfil_regras_id, empresa.id)
 
             for filename, nf_data in raw_nfs:
                 # 2. Camada 3: Validação de destinatário
@@ -228,6 +233,7 @@ class ProcessingPipelineService:
                 # no resumo agregado da solicitação). No modo legado (tipo único), itens de outro destino
                 # também são descartados aqui, restringindo a apuração ao tipo solicitado.
                 grupos: Dict[Tuple[str, Decimal, Decimal, str, str], List[Any]] = {}
+                resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoAliquota]] = {}
 
                 for item in nf_data.itens:
                     destino_item = self.cfop_resolver.resolve_destino(empresa.perfil_regras_id, item.cfop)
@@ -243,12 +249,20 @@ class ProcessingPipelineService:
                     if modo_legado and destino_item != solicitacao.tipo_planilha:
                         continue
 
-                    # Camada 5: Resolução determinística de A.DST (NCM vs Estado)
-                    resolucao = self.resolver.resolve_a_dst(
-                        perfil_regras_id=empresa.perfil_regras_id,
-                        uf=empresa.uf,
-                        ncm=item.ncm
-                    )
+                    # Camada 5: Resolução determinística de A.DST em três níveis
+                    try:
+                        resolucao = self.resolver.resolve_a_dst(
+                            perfil_regras_id=empresa.perfil_regras_id,
+                            uf=empresa.uf,
+                            ncm=item.ncm,
+                            descricao=item.descricao if item.descricao_confiavel else None,
+                            empresa_id=empresa.id,
+                        )
+                    except RuleResolutionException as err:
+                        # Sem identificar a nota, a mensagem não é acionável.
+                        raise RuleResolutionException(
+                            f"NF-e {nf_data.numero_nota} (arquivo {filename}): {err.message}"
+                        ) from err
                     a_dst = resolucao.aliquota
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
@@ -262,7 +276,9 @@ class ProcessingPipelineService:
                     )
                     if key not in grupos:
                         grupos[key] = []
+                        resolucoes[key] = []
                     grupos[key].append(item)
+                    resolucoes[key].append(resolucao)
 
                 if not grupos:
                     # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
@@ -273,7 +289,8 @@ class ProcessingPipelineService:
 
                 split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
 
-                for (destino_grupo, a_ori, a_dst, _group_ncm, _group_cest), itens_objs in grupos.items():
+                for grupo_key, itens_objs in grupos.items():
+                    destino_grupo, a_ori, a_dst, _group_ncm, _group_cest = grupo_key
                     split_index = split_index_por_destino[destino_grupo]
 
                     # Se a nota inteira produziu exatamente 1 bucket/grupo (nenhum item descartado e
@@ -405,6 +422,10 @@ class ProcessingPipelineService:
                             "total_subitens_destino": len(itens_objs),
                             "mva": str(mva_grupo),
                             "aliq_simples": aliq_simples,
+                            "origem_a_dst": sorted({r.origem for r in resolucoes.get(grupo_key, [])}),
+                            "detalhe_a_dst": "; ".join(
+                                sorted({r.detalhe for r in resolucoes.get(grupo_key, [])})
+                            ),
                             **calc_result.detalhes
                         }
                     )
@@ -500,6 +521,12 @@ class ProcessingPipelineService:
             self.db.rollback()
             generated_artifacts.cleanup()
             solicitacao.status = STATUS_ERRO
-            solicitacao.mensagem_erro = str(exc) if isinstance(exc, ValidationException) else "Falha interna ao processar os arquivos."
+            # RuleResolutionException herda de PlanilhaATException, não de
+            # ValidationException: sem isto, toda mensagem de regra chegava ao
+            # usuário como "Falha interna".
+            solicitacao.mensagem_erro = (
+                str(exc) if isinstance(exc, PlanilhaATException)
+                else "Falha interna ao processar os arquivos."
+            )
             self.db.commit()
             raise
