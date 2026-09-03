@@ -48,6 +48,11 @@ nenhum — o usuário preencheria acreditando que funciona.
   efetiva menor sobre o valor cheio — aritmeticamente equivalente e sem tocar a
   camada de cálculo.
 - Refactor das seções existentes de `PerfisRegras/index.tsx`.
+- Endpoint de simulação (`POST /regras-reducao-produto/simular`), que permitiria
+  testar um termo contra uma descrição sem processar um mês inteiro. Cortado
+  para reduzir o primeiro entregável; a conferência de um termo recém-cadastrado
+  passa a depender de rodar uma solicitação e olhar `origem_a_dst` em
+  `metadados_extras`. Candidato natural a v2.
 
 ## Arquitetura
 
@@ -228,8 +233,7 @@ o comportamento é o de hoje.
 
 O resolver não conhece `descricao_confiavel` — recebe apenas `descricao`, que
 vem `None` quando a origem não é confiável. A filtragem acontece no call site
-do pipeline, o que mantém o resolver com uma responsabilidade só e permite que
-`simular` passe uma descrição digitada pelo usuário sem tratamento especial.
+do pipeline, o que mantém o resolver com uma responsabilidade só.
 
 ### Retorno
 
@@ -251,9 +255,36 @@ paralelos que divergem com o tempo.
 ### Conflito
 
 Duas regras casando o mesmo item é erro de cadastro, não caso de negócio. Não
-se escolhe a menor nem a primeira: levanta `RuleResolutionException` nomeando
-as duas regras e o item, instruindo o cadastro de uma exceção para aquela
-descrição.
+se escolhe a menor nem a primeira: o processamento **falha**, com
+`RuleResolutionException`.
+
+A mensagem é parte do requisito, não detalhe de implementação. Precisa conter,
+em texto corrido e em português:
+
+- **o item** que disparou o conflito — NCM e descrição como veio na nota;
+- **as regras que colidiram** — id, rótulo (`descricao`), alíquota e os termos
+  de inclusão que casaram, para cada uma;
+- **a instrução** de cadastrar uma exceção com aquela descrição exata, dizendo
+  em qual das regras.
+
+Modelo:
+
+```
+Conflito de regras de redução no item "VERGALHAO BARRA CHATA 10MM"
+(NCM 72142000, NF-e 1234).
+
+Duas regras casaram o mesmo item:
+  #12 "Vergalhões — Decreto 12.345" (12,00%) — casou o termo "vergalh*"
+  #15 "Barras chatas" (18,00%) — casou o termo "barra chata"
+
+Cadastre uma exceção com a descrição exata deste item na regra que deve
+prevalecer, para que o sistema saiba qual aplicar.
+```
+
+Falhar em vez de escolher é deliberado: aplicar a alíquota errada em silêncio
+gera passivo fiscal que só aparece em fiscalização. A mensagem só chega ao
+usuário por causa da correção do handler descrita em *Correções incluídas* —
+sem ela, este aviso apareceria como "Falha interna ao processar os arquivos".
 
 O mesmo vale para exceções: o índice único é por
 `(regra_reducao_id, descricao_exata)`, então duas regras do mesmo NCM podem
@@ -338,30 +369,20 @@ DELETE /regras-reducao-produto/{id}                  (admin)
 POST   /regras-reducao-produto/{id}/excecoes         (admin)
 DELETE /regras-reducao-produto/{id}/excecoes/{eid}   (admin)
 
-POST   /regras-reducao-produto/simular
-
 PUT    /empresas/{id}/termo-acordo                   (admin, upsert)
 DELETE /empresas/{id}/termo-acordo                   (admin)
 ```
 
 O router novo carrega `dependencies=[Depends(get_current_user)]` e as rotas de
 escrita acrescentam `Depends(require_admin)`, seguindo
-`endpoints/regras_aliquotas.py`. Leitura e `simular` ficam disponíveis a
-qualquer usuário autenticado.
+`endpoints/regras_aliquotas.py`. Leitura fica disponível a qualquer usuário
+autenticado.
 
 O termo de acordo é pendurado em `/empresas/{id}` em vez de ganhar router
 próprio, refletindo a cardinalidade 1:1: o frontend não rastreia id separado
 nem gerencia lista, e o objeto vem embutido em `EmpresaOut`. Se a vigência
 transformar isso em histórico, o endpoint singular vira coleção — alterar
 endpoint é mais barato que alterar dados.
-
-### `simular`
-
-`POST /regras-reducao-produto/simular {perfil_id, ncm, descricao}` devolve a
-`ResolucaoAliquota` completa. É o único jeito de conferir um termo antes de
-processar um mês inteiro: sem ele, cadastrar `vergalh*` e descobrir o que
-casou exige rodar milhares de notas e conferir a planilha. Reusa o resolver
-sem duplicar lógica.
 
 ## Frontend
 
@@ -440,9 +461,14 @@ contíguo, não disperso).
 empresa com termo de acordo de 12,06% e NCM com redução para 12,00%; item
 vergalhão sai 12,00%, item não-vergalhão do mesmo NCM sai 12,06%. Mais: termo
 de acordo vencendo o padrão da UF; exceção nos dois sentidos; termo de
-exclusão; conflito levantando exceção; descrição não confiável caindo para o
-nível 2. Os três asserts atuais continuam passando, como regressão de que nada
-mudou para quem não cadastra.
+exclusão; descrição não confiável caindo para o nível 2. Os três asserts atuais
+continuam passando, como regressão de que nada mudou para quem não cadastra.
+
+O conflito ganha teste próprio sobre o **conteúdo** da mensagem, já que ela é
+requisito: a exceção levantada precisa citar a descrição do item, os ids das
+duas regras e a palavra "exceção". Mais um teste de que a mensagem sobrevive
+até `solicitacao.mensagem_erro` em vez de virar "Falha interna" — é o par
+natural da correção do handler.
 
 **`tests/test_reducao_produto_pipeline.py`** *(novo, ponta a ponta)* — XML com
 dois itens de mesmo NCM e descrições diferentes produz duas linhas com
@@ -451,8 +477,7 @@ grava a origem correta.
 
 **`tests/test_camada1_config.py`** *(estendido)* — seguindo
 `test_criar_regras_aliquotas_padrao_e_excecao` (linha 33): CRUD das tabelas
-novas, validações de cadastro, upsert de `/empresas/{id}/termo-acordo`, e
-`simular` devolvendo a origem correta.
+novas, validações de cadastro e upsert de `/empresas/{id}/termo-acordo`.
 
 ## Arquivos
 
