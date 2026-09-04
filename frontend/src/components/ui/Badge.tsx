@@ -20,7 +20,7 @@ export const Badge: React.FC<BadgeProps> = ({
   dot = false,
   className,
 }) => {
-  const baseStyles = 'inline-flex items-center font-medium rounded-full select-none tracking-tight';
+  const baseStyles = 'inline-flex items-center font-medium rounded-full select-none tracking-tight whitespace-nowrap';
 
   const variants = {
     success: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20',
@@ -48,7 +48,7 @@ export const Badge: React.FC<BadgeProps> = ({
   return (
     <span className={twMerge(clsx(baseStyles, variants[variant], sizes[size], className))}>
       {dot && <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', dotColors[variant])} />}
-      <span>{children}</span>
+      {children}
     </span>
   );
 };
