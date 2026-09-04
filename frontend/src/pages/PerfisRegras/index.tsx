@@ -56,6 +56,8 @@ export const PerfisRegrasPage: React.FC = () => {
     openEditPerfil: handleOpenEditPerfil,
     deletePerfil,
     submitPerfil,
+    toggleLimitarAliquotaOrigem,
+    isTogglingAliquotaOrigem,
     registerPerfil,
     errorsPerfil,
     isSubmittingPerfil,
@@ -184,6 +186,50 @@ export const PerfisRegrasPage: React.FC = () => {
                 <div className="leading-relaxed">
                   <span className="font-bold text-white tracking-tight">Como o motor resolve a alíquota (A.DST): </span>
                   O sistema resolve a A.DST em três níveis de precedência: <strong>1. Redução por Produto (NCM + Descrição)</strong> &gt; <strong>2. Termo de Acordo da Empresa</strong> &gt; <strong>3. Padrão do Estado (Exceção NCM ou Base UF)</strong>. A alíquota de origem (A.ORI) vem do XML/SPED.
+                </div>
+              </div>
+
+              {/* Card de Configuração: Limitação da Alíquota de Origem (A.ORI) a 10% */}
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs transition-all hover:border-slate-300">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 text-sm">
+                        Limitar Alíquota de Origem (A.ORI) a 10%
+                      </span>
+                      {Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes) ? (
+                        <Badge variant="success" size="sm">Ativo neste Perfil</Badge>
+                      ) : (
+                        <Badge variant="neutral" size="sm">Inativo</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                      Para itens calculados sob <strong>Redução por Produto</strong> ou <strong>Termo de Acordo</strong>,
+                      alíquotas interestaduais superiores a 10% (como 12%) são automaticamente limitadas a <strong>10%</strong> na planilha e no cálculo fiscal (Crédito e Valor Devido). Alíquotas de 7% ou 4% permanecem conforme a nota.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 self-start sm:self-center">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes)}
+                      disabled={isTogglingAliquotaOrigem}
+                      onClick={() => toggleLimitarAliquotaOrigem(activePerfil)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                        Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes)
+                          ? 'bg-blue-600'
+                          : 'bg-slate-200'
+                      } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                          Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes)
+                            ? 'translate-x-5'
+                            : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -511,6 +557,22 @@ export const PerfisRegrasPage: React.FC = () => {
             {...registerPerfil('descricao')}
             error={errorsPerfil.descricao?.message}
           />
+          <div className="p-3.5 rounded-xl border border-slate-200/90 bg-slate-50/70 flex items-start gap-3">
+            <input
+              type="checkbox"
+              id="limitar_a_ori_reducoes"
+              {...registerPerfil('limitar_a_ori_reducoes')}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
+            <label htmlFor="limitar_a_ori_reducoes" className="text-xs text-slate-700 select-none cursor-pointer">
+              <span className="font-bold text-slate-900 block mb-0.5">
+                Limitar Alíquota de Origem (A.ORI) a 10% em Reduções e Termo de Acordo
+              </span>
+              <span className="text-slate-500 leading-relaxed block">
+                Quando ativo, alíquotas interestaduais superiores a 10% (como 12%) são automaticamente limitadas a 10% nos cálculos fiscais e no preenchimento da planilha para itens de notas sob Redução ou Termo de Acordo.
+              </span>
+            </label>
+          </div>
           <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
             <Button type="button" variant="outline" onClick={() => setPerfilModalOpen(false)}>
               Cancelar

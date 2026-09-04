@@ -17,6 +17,7 @@ import type { RegraCfopCreate, RegraCfopEfetiva } from '../../types/regraCfop';
 const perfilSchema = z.object({
   nome: z.string().min(2, 'Informe o nome do perfil'),
   descricao: z.string().optional(),
+  limitar_a_ori_reducoes: z.boolean().optional(),
 });
 
 const regraSchema = z.object({
@@ -166,19 +167,30 @@ export function usePerfisRegrasPage() {
   const openCreatePerfil = () => {
     setEditingPerfil(null);
     setErrorMessage(null);
-    perfilForm.reset({ nome: '', descricao: '' });
+    perfilForm.reset({ nome: '', descricao: '', limitar_a_ori_reducoes: false });
     setPerfilModalOpen(true);
   };
   const openEditPerfil = (perfil: PerfilRegras) => {
     setEditingPerfil(perfil);
     setErrorMessage(null);
-    perfilForm.reset({ nome: perfil.nome, descricao: perfil.descricao || '' });
+    perfilForm.reset({
+      nome: perfil.nome,
+      descricao: perfil.descricao || '',
+      limitar_a_ori_reducoes: Boolean(perfil.configuracoes_extras?.limitar_a_ori_reducoes),
+    });
     setPerfilModalOpen(true);
   };
   const submitPerfil = perfilForm.handleSubmit(async (data) => {
     setErrorMessage(null);
     try {
-      const payload = { nome: data.nome, descricao: data.descricao };
+      const payload: PerfilRegrasCreate = {
+        nome: data.nome,
+        descricao: data.descricao || null,
+        configuracoes_extras: {
+          ...(editingPerfil?.configuracoes_extras || {}),
+          limitar_a_ori_reducoes: Boolean(data.limitar_a_ori_reducoes),
+        },
+      };
       if (editingPerfil) {
         await updatePerfilMutation.mutateAsync({ id: editingPerfil.id, payload });
       } else {
@@ -188,6 +200,25 @@ export function usePerfisRegrasPage() {
       // A mutation mantém o erro visível no modal.
     }
   });
+
+  const toggleLimitarAliquotaOrigem = async (perfil: PerfilRegras) => {
+    const current = Boolean(perfil.configuracoes_extras?.limitar_a_ori_reducoes);
+    try {
+      await updatePerfilMutation.mutateAsync({
+        id: perfil.id,
+        payload: {
+          nome: perfil.nome,
+          descricao: perfil.descricao,
+          configuracoes_extras: {
+            ...(perfil.configuracoes_extras || {}),
+            limitar_a_ori_reducoes: !current,
+          },
+        },
+      });
+    } catch {
+      // erro mantido na mutation
+    }
+  };
 
   const openCreateRegra = (tipo: 'padrao' | 'excecao' = 'padrao') => {
     setEditingRegra(null);
@@ -296,7 +327,11 @@ export function usePerfisRegrasPage() {
     openEditPerfil,
     deletePerfil: deletePerfilMutation.mutate,
     submitPerfil,
+    toggleLimitarAliquotaOrigem,
+    isTogglingAliquotaOrigem: updatePerfilMutation.isPending,
     registerPerfil: perfilForm.register,
+    perfilWatch: perfilForm.watch,
+    setPerfilValue: perfilForm.setValue,
     errorsPerfil: perfilForm.formState.errors,
     isSubmittingPerfil: perfilForm.formState.isSubmitting,
     openCreateRegra,

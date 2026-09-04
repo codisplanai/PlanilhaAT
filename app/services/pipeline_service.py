@@ -236,6 +236,7 @@ class ProcessingPipelineService:
                 grupos: Dict[Tuple[str, Decimal, Decimal, str, str], List[Any]] = {}
                 resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoAliquota]] = {}
                 resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoCfop]] = {}
+                info_a_ori: Dict[Tuple[str, Decimal, Decimal, str, str], Dict[str, Any]] = {}
 
                 for item in nf_data.itens:
                     resolucao_cfop = self.cfop_resolver.reclassificar_cfop(
@@ -278,6 +279,27 @@ class ProcessingPipelineService:
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
 
+                    # Se o perfil tiver a regra ativada e o item se enquadrou em Redução por Produto ou Termo de Acordo:
+                    # Alíquotas de origem superiores a 10% (ex: 12%) se limitam a 10% (0.10).
+                    # Se vier menor ou igual a 10%, permanece conforme a nota.
+                    configuracoes_perfil = (
+                        empresa.perfil_regras.configuracoes_extras
+                        if empresa.perfil_regras and empresa.perfil_regras.configuracoes_extras
+                        else {}
+                    )
+                    limitar_a_ori_reducoes = bool(configuracoes_perfil.get("limitar_a_ori_reducoes"))
+                    origem_resolucao = resolucao.origem or ""
+                    teve_reducao_ou_acordo = (
+                        origem_resolucao.startswith("reducao_produto:")
+                        or origem_resolucao.startswith("excecao:")
+                        or origem_resolucao.startswith("termo_acordo:")
+                    )
+                    a_ori_limitada = False
+                    a_ori_original = item.a_ori
+                    if limitar_a_ori_reducoes and teve_reducao_ou_acordo and item.a_ori > Decimal("0.10"):
+                        a_ori = Decimal("0.10")
+                        a_ori_limitada = True
+
                     key = (
                         destino_item,
                         a_ori,
@@ -289,9 +311,13 @@ class ProcessingPipelineService:
                         grupos[key] = []
                         resolucoes[key] = []
                         resolucoes_cfop[key] = []
+                        info_a_ori[key] = {"limitada": False, "original": str(item.a_ori)}
                     grupos[key].append(item)
                     resolucoes[key].append(resolucao)
                     resolucoes_cfop[key].append(resolucao_cfop)
+                    if a_ori_limitada:
+                        info_a_ori[key]["limitada"] = True
+                        info_a_ori[key]["original"] = str(a_ori_original)
 
                 if not grupos:
                     # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
@@ -445,6 +471,8 @@ class ProcessingPipelineService:
                             "detalhe_cfop": "; ".join(
                                 sorted({rc.motivo for rc in resolucoes_cfop.get(grupo_key, []) if rc.motivo})
                             ),
+                            "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
+                            "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
                             **calc_result.detalhes
                         }
                     )

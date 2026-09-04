@@ -115,3 +115,61 @@ def test_conflito_interrompe_com_mensagem_que_chega_ao_usuario(db_session, cenar
     assert "Conflito de regras" in (sol.mensagem_erro or "")
     assert "901" in (sol.mensagem_erro or "")
     assert "Falha interna" not in (sol.mensagem_erro or "")
+
+
+def test_limitar_a_ori_reducoes_a_10_quando_ativo(db_session, cenario_janeiro):
+    """Quando o perfil de regras possui 'limitar_a_ori_reducoes: True' e o item recebe
+    redução ou termo de acordo, a A.ORI de 12% é limitada a 10%, recalculando crédito e valor devido."""
+    sol = cenario_janeiro()
+    empresa = _preparar(db_session, sol)
+    empresa.perfil_regras.configuracoes_extras = {"limitar_a_ori_reducoes": True}
+    db_session.commit()
+
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id, xml_files_bytes=[("901.xml", _xml_dois_itens_mesmo_ncm())])
+    db_session.refresh(res)
+
+    for n in res.notas_processadas:
+        assert Decimal(str(n.a_ori)) == Decimal("0.10")
+        assert n.metadados_extras.get("a_ori_limitada") is True
+        assert Decimal(str(n.metadados_extras.get("a_ori_original"))) == Decimal("0.12")
+        # Crédito recalculado: base_calculo * 0.10
+        assert n.credito == (n.base_calculo * Decimal("0.10")).quantize(Decimal("0.01"))
+        assert n.valor_devido == (n.debito - n.credito)
+
+
+def test_manter_a_ori_quando_configuracao_inativa(db_session, cenario_janeiro):
+    """Quando 'limitar_a_ori_reducoes' não está ativo (padrão), o 12% da nota é mantido."""
+    sol = cenario_janeiro()
+    empresa = _preparar(db_session, sol)
+    empresa.perfil_regras.configuracoes_extras = {}
+    db_session.commit()
+
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id, xml_files_bytes=[("901.xml", _xml_dois_itens_mesmo_ncm())])
+    db_session.refresh(res)
+
+    for n in res.notas_processadas:
+        assert Decimal(str(n.a_ori)) == Decimal("0.1200")
+        assert not n.metadados_extras.get("a_ori_limitada")
+
+
+def test_manter_a_ori_menor_que_10_mesmo_com_configuracao_ativa(db_session, cenario_janeiro):
+    """Quando o XML já vem com alíquota abaixo de 10% (ex: 7% ou 4%), ela permanece intacta."""
+    sol = cenario_janeiro()
+    empresa = _preparar(db_session, sol)
+    empresa.perfil_regras.configuracoes_extras = {"limitar_a_ori_reducoes": True}
+    db_session.commit()
+
+    xml_7_pct = _xml_dois_itens_mesmo_ncm().decode("utf-8").replace("<pICMS>12.00</pICMS>", "<pICMS>7.00</pICMS>").encode("utf-8")
+
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id, xml_files_bytes=[("901.xml", xml_7_pct)])
+    db_session.refresh(res)
+
+    for n in res.notas_processadas:
+        assert Decimal(str(n.a_ori)) == Decimal("0.07")
+        assert not n.metadados_extras.get("a_ori_limitada")
+        assert n.credito == (n.base_calculo * Decimal("0.07")).quantize(Decimal("0.01"))
+
+
