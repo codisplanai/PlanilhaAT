@@ -27,6 +27,11 @@ export const Modal: React.FC<ModalProps> = ({
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -38,16 +43,20 @@ export const Modal: React.FC<ModalProps> = ({
     openModalCount += 1;
 
     const focusTimer = window.setTimeout(() => {
+      if (dialogRef.current?.contains(document.activeElement)) return;
+      const firstInput = dialogRef.current?.querySelector<HTMLElement>(
+        'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled])'
+      );
       const firstFocusable = dialogRef.current?.querySelector<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
       );
-      (firstFocusable || dialogRef.current)?.focus();
-    }, 0);
+      (firstInput || firstFocusable || dialogRef.current)?.focus();
+    }, 50);
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
@@ -79,7 +88,7 @@ export const Modal: React.FC<ModalProps> = ({
       if (openModalCount === 0) document.body.style.overflow = originalOverflow;
       previouslyFocused?.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -96,7 +105,7 @@ export const Modal: React.FC<ModalProps> = ({
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/50 backdrop-blur-md animate-fade-in"
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+      onMouseDown={(event) => event.target === event.currentTarget && onCloseRef.current()}
     >
       <div
         ref={dialogRef}
@@ -125,7 +134,7 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => onCloseRef.current()}
             aria-label="Fechar janela"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
           >
