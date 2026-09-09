@@ -36,8 +36,7 @@ def _conflita(db: Session, perfil_id: int, ncm: str, termos: List[str], ignorar_
     return any(sorted(r.termos_inclusao or []) == alvo for r in query.all())
 
 
-@router.post("", response_model=RegraReducaoOut, status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(require_admin)])
+@router.post("", response_model=RegraReducaoOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_reducao(payload: RegraReducaoCreate, db: Session = Depends(get_db)):
     perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
     if not perfil:
@@ -80,7 +79,7 @@ def obter_regra_reducao(id: int, db: Session = Depends(get_db)):
     return get_by_id_or_404(db, RegraReducaoProduto, id, "Regra de redução não encontrada.")
 
 
-@router.put("/{id}", response_model=RegraReducaoOut, dependencies=[Depends(require_admin)])
+@router.put("/{id}", response_model=RegraReducaoOut)
 def atualizar_regra_reducao(id: int, payload: RegraReducaoUpdate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraReducaoProduto, id, "Regra de redução não encontrada.")
 
@@ -110,7 +109,7 @@ def deletar_regra_reducao(id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{id}/excecoes", response_model=ExcecaoReducaoOut,
-             status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+             status_code=status.HTTP_201_CREATED)
 def criar_excecao(id: int, payload: ExcecaoReducaoCreate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraReducaoProduto, id, "Regra de redução não encontrada.")
     excecao = ExcecaoReducaoProduto(

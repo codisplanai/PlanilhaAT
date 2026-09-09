@@ -16,7 +16,7 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-@router.post("", response_model=RegraAliquotaOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("", response_model=RegraAliquotaOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_aliquota(payload: RegraAliquotaCreate, db: Session = Depends(get_db)):
     perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
     if not perfil:
@@ -72,7 +72,7 @@ def obter_regra_aliquota(id: int, db: Session = Depends(get_db)):
         db, RegraAliquotaDestino, id, "Regra de alíquota não encontrada."
     )
 
-@router.put("/{id}", response_model=RegraAliquotaOut, dependencies=[Depends(require_admin)])
+@router.put("/{id}", response_model=RegraAliquotaOut)
 def atualizar_regra_aliquota(id: int, payload: RegraAliquotaUpdate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(
         db, RegraAliquotaDestino, id, "Regra de alíquota não encontrada."

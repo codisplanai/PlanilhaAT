@@ -39,8 +39,7 @@ def _conflita(
     return any(sorted(r.termos_inclusao or []) == alvo for r in query.all())
 
 
-@router.post("", response_model=RegraReclassificacaoOut, status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(require_admin)])
+@router.post("", response_model=RegraReclassificacaoOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_reclassificacao(payload: RegraReclassificacaoCreate, db: Session = Depends(get_db)):
     perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
     if not perfil:
@@ -86,7 +85,7 @@ def obter_regra_reclassificacao(id: int, db: Session = Depends(get_db)):
     return get_by_id_or_404(db, RegraReclassificacaoCfop, id, "Regra de reclassificação não encontrada.")
 
 
-@router.put("/{id}", response_model=RegraReclassificacaoOut, dependencies=[Depends(require_admin)])
+@router.put("/{id}", response_model=RegraReclassificacaoOut)
 def atualizar_regra_reclassificacao(id: int, payload: RegraReclassificacaoUpdate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraReclassificacaoCfop, id, "Regra de reclassificação não encontrada.")
 
@@ -120,7 +119,7 @@ def deletar_regra_reclassificacao(id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{id}/excecoes", response_model=ExcecaoReclassificacaoOut,
-             status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+             status_code=status.HTTP_201_CREATED)
 def criar_excecao(id: int, payload: ExcecaoReclassificacaoCreate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraReclassificacaoCfop, id, "Regra de reclassificação não encontrada.")
     excecao = ExcecaoReclassificacaoCfop(

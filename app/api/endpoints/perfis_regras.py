@@ -14,7 +14,7 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-@router.post("", response_model=PerfilRegrasOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("", response_model=PerfilRegrasOut, status_code=status.HTTP_201_CREATED)
 def criar_perfil(payload: PerfilRegrasCreate, db: Session = Depends(get_db)):
     existente = db.query(PerfilRegras).filter(PerfilRegras.nome == payload.nome).first()
     if existente:
@@ -36,7 +36,7 @@ def listar_perfis(db: Session = Depends(get_db)):
 def obter_perfil(id: int, db: Session = Depends(get_db)):
     return get_by_id_or_404(db, PerfilRegras, id, "Perfil de regras não encontrado.")
 
-@router.put("/{id}", response_model=PerfilRegrasOut, dependencies=[Depends(require_admin)])
+@router.put("/{id}", response_model=PerfilRegrasOut)
 def atualizar_perfil(id: int, payload: PerfilRegrasUpdate, db: Session = Depends(get_db)):
     perfil = get_by_id_or_404(db, PerfilRegras, id, "Perfil de regras não encontrado.")
 

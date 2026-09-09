@@ -18,7 +18,7 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-@router.post("", response_model=EmpresaOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("", response_model=EmpresaOut, status_code=status.HTTP_201_CREATED)
 def criar_empresa(payload: EmpresaCreate, db: Session = Depends(get_db)):
     if not validate_cnpj_digits(payload.cnpj):
         raise HTTPException(status_code=422, detail=f"CNPJ '{payload.cnpj}' é inválido pelos dígitos verificadores.")
@@ -59,7 +59,7 @@ def listar_empresas(
 def obter_empresa(id: int, db: Session = Depends(get_db)):
     return get_by_id_or_404(db, Empresa, id, "Empresa não encontrada.")
 
-@router.put("/{id}", response_model=EmpresaOut, dependencies=[Depends(require_admin)])
+@router.put("/{id}", response_model=EmpresaOut)
 def atualizar_empresa(id: int, payload: EmpresaUpdate, db: Session = Depends(get_db)):
     empresa = get_by_id_or_404(db, Empresa, id, "Empresa não encontrada.")
 
@@ -95,7 +95,7 @@ def deletar_empresa(id: int, db: Session = Depends(get_db)):
     delete_and_commit(db, empresa)
 
 
-@router.put("/{id}/termo-acordo", response_model=TermoAcordoOut, dependencies=[Depends(require_admin)])
+@router.put("/{id}/termo-acordo", response_model=TermoAcordoOut)
 def definir_termo_acordo(id: int, payload: TermoAcordoUpsert, db: Session = Depends(get_db)):
     """Cria ou substitui o termo de acordo da empresa.
 

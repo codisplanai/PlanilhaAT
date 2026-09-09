@@ -15,7 +15,7 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
-@router.post("", response_model=RegraCfopOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("", response_model=RegraCfopOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_cfop(payload: RegraCfopCreate, db: Session = Depends(get_db)):
     if payload.perfil_regras_id is not None:
         perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
@@ -85,7 +85,7 @@ def listar_regras_cfop_efetivas(perfil_id: int, db: Session = Depends(get_db)):
 def obter_regra_cfop(id: int, db: Session = Depends(get_db)):
     return get_by_id_or_404(db, RegraCfopDestino, id, "Regra de CFOP não encontrada.")
 
-@router.put("/{id}", response_model=RegraCfopOut, dependencies=[Depends(require_admin)])
+@router.put("/{id}", response_model=RegraCfopOut)
 def atualizar_regra_cfop(id: int, payload: RegraCfopUpdate, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraCfopDestino, id, "Regra de CFOP não encontrada.")
 
