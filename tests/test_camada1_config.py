@@ -344,6 +344,48 @@ def test_api_remover_termo_inexistente_e_404(client):
     assert client.delete(f"/api/v1/empresas/{empresa_id}/termo-acordo").status_code == 404
 
 
+def test_api_empresa_optante_simples_nacional_create_and_update(client):
+    perfil_id = _criar_perfil(client)
+    # 1. Cria empresa com optante_simples_nacional=True
+    res = client.post("/api/v1/empresas", json={
+        "razao_social": "Empresa Simples LTDA",
+        "cnpj": "04252011000110",
+        "uf": "BA",
+        "perfil_regras_id": perfil_id,
+        "optante_simples_nacional": True,
+    })
+    assert res.status_code == 201, res.text
+    empresa_id = res.json()["id"]
+    assert res.json()["optante_simples_nacional"] is True
+
+    # 2. Get confirma que persistiu True
+    res_get = client.get(f"/api/v1/empresas/{empresa_id}")
+    assert res_get.status_code == 200
+    assert res_get.json()["optante_simples_nacional"] is True
+
+    # 3. Atualiza para False
+    res_put_false = client.put(f"/api/v1/empresas/{empresa_id}", json={
+        "optante_simples_nacional": False,
+    })
+    assert res_put_false.status_code == 200
+    assert res_put_false.json()["optante_simples_nacional"] is False
+
+    # Get confirma que persistiu False
+    res_get2 = client.get(f"/api/v1/empresas/{empresa_id}")
+    assert res_get2.json()["optante_simples_nacional"] is False
+
+    # 4. Atualiza de volta para True
+    res_put_true = client.put(f"/api/v1/empresas/{empresa_id}", json={
+        "optante_simples_nacional": True,
+    })
+    assert res_put_true.status_code == 200
+    assert res_put_true.json()["optante_simples_nacional"] is True
+
+    # Get confirma que persistiu True
+    res_get3 = client.get(f"/api/v1/empresas/{empresa_id}")
+    assert res_get3.json()["optante_simples_nacional"] is True
+
+
 def test_criar_regra_reclassificacao_cfop_e_excecao(db_session):
     from app.models.perfil_regras import PerfilRegras
     from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop, ExcecaoReclassificacaoCfop

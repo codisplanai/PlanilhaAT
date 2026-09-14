@@ -37,6 +37,7 @@ def criar_empresa(payload: EmpresaCreate, db: Session = Depends(get_db)):
         inscricao_estadual=payload.inscricao_estadual,
         uf=payload.uf,
         perfil_regras_id=payload.perfil_regras_id,
+        optante_simples_nacional=payload.optante_simples_nacional,
         ativo=payload.ativo
     )
     db.add(empresa)
@@ -82,6 +83,8 @@ def atualizar_empresa(id: int, payload: EmpresaUpdate, db: Session = Depends(get
         if not perfil:
             raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
         empresa.perfil_regras_id = payload.perfil_regras_id
+    if payload.optante_simples_nacional is not None:
+        empresa.optante_simples_nacional = payload.optante_simples_nacional
     if payload.ativo is not None:
         empresa.ativo = payload.ativo
 
