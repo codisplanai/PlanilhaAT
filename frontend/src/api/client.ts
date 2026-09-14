@@ -1,8 +1,11 @@
 import axios from 'axios';
 
+const rawApiUrl = import.meta.env.VITE_API_URL || '';
+const baseApiUrl = String(rawApiUrl).trim().replace(/\/+$/, '');
+
 export const apiClient = axios.create({
-  baseURL: '/api/v1',
-  timeout: 60_000,
+  baseURL: baseApiUrl ? `${baseApiUrl}/api/v1` : '/api/v1',
+  timeout: 120_000,
 });
 
 apiClient.interceptors.response.use(
@@ -33,6 +36,14 @@ export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     if (error.code === 'ECONNABORTED' || (typeof error.message === 'string' && error.message.toLowerCase().includes('timeout'))) {
       return 'O processamento demorou mais que o esperado (tempo limite excedido). Tente novamente.';
+    }
+    if (error.response?.status === 413) {
+      const detail = error.response.data?.detail;
+      if (detail) {
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail)) return detail.map(getValidationDetailMessage).join(' | ');
+      }
+      return 'O conjunto de arquivos enviados excede o tamanho máximo permitido pelo servidor.';
     }
     if (error.response?.data?.detail) {
       const detail = error.response.data.detail;
