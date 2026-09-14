@@ -14,6 +14,7 @@ export interface Empresa {
   inscricao_estadual?: string | null;
   uf: string;
   perfil_regras_id: number;
+  optante_simples_nacional?: boolean;
   ativo: boolean;
   termo_acordo?: TermoAcordo | null;
   criado_em: string;
@@ -26,6 +27,7 @@ export interface EmpresaCreate {
   inscricao_estadual?: string | null;
   uf: string;
   perfil_regras_id: number;
+  optante_simples_nacional?: boolean;
   ativo?: boolean;
 }
 
@@ -35,5 +37,6 @@ export interface EmpresaUpdate {
   inscricao_estadual?: string | null;
   uf?: string;
   perfil_regras_id?: number;
+  optante_simples_nacional?: boolean;
   ativo?: boolean;
 }

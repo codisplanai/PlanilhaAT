@@ -38,7 +38,13 @@ export interface NotaIgnorada {
   arquivo?: string | null;
 }
 
-export type TipoPlanilha = 'antecipacao_parcial' | 'antecipacao_parcial_antecipado' | 'antecipacao_tributaria' | 'difal';
+export type TipoPlanilha =
+  | 'antecipacao_parcial'
+  | 'antecipacao_parcial_antecipado'
+  | 'antecipacao_parcial_simples'
+  | 'antecipacao_parcial_antecipado_simples'
+  | 'antecipacao_tributaria'
+  | 'difal';
 export type StatusSolicitacao = 'pendente' | 'processando' | 'concluido' | 'erro';
 
 export interface SolicitacaoSaida {

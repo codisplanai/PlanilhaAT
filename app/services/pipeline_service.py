@@ -28,6 +28,8 @@ from app.services.pipeline_sources import PipelineSourceLoader
 from app.constants import (
     ANTECIPACAO_PARCIAL,
     ANTECIPACAO_PARCIAL_ANTECIPADO,
+    ANTECIPACAO_PARCIAL_SIMPLES,
+    ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA,
     DIFAL,
     STATUS_CONCLUIDO,
@@ -258,8 +260,20 @@ class ProcessingPipelineService:
                     if destino_item == ANTECIPACAO_PARCIAL and pago_antecipadamente:
                         destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO
 
-                    if modo_legado and destino_item != solicitacao.tipo_planilha:
-                        continue
+                    if empresa.optante_simples_nacional:
+                        if destino_item == ANTECIPACAO_PARCIAL:
+                            destino_item = ANTECIPACAO_PARCIAL_SIMPLES
+                        elif destino_item == ANTECIPACAO_PARCIAL_ANTECIPADO:
+                            destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES
+
+                    if modo_legado:
+                        if destino_item != solicitacao.tipo_planilha:
+                            if solicitacao.tipo_planilha == ANTECIPACAO_PARCIAL and destino_item == ANTECIPACAO_PARCIAL_SIMPLES:
+                                pass
+                            elif solicitacao.tipo_planilha == ANTECIPACAO_PARCIAL_ANTECIPADO and destino_item == ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES:
+                                pass
+                            else:
+                                continue
 
                     # Camada 5: Resolução determinística de A.DST em três níveis
                     try:
@@ -398,7 +412,12 @@ class ProcessingPipelineService:
                             ipi_despesas=ipi_despesas_grupo,
                             a_ori=a_ori,
                             a_dst=a_dst,
-                            parametros_extras={"mva": mva_grupo, "aliq_simples": aliq_simples, "qtd_itens_grupo": len(itens_objs)}
+                            parametros_extras={
+                                "mva": mva_grupo,
+                                "aliq_simples": aliq_simples,
+                                "qtd_itens_grupo": len(itens_objs),
+                                "is_simples": empresa.optante_simples_nacional,
+                            }
                         )
 
                         SanityChecker.validate_numeric_values(
@@ -421,12 +440,12 @@ class ProcessingPipelineService:
                     #    Nunca deduzir ou utilizar data de emissão como fallback.
                     data_entrada_efetiva = (
                         None
-                        if destino_grupo == ANTECIPACAO_PARCIAL_ANTECIPADO
+                        if destino_grupo in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
                         else data_entrada_resolvida
                     )
                     origem_data_efetiva = (
                         None
-                        if destino_grupo == ANTECIPACAO_PARCIAL_ANTECIPADO
+                        if destino_grupo in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
                         else origem_data
                     )
 

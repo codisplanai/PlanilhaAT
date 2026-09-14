@@ -203,6 +203,11 @@ export const NovaSolicitacaoPage: React.FC = () => {
                           <span className="font-bold text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
                             {empresa.uf}
                           </span>
+                          {empresa.optante_simples_nacional && (
+                            <span className="font-bold text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                              Simples Nacional
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center gap-3">
                           <span>CNPJ: {formatCNPJ(empresa.cnpj)}</span>
@@ -607,7 +612,14 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 <div className="bg-slate-50/70 border border-slate-200/80 rounded-xl p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   <div>
                     <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Empresa Destinatária</span>
-                    <span className="font-bold text-slate-900 text-sm mt-0.5 block">{selectedEmpresa?.razao_social}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="font-bold text-slate-900 text-sm block">{selectedEmpresa?.razao_social}</span>
+                      {selectedEmpresa?.optante_simples_nacional && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                          Simples Nacional (-20%)
+                        </span>
+                      )}
+                    </div>
                     <span className="block font-mono text-slate-500 mt-0.5">CNPJ: {formatCNPJ(selectedEmpresa?.cnpj)}</span>
                   </div>
 

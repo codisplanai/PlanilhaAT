@@ -13,6 +13,7 @@ class Empresa(Base):
     inscricao_estadual = Column(String(30), nullable=True)
     uf = Column(String(2), nullable=False)
     perfil_regras_id = Column(Integer, ForeignKey("perfis_regras.id", ondelete="RESTRICT"), nullable=False)
+    optante_simples_nacional = Column(Boolean, default=False, nullable=False)
     ativo = Column(Boolean, default=True, nullable=False)
     criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
     atualizado_em = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)

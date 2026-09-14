@@ -17,6 +17,8 @@ const templateUploadSchema = z.object({
   tipo: z.enum([
     'antecipacao_parcial',
     'antecipacao_parcial_antecipado',
+    'antecipacao_parcial_simples',
+    'antecipacao_parcial_antecipado_simples',
     'antecipacao_tributaria',
     'difal',
   ]),
@@ -37,7 +39,12 @@ const templateUploadSchema = z.object({
 type TemplateUploadFormData = z.infer<typeof templateUploadSchema>;
 
 function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
-  const isAntecipado = tipo === 'antecipacao_parcial_antecipado';
+  const isAntecipado =
+    tipo === 'antecipacao_parcial_antecipado' ||
+    tipo === 'antecipacao_parcial_antecipado_simples';
+  const isParcial =
+    tipo === 'antecipacao_parcial' ||
+    tipo === 'antecipacao_parcial_simples';
   const isTributaria = tipo === 'antecipacao_tributaria';
   const isDifal = tipo === 'difal';
   return {
@@ -46,7 +53,7 @@ function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
     col_numero_nota: 'D',
     col_data_emissao: 'C',
     col_v_total: 'E',
-    col_base_calculo: isAntecipado || isTributaria ? 'F' : '',
+    col_base_calculo: isAntecipado || isTributaria || isParcial ? 'F' : '',
     col_ipi_despesas: isDifal ? 'F' : 'G',
     col_a_dst: isTributaria ? 'J' : isDifal ? 'I' : 'H',
     col_a_ori: isTributaria ? 'K' : isDifal ? 'J' : 'I',

@@ -23,6 +23,7 @@ const empresaSchema = z.object({
   inscricao_estadual: z.string().optional(),
   uf: z.string().length(2, 'Selecione o estado (UF)'),
   perfil_regras_id: z.number().min(1, 'Selecione um perfil de regras'),
+  optante_simples_nacional: z.boolean(),
   ativo: z.boolean(),
 });
 
@@ -34,6 +35,7 @@ const EMPTY_FORM: EmpresaFormData = {
   inscricao_estadual: '',
   uf: 'BA',
   perfil_regras_id: 1,
+  optante_simples_nacional: false,
   ativo: true,
 };
 
@@ -122,6 +124,7 @@ export function useEmpresasPage() {
       inscricao_estadual: empresa.inscricao_estadual || '',
       uf: empresa.uf,
       perfil_regras_id: empresa.perfil_regras_id,
+      optante_simples_nacional: Boolean(empresa.optante_simples_nacional),
       ativo: empresa.ativo,
     });
     setModalOpen(true);
@@ -136,6 +139,7 @@ export function useEmpresasPage() {
         data.inscricao_estadual?.trim() || (editingEmpresa ? null : undefined),
       uf: data.uf,
       perfil_regras_id: Number(data.perfil_regras_id),
+      optante_simples_nacional: Boolean(data.optante_simples_nacional),
       ativo: data.ativo,
     };
     try {

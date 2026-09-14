@@ -10,6 +10,8 @@ from typing import Final
 
 ANTECIPACAO_PARCIAL: Final = "antecipacao_parcial"
 ANTECIPACAO_PARCIAL_ANTECIPADO: Final = "antecipacao_parcial_antecipado"
+ANTECIPACAO_PARCIAL_SIMPLES: Final = "antecipacao_parcial_simples"
+ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES: Final = "antecipacao_parcial_antecipado_simples"
 ANTECIPACAO_TRIBUTARIA: Final = "antecipacao_tributaria"
 DIFAL: Final = "difal"
 IGNORAR: Final = "ignorar"
@@ -24,6 +26,8 @@ TIPOS_PLANILHA_LEGADO: Final = (
 TIPOS_PLANILHA: Final = (
     ANTECIPACAO_PARCIAL,
     ANTECIPACAO_PARCIAL_ANTECIPADO,
+    ANTECIPACAO_PARCIAL_SIMPLES,
+    ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA,
     DIFAL,
 )

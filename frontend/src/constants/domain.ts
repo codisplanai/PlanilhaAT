@@ -11,6 +11,8 @@ export const UFS_BRASIL = [
 export const PLANILHA_LABELS: Record<TipoPlanilha | 'multi', string> = {
   antecipacao_parcial: 'Antecipação Parcial',
   antecipacao_parcial_antecipado: 'Antecipação Parcial — Pago Antecipadamente',
+  antecipacao_parcial_simples: 'Antecipação Parcial (Simples Nacional)',
+  antecipacao_parcial_antecipado_simples: 'Antecipação Parcial — DAE Antecipado (Simples Nacional)',
   antecipacao_tributaria: 'Antecipação Tributária',
   difal: 'DIFAL',
   multi: 'Roteamento automático',
@@ -19,6 +21,8 @@ export const PLANILHA_LABELS: Record<TipoPlanilha | 'multi', string> = {
 export const PLANILHA_BADGE_VARIANTS: Record<TipoPlanilha, BadgeVariant> = {
   antecipacao_parcial: 'info',
   antecipacao_parcial_antecipado: 'warning',
+  antecipacao_parcial_simples: 'info',
+  antecipacao_parcial_antecipado_simples: 'warning',
   antecipacao_tributaria: 'purple',
   difal: 'success',
 };
@@ -26,6 +30,8 @@ export const PLANILHA_BADGE_VARIANTS: Record<TipoPlanilha, BadgeVariant> = {
 export const PLANILHA_DETAILED_LABELS: Record<TipoPlanilha, string> = {
   antecipacao_parcial: PLANILHA_LABELS.antecipacao_parcial,
   antecipacao_parcial_antecipado: PLANILHA_LABELS.antecipacao_parcial_antecipado,
+  antecipacao_parcial_simples: PLANILHA_LABELS.antecipacao_parcial_simples,
+  antecipacao_parcial_antecipado_simples: PLANILHA_LABELS.antecipacao_parcial_antecipado_simples,
   antecipacao_tributaria: PLANILHA_LABELS.antecipacao_tributaria,
   difal: 'DIFAL (Diferencial de Alíquota)',
 };

@@ -21,6 +21,7 @@ class EmpresaBase(BaseModel):
     inscricao_estadual: Optional[str] = Field(None, max_length=30, example="83592715")
     uf: str = Field(..., min_length=2, max_length=2, example="BA")
     perfil_regras_id: int = Field(..., example=1)
+    optante_simples_nacional: bool = False
     ativo: bool = True
 
     @validator("cnpj")
@@ -53,6 +54,7 @@ class EmpresaUpdate(BaseModel):
     inscricao_estadual: Optional[str] = None
     uf: Optional[str] = None
     perfil_regras_id: Optional[int] = None
+    optante_simples_nacional: Optional[bool] = None
     ativo: Optional[bool] = None
 
     @validator("cnpj")

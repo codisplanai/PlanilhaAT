@@ -209,7 +209,14 @@ export const EmpresasPage: React.FC = () => {
                     className="hover:bg-slate-50/70 transition-colors group"
                   >
                     <td className="py-3.5 px-4 font-semibold text-slate-900">
-                      {empresa.razao_social}
+                      <div className="flex items-center gap-2">
+                        <span>{empresa.razao_social}</span>
+                        {empresa.optante_simples_nacional && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            Simples Nacional
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 font-mono font-medium text-slate-600">
                       {formatCNPJ(empresa.cnpj)}
@@ -390,6 +397,26 @@ export const EmpresasPage: React.FC = () => {
               error={errors.perfil_regras_id?.message}
               helperText="O perfil define as alíquotas padrão por estado e as exceções por NCM compartilhadas."
             />
+          </div>
+
+          <div className="p-3 bg-amber-50/70 border border-amber-200/90 rounded-lg space-y-1">
+            <div className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                id="optante_simples_nacional"
+                className="rounded-md border-amber-300 text-amber-600 focus:ring-amber-500 h-4 w-4 cursor-pointer"
+                {...register('optante_simples_nacional')}
+              />
+              <label
+                htmlFor="optante_simples_nacional"
+                className="text-xs text-amber-950 font-bold cursor-pointer select-none"
+              >
+                Optante pelo Simples Nacional
+              </label>
+            </div>
+            <p className="text-[11px] text-amber-800/90 pl-6.5">
+              Aplica automaticamente o desconto legal de 20% no valor devido de Antecipação Parcial e utiliza os modelos oficiais do Simples Nacional (RP-154 / RP-156).
+            </p>
           </div>
 
           <div className="pt-2 flex items-center gap-2.5">
