@@ -23,3 +23,6 @@ class PerfilRegras(Base):
     regras_reclassificacao_cfop = relationship(
         "RegraReclassificacaoCfop", back_populates="perfil_regras", cascade="all, delete-orphan"
     )
+    regras_exclusao_parcial = relationship(
+        "RegraExclusaoParcial", back_populates="perfil_regras", cascade="all, delete-orphan"
+    )

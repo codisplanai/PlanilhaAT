@@ -27,6 +27,8 @@ import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PlanilhaBadge } from '../../components/domain/PlanilhaBadge';
+import { ItensExcluidosSection } from '../../components/domain/ItensExcluidosSection';
+import { AvisosAvaliacaoSection } from '../../components/domain/AvisosAvaliacaoSection';
 import { getEntryOriginLabel } from '../../constants/domain';
 import { TemplateUpdateBanner } from '../../components/feedback/TemplateUpdateBanner';
 import { formatCNPJ, formatDate, formatCurrency, formatPercent } from '../../lib/formatters';
@@ -752,32 +754,66 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 )}
 
                 {(() => {
-                  const temAvisos = (resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0) ||
-                    (resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => !s.arquivo_path));
+                  const hasCfopsSemRegra = Boolean(
+                    resultadoSolicitacao.cfops_sem_regra &&
+                    Object.keys(resultadoSolicitacao.cfops_sem_regra).length > 0
+                  );
+                  const todosExcluidos = resultadoSolicitacao.total_notas_processadas === 0 &&
+                    (resultadoSolicitacao.itens_excluidos && resultadoSolicitacao.itens_excluidos.length > 0) &&
+                    !hasCfopsSemRegra;
+                  const temAvisos = !todosExcluidos && (
+                    (resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0) ||
+                    (resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => !s.arquivo_path)) ||
+                    hasCfopsSemRegra
+                  );
                   const temArquivos = resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => s.arquivo_path);
 
                   return (
                     <div
                       className={`border rounded-2xl p-6 text-center shadow-xs transition-colors ${
-                        temAvisos
+                        todosExcluidos
+                          ? 'bg-slate-50/90 border-slate-300 text-slate-900'
+                          : temAvisos
                           ? 'bg-amber-50/90 border-amber-300/80 text-amber-950'
                           : 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
                       }`}
                     >
                       <div
                         className={`w-14 h-14 rounded-2xl text-white flex items-center justify-center mx-auto mb-3 shadow-md ${
-                          temAvisos
+                          todosExcluidos
+                            ? 'bg-slate-700 shadow-slate-700/20'
+                            : temAvisos
                             ? 'bg-amber-600 shadow-amber-600/20'
                             : 'bg-emerald-600 shadow-emerald-600/20'
                         }`}
                       >
-                        {temAvisos ? <AlertTriangle className="w-7 h-7" /> : <FileCheck2 className="w-7 h-7" />}
+                        {todosExcluidos ? (
+                          <CheckCircle2 className="w-7 h-7" />
+                        ) : temAvisos ? (
+                          <AlertTriangle className="w-7 h-7" />
+                        ) : (
+                          <FileCheck2 className="w-7 h-7" />
+                        )}
                       </div>
                       <h2 className="text-lg sm:text-xl font-black tracking-tight">
-                        {temAvisos ? 'Apuração Concluída com Avisos Fiscais' : 'Planilha(s) Gerada(s) com Sucesso!'}
+                        {todosExcluidos
+                          ? 'Nenhum item a recolher na Parcial'
+                          : temAvisos
+                          ? 'Apuração Concluída com Avisos Fiscais'
+                          : 'Planilha(s) Gerada(s) com Sucesso!'}
                       </h2>
-                      <p className={`text-xs mt-1 max-w-md mx-auto leading-relaxed ${temAvisos ? 'text-amber-850' : 'text-emerald-800/90'}`}>
-                        {temAvisos
+                      <p
+                        className={`text-xs mt-1 max-w-md mx-auto leading-relaxed ${
+                          todosExcluidos
+                            ? 'text-slate-600'
+                            : temAvisos
+                            ? 'text-amber-850'
+                            : 'text-emerald-800/90'
+                        }`}
+                      >
+                        {todosExcluidos
+                          ? 'Todos os itens de Antecipação Parcial foram desconsiderados conforme as regras de exclusão de commodities e/ou alíquotas iguais (A.ORI = A.DST).'
+                          : temAvisos
                           ? 'Algumas notas ou itens exigiram atenção e foram desconsiderados pelas regras de sanidade, mas os dados válidos foram apurados.'
                           : 'Cada item foi roteado pelo CFOP para a planilha correspondente. Uma mesma NF-e pode aparecer em mais de uma planilha.'}
                       </p>
@@ -874,6 +910,11 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   </div>
                 )}
 
+                {/* Avisos de Avaliação Fiscal (ex: SPED sem C170) */}
+                {resultadoSolicitacao.avisos_avaliacao && resultadoSolicitacao.avisos_avaliacao.length > 0 && (
+                  <AvisosAvaliacaoSection avisos={resultadoSolicitacao.avisos_avaliacao} />
+                )}
+
                 {/* Relatório / Aviso de Notas Desconsideradas */}
                 {resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0 && (
                   <div className="bg-amber-50/90 border border-amber-300/80 rounded-xl p-4 sm:p-5 space-y-3 shadow-2xs animate-fade-in">
@@ -922,6 +963,11 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       </table>
                     </div>
                   </div>
+                )}
+
+                {/* Conferência de Itens Excluídos da Parcial */}
+                {resultadoSolicitacao.itens_excluidos && resultadoSolicitacao.itens_excluidos.length > 0 && (
+                  <ItensExcluidosSection itens={resultadoSolicitacao.itens_excluidos} />
                 )}
 
                 {/* Resumo das Notas Fiscais Processadas */}

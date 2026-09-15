@@ -14,6 +14,38 @@ class NotaIgnoradaOut(BaseModel):
     motivo: str
     arquivo: Optional[str] = None
 
+
+class ItemExcluidoOut(BaseModel):
+    chave_acesso: Optional[str] = None
+    numero_nota: str
+    serie: Optional[str] = None
+    item_numero: int
+    arquivo: Optional[str] = None
+    destino: str
+    ncm: str
+    descricao: str
+    descricao_confiavel: bool = True
+    motivo: str
+    tipo_exclusao: str
+    regras_aplicadas: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    v_total: Optional[Decimal] = None
+    base_calculo: Optional[Decimal] = None
+    ipi_despesas: Optional[Decimal] = None
+    a_ori: Optional[Decimal] = None
+    a_dst: Optional[Decimal] = None
+    debito: Optional[Decimal] = None
+    credito: Optional[Decimal] = None
+    valor_devido: Optional[Decimal] = None
+
+
+class AvisoAvaliacaoOut(BaseModel):
+    numero_nota: str
+    serie: Optional[str] = None
+    item_numero: int
+    arquivo: Optional[str] = None
+    aviso: str
+
+
 class SolicitacaoCreate(BaseModel):
     empresa_id: int = Field(..., example=1)
     periodo_inicio: date = Field(..., example="2026-01-01")
@@ -85,6 +117,8 @@ class SolicitacaoOut(BaseModel):
     arquivo_saida_path: Optional[str]
     total_notas_processadas: int
     notas_ignoradas: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    itens_excluidos: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    avisos_avaliacao: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     cfops_sem_regra: Optional[Dict[str, int]] = Field(default_factory=dict)
     criado_em: datetime
     atualizado_em: datetime

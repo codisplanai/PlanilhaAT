@@ -32,6 +32,7 @@ import {
 import { usePerfisRegrasPage } from './usePerfisRegrasPage';
 import { ReducaoProdutoSection } from './ReducaoProdutoSection';
 import { ReclassificacaoCfopSection } from './ReclassificacaoCfopSection';
+import { ExclusaoParcialSection } from './ExclusaoParcialSection';
 
 export const PerfisRegrasPage: React.FC = () => {
   const {
@@ -76,6 +77,9 @@ export const PerfisRegrasPage: React.FC = () => {
     setDeleteError,
     aOriFeedback,
     aOriError,
+    aliqIguaisFeedback,
+    aliqIguaisError,
+    togglePoliticaAliquotasIguais,
     openCreatePerfil: handleOpenCreatePerfil,
     openEditPerfil: handleOpenEditPerfil,
     submitPerfil,
@@ -301,8 +305,72 @@ export const PerfisRegrasPage: React.FC = () => {
                 );
               })()}
 
+              {/* Card de Configuração: Política de Alíquotas Iguais na Bahia (A.ORI = A.DST) */}
+              {(() => {
+                const extras = activePerfil.configuracoes_extras || {};
+                const aliqIguaisBa = typeof extras.politica_aliquotas_iguais_parcial === 'object' && extras.politica_aliquotas_iguais_parcial !== null
+                  ? Boolean((extras.politica_aliquotas_iguais_parcial as Record<string, boolean>)['BA'])
+                  : extras.politica_aliquotas_iguais_parcial === true;
+                return (
+                  <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs transition-all hover:border-slate-300">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">
+                            Condição Numérica de Alíquotas Iguais (BA)
+                          </span>
+                          {aliqIguaisBa ? (
+                            <Badge variant="success" size="sm">Ativo (BA)</Badge>
+                          ) : (
+                            <Badge variant="neutral" size="sm">Inativo</Badge>
+                          )}
+                          {aliqIguaisFeedback === 'saving' && (
+                            <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
+                          )}
+                          {aliqIguaisFeedback === 'saved' && (
+                            <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Salvo
+                            </span>
+                          )}
+                          {aliqIguaisFeedback === 'error' && (
+                            <span className="text-[11px] text-rose-600 font-semibold">
+                              {aliqIguaisError || 'Erro ao salvar'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                          Quando A.ORI = A.DST em operações de Antecipação Parcial para a Bahia, calcula o item individualmente.
+                          Se o valor devido final resultar em <strong>R$ 0,00 ou negativo</strong>, o item é automaticamente excluído com registro de conferência. Se houver <strong>diferença positiva</strong> (IPI, frete ou outras bases), o item é mantido na apuração.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 self-start sm:self-center">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={aliqIguaisBa}
+                          disabled={isTogglingAliquotaOrigem}
+                          onClick={() => togglePoliticaAliquotasIguais(activePerfil, 'BA')}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                            aliqIguaisBa ? 'bg-blue-600' : 'bg-slate-200'
+                          } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                              aliqIguaisBa ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Seção 0: Reduções por Produto (NCM + Descrição) */}
               <ReducaoProdutoSection perfilId={activePerfil.id} />
+
+              {/* Seção 0.5: Exclusões da Antecipação Parcial (NCM + Descrição) */}
+              <ExclusaoParcialSection perfilId={activePerfil.id} />
 
               {/* Seção 1: Regras Padrão por Estado */}
               <Card

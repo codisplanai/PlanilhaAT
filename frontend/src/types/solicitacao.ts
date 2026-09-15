@@ -38,6 +38,37 @@ export interface NotaIgnorada {
   arquivo?: string | null;
 }
 
+export interface ItemExcluido {
+  chave_acesso?: string | null;
+  numero_nota: string;
+  serie?: string | null;
+  item_numero: number;
+  arquivo?: string | null;
+  destino: string;
+  ncm: string;
+  descricao: string;
+  descricao_confiavel: boolean;
+  motivo: string;
+  tipo_exclusao: 'mercadoria' | 'aliquotas_iguais';
+  regras_aplicadas?: JsonObject[];
+  v_total?: number | null;
+  base_calculo?: number | null;
+  ipi_despesas?: number | null;
+  a_ori?: number | null;
+  a_dst?: number | null;
+  debito?: number | null;
+  credito?: number | null;
+  valor_devido?: number | null;
+}
+
+export interface AvisoAvaliacao {
+  numero_nota: string;
+  serie?: string | null;
+  item_numero: number;
+  arquivo?: string | null;
+  aviso: string;
+}
+
 export type TipoPlanilha =
   | 'antecipacao_parcial'
   | 'antecipacao_parcial_antecipado'
@@ -71,6 +102,8 @@ export interface Solicitacao {
   arquivo_saida_path?: string | null;
   total_notas_processadas: number;
   notas_ignoradas?: NotaIgnorada[];
+  itens_excluidos?: ItemExcluido[];
+  avisos_avaliacao?: AvisoAvaliacao[];
   cfops_sem_regra?: Record<string, number>;
   criado_em: string;
   atualizado_em: string;

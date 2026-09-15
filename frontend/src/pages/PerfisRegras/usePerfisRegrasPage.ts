@@ -64,6 +64,8 @@ export function usePerfisRegrasPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [aOriFeedback, setAOriFeedback] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [aOriError, setAOriError] = useState<string | null>(null);
+  const [aliqIguaisFeedback, setAliqIguaisFeedback] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [aliqIguaisError, setAliqIguaisError] = useState<string | null>(null);
 
   const perfisQuery = usePerfisQuery();
   const perfis = perfisQuery.data ?? [];
@@ -244,6 +246,43 @@ export function usePerfisRegrasPage() {
     }
   };
 
+  const togglePoliticaAliquotasIguais = async (perfil: PerfilRegras, uf: string = 'BA') => {
+    const extras = perfil.configuracoes_extras || {};
+    const currentDict =
+      typeof extras.politica_aliquotas_iguais_parcial === 'object' &&
+      extras.politica_aliquotas_iguais_parcial !== null
+        ? (extras.politica_aliquotas_iguais_parcial as Record<string, boolean>)
+        : {};
+    const currentVal = Boolean(
+      currentDict[uf] ?? (extras.politica_aliquotas_iguais_parcial === true)
+    );
+    setAliqIguaisFeedback('saving');
+    setAliqIguaisError(null);
+    try {
+      await updatePerfilMutation.mutateAsync({
+        id: perfil.id,
+        payload: {
+          nome: perfil.nome,
+          descricao: perfil.descricao,
+          configuracoes_extras: {
+            ...extras,
+            politica_aliquotas_iguais_parcial: {
+              ...currentDict,
+              [uf]: !currentVal,
+            },
+          },
+        },
+      });
+      setAliqIguaisFeedback('saved');
+      setTimeout(() => {
+        setAliqIguaisFeedback((prev) => (prev === 'saved' ? 'idle' : prev));
+      }, 3000);
+    } catch (err) {
+      setAliqIguaisFeedback('error');
+      setAliqIguaisError(getErrorMessage(err));
+    }
+  };
+
   const confirmDeletePerfil = () => {
     if (perfilParaExcluir) {
       deletePerfilMutation.mutate(perfilParaExcluir.id);
@@ -402,6 +441,10 @@ export function usePerfisRegrasPage() {
     aOriFeedback,
     aOriError,
     setAOriError,
+    aliqIguaisFeedback,
+    aliqIguaisError,
+    setAliqIguaisError,
+    togglePoliticaAliquotasIguais,
     openCreatePerfil,
     openEditPerfil,
     deletePerfil: deletePerfilMutation.mutate,

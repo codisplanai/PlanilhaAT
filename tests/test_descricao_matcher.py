@@ -1,4 +1,4 @@
-from app.services.rules_engine.descricao_matcher import casa_algum, casa_termo, normalizar
+from app.services.rules_engine.descricao_matcher import casa_algum, casa_termo, casa_todos, normalizar
 
 
 def test_normalizar_remove_acento_pontuacao_e_caixa():
@@ -54,3 +54,16 @@ def test_casa_algum_com_lista_vazia_ou_nula_e_falso():
 
 def test_casa_algum_encontra_o_segundo_termo():
     assert casa_algum(normalizar("VG CA50 10.0"), ["vergalhao", "vg ca50"]) is True
+
+
+def test_casa_todos_exige_todos_os_termos_em_qualquer_ordem():
+    desc = normalizar("Mistura pronta para delicioso bolo de chocolate")
+    assert casa_todos(desc, ["mistura", "bolo"]) is True
+    assert casa_todos(desc, ["bolo", "mistura"]) is True
+    assert casa_todos(desc, ["mistura", "torta"]) is False
+
+
+def test_casa_todos_com_lista_vazia_ou_nula_e_falso():
+    assert casa_todos(normalizar("Flocao de milho"), []) is False
+    assert casa_todos(normalizar("Flocao de milho"), None) is False
+

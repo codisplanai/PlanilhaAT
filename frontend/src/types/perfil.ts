@@ -2,6 +2,8 @@ import type { JsonObject } from './common';
 
 export interface PerfilConfiguracoesExtras extends JsonObject {
   limitar_a_ori_reducoes?: boolean;
+  politica_aliquotas_iguais_parcial?: Record<string, boolean> | boolean;
+  politica_aliquotas_iguais_ufs?: string[];
 }
 
 export interface PerfilRegras {

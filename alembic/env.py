@@ -19,6 +19,9 @@ target_metadata = Base.metadata
 
 
 def database_url() -> str:
+    ini_url = config.get_main_option("sqlalchemy.url")
+    if ini_url and ini_url != "sqlite:///./planilha_at.db":
+        return ini_url.replace("postgres://", "postgresql://", 1) if ini_url.startswith("postgres://") else ini_url
     url = settings.DATABASE_URL
     return url.replace("postgres://", "postgresql://", 1) if url.startswith("postgres://") else url
 

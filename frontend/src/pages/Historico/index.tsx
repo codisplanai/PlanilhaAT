@@ -26,6 +26,8 @@ import {
   formatCompetencia,
 } from '../../lib/formatters';
 import { StatusBadge } from '../../components/domain/StatusBadge';
+import { ItensExcluidosSection } from '../../components/domain/ItensExcluidosSection';
+import { AvisosAvaliacaoSection } from '../../components/domain/AvisosAvaliacaoSection';
 import { getEntryOriginLabel, getPlanilhaLabel } from '../../constants/domain';
 import { useHistoricoPage } from './useHistoricoPage';
 
@@ -294,6 +296,11 @@ export const HistoricoPage: React.FC = () => {
               />
             )}
 
+            {/* Avisos de Avaliação Fiscal */}
+            {solicitacaoDetalhada.avisos_avaliacao && solicitacaoDetalhada.avisos_avaliacao.length > 0 && (
+              <AvisosAvaliacaoSection avisos={solicitacaoDetalhada.avisos_avaliacao} />
+            )}
+
             {/* Aviso de Notas Ignoradas no Modal de Detalhes */}
             {solicitacaoDetalhada.notas_ignoradas && solicitacaoDetalhada.notas_ignoradas.length > 0 && (
               <div className="bg-amber-50/90 border border-amber-300/80 rounded-xl p-4 space-y-2.5 shadow-2xs">
@@ -356,7 +363,7 @@ export const HistoricoPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Tabela de Itens */}
+            {/* Tabela de Itens Processados */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -454,6 +461,11 @@ export const HistoricoPage: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Conferência de Itens Excluídos da Parcial */}
+            {solicitacaoDetalhada.itens_excluidos && solicitacaoDetalhada.itens_excluidos.length > 0 && (
+              <ItensExcluidosSection itens={solicitacaoDetalhada.itens_excluidos} />
+            )}
 
             {/* Ações do Modal de Detalhes */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">

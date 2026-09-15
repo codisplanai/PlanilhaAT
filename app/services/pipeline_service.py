@@ -20,6 +20,8 @@ from app.services.extraction.data_entrada_matcher import (
 from app.services.rules_engine.aliquota_resolver import AliquotaResolver, ResolucaoAliquota
 from app.services.rules_engine.cfop_resolver import CfopResolver, ResolucaoCfop
 from app.services.rules_engine.mva_resolver import MvaResolver
+from app.services.rules_engine.parcial_decision import ParcialExclusionService, DESTINOS_PARCIAL
+from app.services.rules_engine.descricao_matcher import normalizar
 from app.services.calculation.factory import CalculatorFactory
 from app.services.validation.sanity_checker import SanityChecker
 from app.services.templates_admin.template_manager import TemplateManager
@@ -68,6 +70,7 @@ class ProcessingPipelineService:
         self.sped_extractor = SpedFiscalExtractor()
         self.resolver = AliquotaResolver(db)
         self.cfop_resolver = CfopResolver(db)
+        self.parcial_exclusion = ParcialExclusionService(db)
         self.output_service = PipelineOutputService(db)
         self.source_loader = PipelineSourceLoader(self.extractor, self.sped_extractor)
 
@@ -150,11 +153,15 @@ class ProcessingPipelineService:
             rows_por_destino: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
             notas_criadas: List[NotaFiscalProcessada] = []
             notas_ignoradas: List[Dict[str, Any]] = list(sources.ignored_notes)
+            itens_excluidos: List[Dict[str, Any]] = []
+            avisos_avaliacao: List[Dict[str, Any]] = []
             cfops_sem_regra: Dict[str, int] = defaultdict(int)
+            erros_validacao: List[str] = []
             # Carrega as regras dos três níveis uma vez: o resolver é chamado
             # item a item e sem isto faria consultas repetidas por nota.
             self.resolver.preload(empresa.perfil_regras_id, empresa.id)
             self.cfop_resolver.preload_reclassificacoes(empresa.perfil_regras_id)
+            self.parcial_exclusion.preload(empresa.perfil_regras_id, empresa.uf)
 
             for filename, nf_data in raw_nfs:
                 # 2. Camada 3: Validação de destinatário
@@ -275,6 +282,70 @@ class ProcessingPipelineService:
                             else:
                                 continue
 
+                    if destino_item in DESTINOS_PARCIAL:
+                        if not item.descricao_confiavel:
+                            avisos_avaliacao.append({
+                                "numero_nota": nf_data.numero_nota,
+                                "serie": nf_data.serie,
+                                "item_numero": item.item_numero,
+                                "arquivo": filename,
+                                "aviso": "Descrição sintética/não confiável (SPED sem C170): regra de exclusão por mercadoria não avaliada.",
+                            })
+                        elif not item.descricao or not normalizar(item.descricao).strip():
+                            avisos_avaliacao.append({
+                                "numero_nota": nf_data.numero_nota,
+                                "serie": nf_data.serie,
+                                "item_numero": item.item_numero,
+                                "arquivo": filename,
+                                "aviso": "Descrição do produto ausente ou vazia: regra de exclusão por mercadoria não avaliada.",
+                            })
+                        elif not item.ncm or item.ncm.strip() == "00000000" or len(item.ncm.strip()) < 8:
+                            avisos_avaliacao.append({
+                                "numero_nota": nf_data.numero_nota,
+                                "serie": nf_data.serie,
+                                "item_numero": item.item_numero,
+                                "arquivo": filename,
+                                "aviso": f"NCM ausente ou genérico ('{item.ncm}'): regra de exclusão por mercadoria não avaliada.",
+                            })
+
+                        # Avaliação de exclusão por mercadoria ANTES da resolução de A.DST
+                        decisao_mercadoria = self.parcial_exclusion.avaliar_mercadoria(
+                            perfil_regras_id=empresa.perfil_regras_id,
+                            uf_empresa=empresa.uf,
+                            destino=destino_item,
+                            ncm=item.ncm,
+                            descricao=item.descricao if item.descricao_confiavel else "",
+                            descricao_confiavel=item.descricao_confiavel,
+                            v_total=item.v_total,
+                            base_calculo=item.base_calculo,
+                            ipi_despesas=item.ipi_despesas,
+                            a_ori=item.a_ori,
+                        )
+                        if decisao_mercadoria.excluido:
+                            itens_excluidos.append({
+                                "chave_acesso": nf_data.chave_acesso,
+                                "numero_nota": nf_data.numero_nota,
+                                "serie": nf_data.serie,
+                                "item_numero": item.item_numero,
+                                "arquivo": filename,
+                                "destino": destino_item,
+                                "ncm": item.ncm,
+                                "descricao": item.descricao,
+                                "descricao_confiavel": item.descricao_confiavel,
+                                "motivo": decisao_mercadoria.motivo,
+                                "tipo_exclusao": decisao_mercadoria.tipo_exclusao,
+                                "regras_aplicadas": decisao_mercadoria.regras_aplicadas,
+                                "v_total": float(decisao_mercadoria.v_total) if decisao_mercadoria.v_total is not None else None,
+                                "base_calculo": float(decisao_mercadoria.base_calculo) if decisao_mercadoria.base_calculo is not None else None,
+                                "ipi_despesas": float(decisao_mercadoria.ipi_despesas) if decisao_mercadoria.ipi_despesas is not None else None,
+                                "a_ori": float(decisao_mercadoria.a_ori) if decisao_mercadoria.a_ori is not None else None,
+                                "a_dst": None,
+                                "debito": None,
+                                "credito": None,
+                                "valor_devido": None,
+                            })
+                            continue
+
                     # Camada 5: Resolução determinística de A.DST em três níveis
                     try:
                         resolucao = self.resolver.resolve_a_dst(
@@ -313,6 +384,44 @@ class ProcessingPipelineService:
                     if limitar_a_ori_reducoes and teve_reducao_ou_acordo and item.a_ori > Decimal("0.10"):
                         a_ori = Decimal("0.10")
                         a_ori_limitada = True
+
+                    # Avaliação da condição numérica de alíquotas iguais (após resolução de A.DST)
+                    if destino_item in DESTINOS_PARCIAL:
+                        decisao_numerica = self.parcial_exclusion.avaliar_aliquotas_iguais(
+                            perfil_regras_id=empresa.perfil_regras_id,
+                            uf_empresa=empresa.uf,
+                            destino=destino_item,
+                            v_total=item.v_total,
+                            base_calculo=item.base_calculo,
+                            ipi_despesas=item.ipi_despesas,
+                            a_ori=a_ori,
+                            a_dst=a_dst,
+                            is_simples=empresa.optante_simples_nacional,
+                        )
+                        if decisao_numerica.excluido:
+                            itens_excluidos.append({
+                                "chave_acesso": nf_data.chave_acesso,
+                                "numero_nota": nf_data.numero_nota,
+                                "serie": nf_data.serie,
+                                "item_numero": item.item_numero,
+                                "arquivo": filename,
+                                "destino": destino_item,
+                                "ncm": item.ncm,
+                                "descricao": item.descricao,
+                                "descricao_confiavel": item.descricao_confiavel,
+                                "motivo": decisao_numerica.motivo,
+                                "tipo_exclusao": decisao_numerica.tipo_exclusao,
+                                "regras_aplicadas": decisao_numerica.regras_aplicadas,
+                                "v_total": float(decisao_numerica.v_total) if decisao_numerica.v_total is not None else None,
+                                "base_calculo": float(decisao_numerica.base_calculo) if decisao_numerica.base_calculo is not None else None,
+                                "ipi_despesas": float(decisao_numerica.ipi_despesas) if decisao_numerica.ipi_despesas is not None else None,
+                                "a_ori": float(decisao_numerica.a_ori) if decisao_numerica.a_ori is not None else None,
+                                "a_dst": float(decisao_numerica.a_dst) if decisao_numerica.a_dst is not None else None,
+                                "debito": float(decisao_numerica.debito) if decisao_numerica.debito is not None else None,
+                                "credito": float(decisao_numerica.credito) if decisao_numerica.credito is not None else None,
+                                "valor_devido": float(decisao_numerica.valor_devido) if decisao_numerica.valor_devido is not None else None,
+                            })
+                            continue
 
                     key = (
                         destino_item,
@@ -428,6 +537,7 @@ class ProcessingPipelineService:
                             a_dst=a_dst
                         )
                     except ValidationException as val_err:
+                        erros_validacao.append(str(val_err))
                         notas_ignoradas.append(
                             ignored_note(nf_data, filename, str(val_err))
                         )
@@ -529,6 +639,28 @@ class ProcessingPipelineService:
 
             total_rows = sum(len(v) for v in rows_por_destino.values())
             if total_rows == 0:
+                if cfops_sem_regra:
+                    raise ValidationException(
+                        "Nenhum item das notas enviadas correspondeu a um CFOP com regra de roteamento cadastrada "
+                        f"({', '.join(sorted(cfops_sem_regra.keys()))}). Cadastre as regras de CFOP em "
+                        "'Perfis e Regras' antes de processar."
+                    )
+
+                if erros_validacao:
+                    raise ValidationException(erros_validacao[0])
+
+                if itens_excluidos:
+                    solicitacao.status = STATUS_CONCLUIDO
+                    solicitacao.total_notas_processadas = 0
+                    solicitacao.notas_ignoradas = notas_ignoradas
+                    solicitacao.itens_excluidos = itens_excluidos
+                    solicitacao.avisos_avaliacao = avisos_avaliacao
+                    solicitacao.cfops_sem_regra = {}
+                    solicitacao.mensagem_erro = "Nenhum item a recolher na Parcial"
+                    self.db.commit()
+                    self.db.refresh(solicitacao)
+                    return solicitacao
+
                 total_ign = len(notas_ignoradas)
                 p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
                 p_fim_str = solicitacao.periodo_fim.strftime('%d/%m/%Y')
@@ -536,12 +668,6 @@ class ProcessingPipelineService:
                     raise ValidationException(
                         f"Nenhuma NF-e válida para apuração interestadual encontrada dentro do período informado ({p_ini_str} a {p_fim_str}). "
                         f"Todas as {total_ign} nota(s) enviadas foram desconsideradas (motivos registrados no relatório de conferência)."
-                    )
-                elif cfops_sem_regra:
-                    raise ValidationException(
-                        "Nenhum item das notas enviadas correspondeu a um CFOP com regra de roteamento cadastrada "
-                        "(Antecipação Parcial, Antecipação Tributária ou DIFAL). Cadastre as regras de CFOP em "
-                        "'Perfis e Regras' antes de processar."
                     )
                 else:
                     raise ValidationException("Nenhuma nota fiscal pôde ser processada a partir dos arquivos fornecidos.")
@@ -576,6 +702,8 @@ class ProcessingPipelineService:
             solicitacao.status = STATUS_CONCLUIDO
             solicitacao.total_notas_processadas = len(notas_criadas)
             solicitacao.notas_ignoradas = notas_ignoradas
+            solicitacao.itens_excluidos = itens_excluidos
+            solicitacao.avisos_avaliacao = avisos_avaliacao
             solicitacao.cfops_sem_regra = dict(cfops_sem_regra)
             solicitacao.mensagem_erro = None
             self.db.commit()

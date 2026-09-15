@@ -51,3 +51,11 @@ def casa_termo(descricao_normalizada: str, termo: str) -> bool:
 
 def casa_algum(descricao_normalizada: str, termos: Optional[List[str]]) -> bool:
     return any(casa_termo(descricao_normalizada, t) for t in (termos or []))
+
+
+def casa_todos(descricao_normalizada: str, termos: Optional[List[str]]) -> bool:
+    """True se todos os termos aparecem como palavras completas na descrição."""
+    if not termos:
+        return False
+    return all(casa_termo(descricao_normalizada, t) for t in termos)
+
