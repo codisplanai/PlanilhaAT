@@ -114,3 +114,85 @@ def test_enriquecimento_ipi_do_xml_quando_presente_no_sped(
     assert nota_901.numero_nota == "901"
     assert nota_901.ipi_despesas == Decimal("100.00")
 
+
+def test_ncm_do_xml_prevalece_sobre_ncm_do_sped(
+        db_session, cenario_janeiro, sped_janeiro_com_nf901):
+    """
+    O NCM da mercadoria deve ser consultado sempre no XML da SEFAZ quando houver XML,
+    pois é o documento fiscal oficial emitido pelo fornecedor e mais confiável que
+    o cadastro interno do SPED (Registro 0200).
+    """
+    from tests.conftest import CHAVE_NF901, build_xml_nfe
+
+    sol = cenario_janeiro()
+    # SPED original possui NCM 21069090 no 0200.
+    # Alteramos o SPED para ter NCM 84713012 no 0200.
+    sped_com_outro_ncm = sped_janeiro_com_nf901.replace(b"21069090", b"84713012")
+
+    # XML da SEFAZ possui o NCM real 21069090
+    xml_901 = build_xml_nfe(
+        numero="901",
+        chave=CHAVE_NF901,
+        valor="2000.00",
+        dia="10",
+        ncm="21069090"
+    )
+
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id,
+        xml_files_bytes=[("901.xml", xml_901)],
+        sped_file_bytes=sped_com_outro_ncm,
+    )
+    db_session.refresh(res)
+
+    nota_901 = next(n for n in res.notas_processadas if n.numero_nota == "901")
+    # NCM apurado deve ser o do XML (21069090), e não o divergente do SPED (84713012)
+    assert nota_901.ncm == "21069090"
+    # A data de entrada física permanece a do SPED
+    assert nota_901.origem_data_entrada == "sped_fiscal"
+
+
+def test_sped_sem_c170_adota_itens_e_ncm_do_xml(
+        db_session, cenario_janeiro):
+    """
+    Quando o SPED Fiscal não contém o Registro C170 (apenas C190 ou consolidação C100),
+    mas há XML para a nota, a lista detalhada de itens com seus NCMs e descrições confiáveis
+    do XML deve ser adotada, preservando a data de entrada do SPED.
+    """
+    from tests.conftest import CHAVE_NF901, build_xml_nfe
+    from datetime import date
+
+    sol = cenario_janeiro()
+
+    # SPED sem C170 (apenas C100 com entrada em 20/01/2026 e C190 analítico)
+    sped_sem_c170 = (
+        "|0000|019|0|01012026|31012026|Cliente BA|12345678000195||BA|123|2927408|||A|1|\n"
+        "|0150|F1|FORNECEDOR SP|1058|98765432000180||SP|3550308||R|1||C|\n"
+        f"|C100|0|1|F1|55|00|1|901|{CHAVE_NF901}|10012026|20012026|2000,00|0|0,00|0,00|2000,00|0|0,00|0,00|0,00|2000,00|240,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|\n"
+        "|C190|000|6102|12,00|2000,00|2000,00|240,00|0,00|0,00|0,00|0,00|0,00|\n"
+        "|9999|5|\n"
+    ).encode("utf-8")
+
+    xml_901 = build_xml_nfe(
+        numero="901",
+        chave=CHAVE_NF901,
+        valor="2000.00",
+        dia="10",
+        ncm="21069090"
+    )
+
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id,
+        xml_files_bytes=[("901.xml", xml_901)],
+        sped_file_bytes=sped_sem_c170,
+    )
+    db_session.refresh(res)
+
+    nota_901 = next(n for n in res.notas_processadas if n.numero_nota == "901")
+    # Adotou o NCM real do XML da SEFAZ
+    assert nota_901.ncm == "21069090"
+    # Preservou a data de entrada do SPED
+    assert nota_901.origem_data_entrada == "sped_fiscal"
+    assert nota_901.data_entrada == date(2026, 1, 20)
+
+

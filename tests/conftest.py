@@ -199,7 +199,16 @@ def create_sample_excel_template(tmp_path):
     return _create
 
 
-def build_xml_nfe(numero: str, chave: str, valor: str, dia: str, cfop: str = "6102", v_ipi: str = "0.00", v_bc: str = None) -> bytes:
+def build_xml_nfe(
+    numero: str,
+    chave: str,
+    valor: str,
+    dia: str,
+    cfop: str = "6102",
+    v_ipi: str = "0.00",
+    v_bc: str = None,
+    ncm: str = "21069090",
+) -> bytes:
     """XML de NF-e mínimo e válido, emitido por fornecedor de SP para cliente da BA em janeiro/2026."""
     bc = v_bc or valor
     ipi_tag = f"<IPI><IPITrib><vIPI>{v_ipi}</vIPI></IPITrib></IPI>" if v_ipi and v_ipi != "0.00" else ""
@@ -212,7 +221,7 @@ def build_xml_nfe(numero: str, chave: str, valor: str, dia: str, cfop: str = "61
       <dest><CNPJ>12345678000195</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
       <total><ICMSTot><vNF>{valor}</vNF><vBC>{bc}</vBC></ICMSTot></total>
       <det nItem="1">
-        <prod><NCM>21069090</NCM><CFOP>{cfop}</CFOP><vProd>{bc}</vProd>
+        <prod><NCM>{ncm}</NCM><CFOP>{cfop}</CFOP><vProd>{bc}</vProd>
           <vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vDesc>0.00</vDesc></prod>
         <imposto><ICMS><ICMS00><vBC>{bc}</vBC><pICMS>12.00</pICMS></ICMS00></ICMS>{ipi_tag}</imposto>
       </det>
