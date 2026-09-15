@@ -32,6 +32,40 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavigate, onClose }) => {
   const isAdmin = user?.role === 'admin';
   const [isAlterarSenhaOpen, setIsAlterarSenhaOpen] = useState(false);
+  const sidebarRef = React.useRef<HTMLElement>(null);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !sidebarRef.current) return;
+      if (window.innerWidth >= 1024) return;
+
+      const focusable = Array.from(
+        sidebarRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   const mainNav = [
     { to: '/', label: 'Visão Geral', icon: LayoutDashboard, end: true },
@@ -42,9 +76,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
 
   return (
     <aside
+      id="main-sidebar"
+      ref={sidebarRef}
       aria-label="Navegação principal"
+      aria-hidden={!isOpen ? undefined : undefined}
       className={`fixed inset-y-0 left-0 z-40 w-68 bg-slate-900 text-slate-200 flex flex-col h-screen shrink-0 border-r border-slate-800 shadow-xl select-none transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
-        isOpen ? 'translate-x-0' : '-translate-x-full'
+        isOpen
+          ? 'translate-x-0'
+          : '-translate-x-full max-lg:invisible max-lg:pointer-events-none'
       }`}
     >
       {/* Brand Header */}
@@ -52,9 +91,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
         <PlanAutLogo variant="full" theme="dark" size="md" />
         <button
           type="button"
-          aria-label="Fechar menu"
+          aria-label="Fechar menu de navegação"
           onClick={onClose}
-          className="ml-auto p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 lg:hidden cursor-pointer"
+          className="ml-auto p-2 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 lg:hidden cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <X className="w-5 h-5" />
         </button>
@@ -66,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
           to="/nova-solicitacao"
           onClick={onNavigate}
           className={({ isActive }) =>
-            `group relative flex items-center justify-center gap-2.5 w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all duration-150 active:scale-[0.98] shadow-sm ${
+            `group relative flex items-center justify-center gap-2.5 w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-bold transition-all duration-150 active:scale-[0.98] shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 ${
               isActive
                 ? 'bg-blue-600 text-white shadow-blue-900/40 ring-2 ring-blue-400/40'
                 : 'bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:via-blue-600 hover:to-indigo-600 text-white shadow-md shadow-blue-950/40'

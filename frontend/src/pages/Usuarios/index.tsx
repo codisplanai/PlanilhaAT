@@ -1,23 +1,33 @@
 import React from 'react';
-import { UserPlus, Users, ShieldCheck, User as UserIcon } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
+import { UserPlus, Users, ShieldCheck, User as UserIcon, Loader2 } from 'lucide-react';
 
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { PasswordInput } from '../../components/ui/PasswordInput';
 import { Select } from '../../components/ui/Select';
 import { Modal } from '../../components/ui/Modal';
 import { Badge } from '../../components/ui/Badge';
+import { Card } from '../../components/ui/Card';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
+import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import type { User } from '../../types/auth';
 import { useUsuariosPage } from './useUsuariosPage';
 
 interface UsuariosPageProps {
-  user: User | null;
+  user?: User | null;
 }
 
-export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
+export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user: propUser }) => {
+  const outlet = useOutletContext<{ user?: User | null }>();
+  const user = propUser ?? outlet?.user ?? null;
+
   const {
     usuarios,
+    isLoading,
+    refetch,
     pageError: erro,
     formError: erroFormulario,
     setFormError: setErroFormulario,
@@ -26,6 +36,7 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
     closeModal: fecharModal,
     createUser: onSubmit,
     toggleStatus: alternarStatus,
+    togglingUserId,
     register,
     errors,
     isSaving: salvando,
@@ -49,82 +60,118 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
         }
       />
 
-      {erro && <ErrorAlert message={erro} />}
+      {erro && (
+        <ErrorAlert
+          message={erro}
+          onRetry={() => refetch()}
+        />
+      )}
 
-      <div className="bg-white border border-slate-200/80 rounded-xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs divide-y divide-slate-100">
-            <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-              <tr>
-                <th className="py-3.5 px-4">Nome</th>
-                <th className="py-3.5 px-4">E-mail</th>
-                <th className="py-3.5 px-4">Papel / Cargo</th>
-                <th className="py-3.5 px-4 text-center">Status</th>
-                <th className="py-3.5 px-4 text-right">Ação</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100/80">
-              {usuarios.map((u) => {
-                const isCurrentUser = u.id === user?.id;
-                const isAdmin = u.role === 'admin';
-                return (
-                  <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3.5 px-4 font-semibold text-slate-900 flex items-center gap-2.5">
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${
-                        isAdmin
-                          ? 'bg-amber-50 text-amber-700 border-amber-200'
-                          : 'bg-blue-50 text-blue-700 border-blue-200'
-                      }`}>
-                        {isAdmin ? <ShieldCheck className="w-3.5 h-3.5" /> : <UserIcon className="w-3.5 h-3.5" />}
-                      </div>
-                      <span>{u.nome}</span>
-                      {isCurrentUser && (
-                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-bold">
-                          Você
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-600">{u.email}</td>
-                    <td className="py-3.5 px-4">
-                      {isAdmin ? (
-                        <Badge variant="warning" size="sm">
-                          Admin — {u.cargo || 'Contador Sênior'}
+      {isLoading ? (
+        <LoadingSpinner message="Carregando usuários da equipe..." />
+      ) : usuarios.length === 0 ? (
+        <EmptyState
+          icon={<Users className="w-7 h-7 text-amber-600" />}
+          title="Nenhum usuário cadastrado"
+          description="Cadastre os membros da equipe contábil para liberar o acesso ao sistema."
+          actionLabel="Cadastrar Primeiro Usuário"
+          onAction={abrirModal}
+        />
+      ) : (
+        <Card bodyPadding="none" className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs divide-y divide-slate-100">
+              <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th scope="col" className="py-3.5 px-4">Nome</th>
+                  <th scope="col" className="py-3.5 px-4">E-mail</th>
+                  <th scope="col" className="py-3.5 px-4">Papel / Cargo</th>
+                  <th scope="col" className="py-3.5 px-4 text-center">Status</th>
+                  <th scope="col" className="py-3.5 px-4 text-right">Ação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100/80">
+                {usuarios.map((u) => {
+                  const isCurrentUser = u.id === user?.id;
+                  const isAdmin = u.role === 'admin';
+                  const isTogglingThis = togglingUserId === u.id;
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3.5 px-4 font-semibold text-slate-900 flex items-center gap-2.5">
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${
+                          isAdmin
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-blue-50 text-blue-700 border-blue-200'
+                        }`}>
+                          {isAdmin ? <ShieldCheck className="w-3.5 h-3.5" /> : <UserIcon className="w-3.5 h-3.5" />}
+                        </div>
+                        <span>{u.nome}</span>
+                        {isCurrentUser && (
+                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-bold">
+                            Você
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-slate-600">{u.email}</td>
+                      <td className="py-3.5 px-4">
+                        {isAdmin ? (
+                          <Badge variant="warning" size="sm">
+                            Admin — {u.cargo || 'Contador Sênior'}
+                          </Badge>
+                        ) : (
+                          <Badge variant="info" size="sm">
+                            Operador — {u.cargo || 'Analista Fiscal'}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <Badge variant={u.ativo ? 'success' : 'neutral'} size="sm" dot>
+                          {u.ativo ? 'Ativo' : 'Inativo'}
                         </Badge>
-                      ) : (
-                        <Badge variant="info" size="sm">
-                          Operador — {u.cargo || 'Analista Fiscal'}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <Badge variant={u.ativo ? 'success' : 'neutral'} size="sm" dot>
-                        {u.ativo ? 'Ativo' : 'Inativo'}
-                      </Badge>
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => alternarStatus(u)}
-                        disabled={isCurrentUser}
-                        title={isCurrentUser ? 'Você não pode desativar a sua própria conta' : undefined}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                          isCurrentUser
-                            ? 'opacity-40 cursor-not-allowed text-slate-400'
-                            : u.ativo
-                            ? 'text-rose-600 hover:text-rose-700 hover:bg-rose-50'
-                            : 'text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50'
-                        }`}
-                      >
-                        {u.ativo ? 'Desativar' : 'Ativar'}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        {isCurrentUser ? (
+                          <span
+                            className="text-xs font-semibold px-2.5 py-1 text-slate-400 select-none cursor-not-allowed"
+                            title="Você não pode desativar a sua própria conta"
+                          >
+                            Conta Atual
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => alternarStatus(u)}
+                            disabled={togglingUserId !== null}
+                            aria-label={`${u.ativo ? 'Desativar' : 'Ativar'} conta de ${u.nome}`}
+                            className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                              togglingUserId !== null
+                                ? 'opacity-50 cursor-not-allowed'
+                                : u.ativo
+                                ? 'text-rose-600 hover:text-rose-700 hover:bg-rose-50 focus:ring-2 focus:ring-rose-500/20'
+                                : 'text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 focus:ring-2 focus:ring-emerald-500/20'
+                            }`}
+                          >
+                            {isTogglingThis ? (
+                              <>
+                                <Loader2 className="w-3 h-3 animate-spin text-slate-500" />
+                                <span className="text-slate-500">Alterando...</span>
+                              </>
+                            ) : u.ativo ? (
+                              'Desativar'
+                            ) : (
+                              'Ativar'
+                            )}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <Modal isOpen={modalAberto} onClose={fecharModal} title="Novo Usuário" subtitle="Cadastre um novo membro da equipe contábil">
         {erroFormulario && (
@@ -138,7 +185,7 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user }) => {
         <form onSubmit={onSubmit} className="space-y-4">
           <Input label="Nome Completo" placeholder="Ex: Maria Silva" {...register('nome')} error={errors.nome?.message} />
           <Input label="E-mail Institucional" type="email" placeholder="maria.silva@contabilidade.com" {...register('email')} error={errors.email?.message} />
-          <Input label="Senha Inicial" type="password" placeholder="••••••••" {...register('password')} error={errors.password?.message} />
+          <PasswordInput label="Senha Inicial" placeholder="••••••••" {...register('password')} error={errors.password?.message} />
           <Select
             label="Papel / Cargo"
             options={[

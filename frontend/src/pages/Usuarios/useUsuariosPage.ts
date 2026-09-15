@@ -49,9 +49,14 @@ export function useUsuariosPage() {
     onError: (error) => setFormError(getErrorMessage(error)),
   });
 
+  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+
   const statusMutation = useMutation({
-    mutationFn: ({ id, ativo }: { id: string; ativo: boolean }) =>
-      usuariosApi.alterarStatus(id, ativo),
+    mutationFn: ({ id, ativo }: { id: string; ativo: boolean }) => {
+      setTogglingUserId(id);
+      return usuariosApi.alterarStatus(id, ativo);
+    },
+    onSettled: () => setTogglingUserId(null),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.usuarios }),
     onError: (error) => setPageError(getErrorMessage(error)),
   });
@@ -84,6 +89,8 @@ export function useUsuariosPage() {
 
   return {
     usuarios: usersQuery.data ?? [],
+    isLoading: usersQuery.isLoading,
+    refetch: usersQuery.refetch,
     pageError: pageError || (usersQuery.error ? getErrorMessage(usersQuery.error) : null),
     setPageError,
     formError,
@@ -93,7 +100,9 @@ export function useUsuariosPage() {
     closeModal,
     createUser,
     toggleStatus,
+    togglingUserId,
     register: form.register,
+    control: form.control,
     errors: form.formState.errors,
     isSaving: createMutation.isPending,
   };

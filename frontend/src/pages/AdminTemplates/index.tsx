@@ -12,6 +12,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Modal } from '../../components/ui/Modal';
 import { Badge } from '../../components/ui/Badge';
+import { Tabs } from '../../components/ui/Tabs';
 import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
@@ -35,7 +36,10 @@ export const AdminTemplatesPage: React.FC = () => {
     openUploadModal: handleOpenUploadModal,
     selectFile,
     promoteTemplate,
+    promotingId,
     isPromoting,
+    promoteError,
+    setPromoteError,
     uploadTemplate,
     register,
     errors,
@@ -61,31 +65,25 @@ export const AdminTemplatesPage: React.FC = () => {
         }
       />
 
+      {promoteError && (
+        <ErrorAlert
+          title="Erro ao ativar versão"
+          message={promoteError}
+          onDismiss={() => setPromoteError(null)}
+        />
+      )}
+
       {/* Tabs por Tipo de Planilha */}
-      <div className="flex border-b border-slate-200/80 gap-1.5 overflow-x-auto pb-0.5">
-        {tiposPlanilha.map((tipo) => {
-          const isSelected = selectedType === tipo.id;
-          const count = templates.filter((t) => t.tipo === tipo.id).length;
-          return (
-            <button
-              key={tipo.id}
-              onClick={() => setSelectedType(tipo.id)}
-              className={`py-2.5 px-4 text-xs font-bold border-b-2 transition-all duration-150 flex items-center gap-2 cursor-pointer select-none rounded-t-lg shrink-0 ${
-                isSelected
-                  ? 'border-amber-600 text-amber-950 bg-amber-50/60'
-                  : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/60'
-              }`}
-            >
-              <span>{tipo.nome}</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
-                isSelected ? 'bg-amber-200 text-amber-900' : 'bg-slate-200/80 text-slate-700'
-              }`}>
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <Tabs
+        tabs={tiposPlanilha.map((tipo) => ({
+          id: tipo.id,
+          label: tipo.nome,
+          count: templates.filter((t) => t.tipo === tipo.id).length,
+        }))}
+        activeTab={selectedType}
+        onChange={(id) => setSelectedType(id)}
+        ariaLabel="Tipos de Planilha Modelo"
+      />
 
       {/* Main Content */}
       {isLoading ? (
@@ -148,7 +146,8 @@ export const AdminTemplatesPage: React.FC = () => {
                       size="sm"
                       variant="outline"
                       onClick={() => promoteTemplate(template.id)}
-                      isLoading={isPromoting}
+                      isLoading={promotingId === template.id}
+                      disabled={isPromoting}
                       leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                     >
                       Ativar Esta Versão

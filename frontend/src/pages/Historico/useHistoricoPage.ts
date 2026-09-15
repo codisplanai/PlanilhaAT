@@ -36,6 +36,10 @@ export function useHistoricoPage() {
   const [manualDateInput, setManualDateInput] = useState('');
   const [solicitacaoParaExcluir, setSolicitacaoParaExcluir] = useState<Solicitacao | null>(null);
 
+  const [entryDateError, setEntryDateError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   const solicitacoesQuery = useSolicitacoesQuery(empresaFilter, statusFilter);
   const empresasQuery = useEmpresasQuery();
   const empresas = empresasQuery.data ?? [];
@@ -61,9 +65,10 @@ export function useHistoricoPage() {
       });
       setEditingNota(null);
       setManualDateInput('');
+      setEntryDateError(null);
     },
     onError: (error) => {
-      alert(`Erro ao atualizar data de entrada: ${getErrorMessage(error)}`);
+      setEntryDateError(getErrorMessage(error));
     },
   });
 
@@ -75,20 +80,23 @@ export function useHistoricoPage() {
         setSelectedSolicitacaoId(null);
       }
       setSolicitacaoParaExcluir(null);
+      setDeleteError(null);
     },
     onError: (error) => {
-      alert(`Erro ao excluir solicitação: ${getErrorMessage(error)}`);
+      setDeleteError(getErrorMessage(error));
     },
   });
 
   const openEntryDateEditor = (note: NotaFiscalProcessada) => {
     setEditingNota(note);
     setManualDateInput(note.data_entrada ? note.data_entrada.split('T')[0] : '');
+    setEntryDateError(null);
   };
 
   const saveEntryDate = (event: FormEvent) => {
     event.preventDefault();
     if (!selectedSolicitacaoId || !editingNota || !manualDateInput) return;
+    setEntryDateError(null);
     updateEntryDateMutation.mutate({
       solicitacaoId: selectedSolicitacaoId,
       notaId: editingNota.id,
@@ -98,6 +106,7 @@ export function useHistoricoPage() {
 
   const downloadRequest = async (request: Solicitacao) => {
     try {
+      setDownloadError(null);
       const company = empresas.find((item) => item.id === request.empresa_id);
       const companyName = company
         ? company.razao_social.slice(0, 15).replace(/\s+/g, '_')
@@ -105,13 +114,14 @@ export function useHistoricoPage() {
       const filename = `Planilha_${request.tipo_planilha}_${companyName}_${request.periodo_inicio.slice(0, 7)}.xlsx`;
       await solicitacoesApi.downloadPlanilha(request.id, filename);
     } catch (error) {
-      alert(getErrorMessage(error));
+      setDownloadError(getErrorMessage(error));
     }
   };
 
   const closeDetails = () => {
     setSelectedSolicitacaoId(null);
     setEditingNota(null);
+    setEntryDateError(null);
   };
 
   return {
@@ -132,6 +142,12 @@ export function useHistoricoPage() {
     setManualDateInput,
     solicitacaoParaExcluir,
     setSolicitacaoParaExcluir,
+    entryDateError,
+    setEntryDateError,
+    deleteError,
+    setDeleteError,
+    downloadError,
+    setDownloadError,
     openEntryDateEditor,
     saveEntryDate,
     isUpdatingEntryDate: updateEntryDateMutation.isPending,

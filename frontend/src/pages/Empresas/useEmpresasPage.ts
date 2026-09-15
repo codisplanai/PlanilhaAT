@@ -46,6 +46,10 @@ export function useEmpresasPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState<Empresa | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [empresaParaExcluir, setEmpresaParaExcluir] = useState<Empresa | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [termoParaRemover, setTermoParaRemover] = useState<Empresa | null>(null);
+  const [removerTermoError, setRemoverTermoError] = useState<string | null>(null);
 
   const empresasQuery = useEmpresasQuery();
   const perfisQuery = usePerfisQuery();
@@ -82,8 +86,12 @@ export function useEmpresasPage() {
   });
   const deleteMutation = useMutation({
     mutationFn: (id: number) => empresasApi.deletar(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.empresas }),
-    onError: (error) => alert(getErrorMessage(error)),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.empresas });
+      setEmpresaParaExcluir(null);
+      setDeleteError(null);
+    },
+    onError: (error) => setDeleteError(getErrorMessage(error)),
   });
 
   const definirTermoAcordo = useMutation({
@@ -105,7 +113,10 @@ export function useEmpresasPage() {
     mutationFn: (empresaId: number) => empresasApi.removerTermoAcordo(empresaId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.empresas });
+      setTermoParaRemover(null);
+      setRemoverTermoError(null);
     },
+    onError: (error) => setRemoverTermoError(getErrorMessage(error)),
   });
 
   const openCreateModal = () => {
@@ -153,14 +164,36 @@ export function useEmpresasPage() {
     }
   });
 
-  const deleteEmpresa = (empresa: Empresa) => {
-    if (
-      window.confirm(
-        `Tem certeza que deseja remover a empresa "${empresa.razao_social}" (${formatCNPJ(empresa.cnpj)})?`,
-      )
-    ) {
-      deleteMutation.mutate(empresa.id);
+  const requestDeleteEmpresa = (empresa: Empresa) => {
+    setDeleteError(null);
+    setEmpresaParaExcluir(empresa);
+  };
+
+  const confirmDeleteEmpresa = () => {
+    if (empresaParaExcluir) {
+      deleteMutation.mutate(empresaParaExcluir.id);
     }
+  };
+
+  const cancelDeleteEmpresa = () => {
+    setEmpresaParaExcluir(null);
+    setDeleteError(null);
+  };
+
+  const requestRemoverTermo = (empresa: Empresa) => {
+    setRemoverTermoError(null);
+    setTermoParaRemover(empresa);
+  };
+
+  const confirmRemoverTermo = () => {
+    if (termoParaRemover) {
+      removerTermoAcordo.mutate(termoParaRemover.id);
+    }
+  };
+
+  const cancelRemoverTermo = () => {
+    setTermoParaRemover(null);
+    setRemoverTermoError(null);
   };
 
   const filteredEmpresas = empresas.filter((empresa) => {
@@ -190,10 +223,23 @@ export function useEmpresasPage() {
     editingEmpresa,
     errorMessage,
     setErrorMessage,
+    empresaParaExcluir,
+    deleteError,
+    setDeleteError,
+    termoParaRemover,
+    removerTermoError,
+    setRemoverTermoError,
+    requestDeleteEmpresa,
+    confirmDeleteEmpresa,
+    cancelDeleteEmpresa,
+    isDeletingEmpresa: deleteMutation.isPending,
+    requestRemoverTermo,
+    confirmRemoverTermo,
+    cancelRemoverTermo,
+    isRemovendoTermo: removerTermoAcordo.isPending,
     openCreateModal,
     openEditModal,
     closeModal,
-    deleteEmpresa,
     saveEmpresa,
     definirTermoAcordo,
     removerTermoAcordo,

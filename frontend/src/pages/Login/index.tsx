@@ -5,9 +5,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   ArrowRight,
-  Eye,
-  EyeOff,
-  Lock,
   Mail,
   ShieldCheck,
   Sparkles,
@@ -21,6 +18,7 @@ import { CodisplanLogo } from '../../components/ui/CodisplanLogo';
 import { authApi } from '../../api/auth';
 import { getErrorMessage } from '../../api/client';
 import { Button } from '../../components/ui/Button';
+import { PasswordInput } from '../../components/ui/PasswordInput';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import type { User } from '../../types/auth';
 
@@ -41,7 +39,6 @@ interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   const {
@@ -244,49 +241,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
               </div>
 
               {/* Campo: Senha */}
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="login-password"
-                  className="block text-xs font-bold uppercase tracking-wider text-slate-700"
-                >
-                  Senha de Acesso
-                </label>
-                <div className="relative flex items-center">
-                  <div className="absolute left-3.5 pointer-events-none text-slate-400">
-                    <Lock className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="login-password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    {...register('password')}
-                    className={`w-full pl-10 pr-11 py-2.5 text-sm bg-slate-50/50 border rounded-xl shadow-2xs transition-all duration-150 focus:outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 placeholder:text-slate-400 text-slate-900 ${
-                      errors.password
-                        ? 'border-rose-500 bg-rose-50/20'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 text-slate-400 hover:text-slate-700 cursor-pointer p-0.5 rounded-md hover:bg-slate-100 transition-colors"
-                    aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-                    tabIndex={-1}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-                {errors.password && (
-                  <p className="text-xs text-rose-600 font-medium mt-1">
-                    {errors.password.message}
-                  </p>
-                )}
-              </div>
+              <PasswordInput
+                id="login-password"
+                label="Senha de Acesso"
+                placeholder="••••••••"
+                autoComplete="current-password"
+                {...register('password')}
+                error={errors.password?.message}
+              />
 
               {/* Botão de Submissão */}
               <div className="pt-2">

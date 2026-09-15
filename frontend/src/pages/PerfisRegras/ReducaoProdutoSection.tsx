@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Select } from '../../components/ui/Select';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { useReducaoProdutoSection } from './useReducaoProdutoSection';
@@ -29,6 +30,12 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
 
   const [modalRegraAberto, setModalRegraAberto] = useState(false);
   const [regraDaExcecao, setRegraDaExcecao] = useState<RegraReducao | null>(null);
+  const [regraParaExcluir, setRegraParaExcluir] = useState<RegraReducao | null>(null);
+  const [excecaoParaExcluir, setExcecaoParaExcluir] = useState<{
+    regraId: number;
+    excecaoId: number;
+    descricao: string;
+  } | null>(null);
 
   const [ncm, setNcm] = useState('');
   const [inclusao, setInclusao] = useState('');
@@ -46,6 +53,7 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
 
   const submeterRegra = (e: React.FormEvent) => {
     e.preventDefault();
+    setErro(null);
     criarRegra.mutate(
       {
         perfil_regras_id: perfilId,
@@ -62,6 +70,7 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
   const submeterExcecao = (e: React.FormEvent) => {
     e.preventDefault();
     if (!regraDaExcecao) return;
+    setErro(null);
     criarExcecao.mutate(
       {
         regraId: regraDaExcecao.id,
@@ -95,8 +104,6 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
           </Button>
         }
       >
-        {erro && <ErrorAlert message={erro} />}
-
         {regras.data && regras.data.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -130,9 +137,14 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
                             </span>
                             <button
                               type="button"
-                              className="text-slate-400 hover:text-red-600 cursor-pointer"
+                              className="text-slate-400 hover:text-red-600 cursor-pointer p-0.5"
+                              aria-label={`Remover exceção ${exc.descricao_exata}`}
                               onClick={() =>
-                                deletarExcecao.mutate({ regraId: regra.id, excecaoId: exc.id })}
+                                setExcecaoParaExcluir({
+                                  regraId: regra.id,
+                                  excecaoId: exc.id,
+                                  descricao: exc.descricao_exata,
+                                })}
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -151,8 +163,9 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => deletarRegra.mutate(regra.id)}
+                        onClick={() => setRegraParaExcluir(regra)}
                         leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+                        aria-label={`Excluir redução do NCM ${regra.ncm}`}
                       >
                         Excluir
                       </Button>
@@ -177,6 +190,13 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
         subtitle="A regra só se aplica quando o NCM e a descrição do item conferem."
       >
         <form onSubmit={submeterRegra} className="space-y-4">
+          {erro && (
+            <ErrorAlert
+              title="Erro ao cadastrar redução"
+              message={erro}
+              onDismiss={() => setErro(null)}
+            />
+          )}
           <Input
             label="NCM"
             value={ncm}
@@ -231,6 +251,13 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
         subtitle="Avaliada antes dos termos: resolve o caso que a regra erra, sem alterar a regra."
       >
         <form onSubmit={submeterExcecao} className="space-y-4">
+          {erro && (
+            <ErrorAlert
+              title="Erro ao cadastrar exceção"
+              message={erro}
+              onDismiss={() => setErro(null)}
+            />
+          )}
           <div className="flex items-start gap-2 text-xs text-slate-600 bg-slate-50 rounded-lg p-3">
             <TriangleAlert className="w-4 h-4 shrink-0 text-amber-600" />
             <span>
@@ -270,6 +297,43 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(regraParaExcluir)}
+        onClose={() => setRegraParaExcluir(null)}
+        onConfirm={() => {
+          if (regraParaExcluir) {
+            deletarRegra.mutate(regraParaExcluir.id, {
+              onSuccess: () => setRegraParaExcluir(null),
+            });
+          }
+        }}
+        title="Excluir Redução por Produto"
+        message={`Deseja remover permanentemente a redução para o NCM ${regraParaExcluir?.ncm}?`}
+        confirmLabel="Sim, Excluir"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={deletarRegra.isPending}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(excecaoParaExcluir)}
+        onClose={() => setExcecaoParaExcluir(null)}
+        onConfirm={() => {
+          if (excecaoParaExcluir) {
+            deletarExcecao.mutate(
+              { regraId: excecaoParaExcluir.regraId, excecaoId: excecaoParaExcluir.excecaoId },
+              { onSuccess: () => setExcecaoParaExcluir(null) },
+            );
+          }
+        }}
+        title="Remover Exceção de Descrição"
+        message={`Deseja remover a exceção para "${excecaoParaExcluir?.descricao}"?`}
+        confirmLabel="Sim, Remover"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={deletarExcecao.isPending}
+      />
     </>
   );
 };

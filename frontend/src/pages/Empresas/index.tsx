@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
   Building2,
   Plus,
@@ -13,6 +14,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Modal } from '../../components/ui/Modal';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Badge } from '../../components/ui/Badge';
 import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
@@ -21,9 +23,13 @@ import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { formatCNPJ, formatDate, formatPercent, maskCNPJ } from '../../lib/formatters';
 import { UFS_BRASIL } from '../../constants/domain';
+import type { User } from '../../types/auth';
 import { useEmpresasPage } from './useEmpresasPage';
 
 export const EmpresasPage: React.FC = () => {
+  const outlet = useOutletContext<{ user?: User } | null>();
+  const isAdmin = outlet?.user?.role === 'admin';
+
   const {
     empresasQuery: { isLoading, error },
     perfisQuery: { error: perfisError },
@@ -38,13 +44,25 @@ export const EmpresasPage: React.FC = () => {
     editingEmpresa,
     errorMessage,
     setErrorMessage,
+    empresaParaExcluir,
+    deleteError,
+    setDeleteError,
+    termoParaRemover,
+    removerTermoError,
+    setRemoverTermoError,
+    requestDeleteEmpresa,
+    confirmDeleteEmpresa,
+    cancelDeleteEmpresa,
+    isDeletingEmpresa,
+    requestRemoverTermo,
+    confirmRemoverTermo,
+    cancelRemoverTermo,
+    isRemovendoTermo,
     openCreateModal: handleOpenCreateModal,
     openEditModal: handleOpenEditModal,
     closeModal: handleCloseModal,
-    deleteEmpresa: handleDelete,
     saveEmpresa,
     definirTermoAcordo,
-    removerTermoAcordo,
     register,
     errors,
     isSaving,
@@ -92,14 +110,6 @@ export const EmpresasPage: React.FC = () => {
     );
   };
 
-  const handleRemoverTermo = (empresa: typeof filteredEmpresas[0]) => {
-    if (confirm(`Remover termo de acordo da empresa "${empresa.razao_social}"?`)) {
-      removerTermoAcordo.mutate(empresa.id, {
-        onError: (err) => alert(getErrorMessage(err)),
-      });
-    }
-  };
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -119,24 +129,40 @@ export const EmpresasPage: React.FC = () => {
           message={getErrorMessage(perfisError)}
         />
       )}
+      {deleteError && (
+        <ErrorAlert
+          title="Erro ao excluir empresa"
+          message={deleteError}
+          onDismiss={() => setDeleteError(null)}
+        />
+      )}
+      {removerTermoError && (
+        <ErrorAlert
+          title="Erro ao remover termo de acordo"
+          message={removerTermoError}
+          onDismiss={() => setRemoverTermoError(null)}
+        />
+      )}
 
       {/* Filters Bar */}
       <Card className="p-3.5">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             <input
               type="text"
+              aria-label="Buscar por Razão Social, CNPJ ou UF"
               placeholder="Buscar por Razão Social, CNPJ ou UF..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 transition-all text-slate-900 placeholder:text-slate-400"
+              className="w-full pl-9 pr-8 py-2 text-base sm:text-sm min-h-[40px] bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 transition-all text-slate-900 placeholder:text-slate-400"
             />
             {searchTerm && (
               <button
                 type="button"
+                aria-label="Limpar busca"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-1 rounded cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -145,9 +171,10 @@ export const EmpresasPage: React.FC = () => {
 
           <div className="w-full sm:w-52">
             <select
+              aria-label="Filtrar por Estado (UF)"
               value={ufFilter}
               onChange={(e) => setUfFilter(e.target.value)}
-              className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
+              className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
             >
               <option value="">Todas as UFs</option>
               {UFS_BRASIL.map((uf) => (
@@ -259,9 +286,15 @@ export const EmpresasPage: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleRemoverTermo(empresa)}
-                            className="p-1 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer"
-                            title="Remover termo de acordo"
+                            disabled={!isAdmin}
+                            onClick={() => requestRemoverTermo(empresa)}
+                            className={`p-1 rounded transition-colors ${
+                              isAdmin
+                                ? 'text-slate-400 hover:text-rose-700 hover:bg-rose-50 cursor-pointer'
+                                : 'text-slate-300 opacity-40 cursor-not-allowed'
+                            }`}
+                            title={isAdmin ? 'Remover termo de acordo' : 'Exclusão restrita a administradores'}
+                            aria-label={isAdmin ? `Remover termo de acordo da empresa ${empresa.razao_social}` : 'Exclusão restrita a administradores'}
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -304,9 +337,15 @@ export const EmpresasPage: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDelete(empresa)}
-                          className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Remover empresa"
+                          disabled={!isAdmin}
+                          onClick={() => requestDeleteEmpresa(empresa)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isAdmin
+                              ? 'text-slate-400 hover:text-rose-700 hover:bg-rose-50 cursor-pointer'
+                              : 'text-slate-300 opacity-40 cursor-not-allowed'
+                          }`}
+                          title={isAdmin ? 'Remover empresa' : 'Exclusão restrita a administradores'}
+                          aria-label={isAdmin ? `Remover empresa ${empresa.razao_social}` : 'Exclusão restrita a administradores'}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -485,6 +524,32 @@ export const EmpresasPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Confirmação de Exclusão de Empresa */}
+      <ConfirmDialog
+        isOpen={Boolean(empresaParaExcluir)}
+        onClose={cancelDeleteEmpresa}
+        onConfirm={confirmDeleteEmpresa}
+        title="Excluir Empresa"
+        message={`Tem certeza de que deseja remover permanentemente a empresa "${empresaParaExcluir?.razao_social}" (${empresaParaExcluir ? formatCNPJ(empresaParaExcluir.cnpj) : ''})? Esta ação não pode ser desfeita.`}
+        confirmLabel="Sim, Excluir Empresa"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={isDeletingEmpresa}
+      />
+
+      {/* Confirmação de Remoção de Termo de Acordo */}
+      <ConfirmDialog
+        isOpen={Boolean(termoParaRemover)}
+        onClose={cancelRemoverTermo}
+        onConfirm={confirmRemoverTermo}
+        title="Remover Termo de Acordo"
+        message={`Tem certeza de que deseja remover o termo de acordo da empresa "${termoParaRemover?.razao_social}"? A alíquota especial de destino será removida.`}
+        confirmLabel="Sim, Remover Termo"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={isRemovendoTermo}
+      />
     </div>
   );
 };

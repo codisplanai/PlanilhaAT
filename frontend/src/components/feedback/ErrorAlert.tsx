@@ -5,14 +5,25 @@ export interface ErrorAlertProps {
   title?: string;
   message: string;
   onDismiss?: () => void;
+  onRetry?: () => void;
+  retryLabel?: string;
+  onAction?: () => void;
+  actionLabel?: string;
 }
 
 export const ErrorAlert: React.FC<ErrorAlertProps> = ({
   title = 'Inconsistência identificada',
   message,
   onDismiss,
+  onRetry,
+  retryLabel = 'Tentar novamente',
+  onAction,
+  actionLabel,
 }) => {
   if (!message) return null;
+
+  const handleAction = onRetry ?? onAction;
+  const actionText = actionLabel ?? retryLabel;
 
   return (
     <div
@@ -26,6 +37,17 @@ export const ErrorAlert: React.FC<ErrorAlertProps> = ({
       <div className="flex-1 text-xs">
         <h4 className="font-bold text-rose-900 mb-0.5 tracking-tight">{title}</h4>
         <p className="text-rose-700 leading-relaxed break-words">{message}</p>
+        {handleAction && (
+          <div className="mt-2.5">
+            <button
+              type="button"
+              onClick={handleAction}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-100 text-rose-800 hover:bg-rose-200 font-semibold text-xs transition-colors cursor-pointer"
+            >
+              <span>{actionText}</span>
+            </button>
+          </div>
+        )}
       </div>
       {onDismiss && (
         <button

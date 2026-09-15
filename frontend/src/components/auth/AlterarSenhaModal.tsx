@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { isAxiosError } from 'axios';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
+import { PasswordInput } from '../ui/PasswordInput';
 import { authApi } from '../../api/auth';
-import { KeyRound, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { ErrorAlert } from '../feedback/ErrorAlert';
 
 interface AlterarSenhaModalProps {
@@ -15,27 +16,28 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
   const [senhaAtual, setSenhaAtual] = useState('');
   const [novaSenha, setNovaSenha] = useState('');
   const [confirmarSenha, setConfirmarSenha] = useState('');
-  
-  const [showSenhaAtual, setShowSenhaAtual] = useState(false);
-  const [showNovaSenha, setShowNovaSenha] = useState(false);
-  const [showConfirmarSenha, setShowConfirmarSenha] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   const resetForm = () => {
     setSenhaAtual('');
     setNovaSenha('');
     setConfirmarSenha('');
-    setShowSenhaAtual(false);
-    setShowNovaSenha(false);
-    setShowConfirmarSenha(false);
     setError(null);
     setSuccess(false);
   };
 
   const handleClose = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
     resetForm();
     onClose();
   };
@@ -71,7 +73,7 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
         nova_senha: novaSenha,
       });
       setSuccess(true);
-      setTimeout(() => {
+      closeTimerRef.current = window.setTimeout(() => {
         handleClose();
       }, 1800);
     } catch (err) {
@@ -119,99 +121,40 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
           )}
 
           {/* Senha Atual */}
-          <div className="space-y-1.5">
-            <label
-              htmlFor="input-senha-atual"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
-            >
-              Senha Atual
-            </label>
-            <div className="relative">
-              <input
-                id="input-senha-atual"
-                type={showSenhaAtual ? 'text' : 'password'}
-                value={senhaAtual}
-                onChange={(e) => setSenhaAtual(e.target.value)}
-                placeholder="Informe sua senha atual"
-                required
-                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs transition-all duration-150 focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 placeholder:text-slate-400 text-slate-900"
-              />
-              <button
-                type="button"
-                onClick={() => setShowSenhaAtual(!showSenhaAtual)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
-                tabIndex={-1}
-                aria-label={showSenhaAtual ? 'Ocultar senha' : 'Exibir senha'}
-              >
-                {showSenhaAtual ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
+          <PasswordInput
+            id="input-senha-atual"
+            label="Senha Atual"
+            value={senhaAtual}
+            onChange={(e) => setSenhaAtual(e.target.value)}
+            placeholder="Informe sua senha atual"
+            required
+            autoComplete="current-password"
+          />
 
           {/* Nova Senha */}
-          <div className="space-y-1.5">
-            <label
-              htmlFor="input-nova-senha"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
-            >
-              Nova Senha
-            </label>
-            <div className="relative">
-              <input
-                id="input-nova-senha"
-                type={showNovaSenha ? 'text' : 'password'}
-                value={novaSenha}
-                onChange={(e) => setNovaSenha(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
-                required
-                minLength={6}
-                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs transition-all duration-150 focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 placeholder:text-slate-400 text-slate-900"
-              />
-              <button
-                type="button"
-                onClick={() => setShowNovaSenha(!showNovaSenha)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
-                tabIndex={-1}
-                aria-label={showNovaSenha ? 'Ocultar senha' : 'Exibir senha'}
-              >
-                {showNovaSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              A senha deve conter no mínimo 6 caracteres.
-            </p>
-          </div>
+          <PasswordInput
+            id="input-nova-senha"
+            label="Nova Senha"
+            value={novaSenha}
+            onChange={(e) => setNovaSenha(e.target.value)}
+            placeholder="Mínimo 6 caracteres"
+            required
+            minLength={6}
+            helperText="A senha deve conter no mínimo 6 caracteres."
+            autoComplete="new-password"
+          />
 
           {/* Confirmar Nova Senha */}
-          <div className="space-y-1.5">
-            <label
-              htmlFor="input-confirmar-senha"
-              className="block text-xs font-semibold uppercase tracking-wider text-slate-700"
-            >
-              Confirmar Nova Senha
-            </label>
-            <div className="relative">
-              <input
-                id="input-confirmar-senha"
-                type={showConfirmarSenha ? 'text' : 'password'}
-                value={confirmarSenha}
-                onChange={(e) => setConfirmarSenha(e.target.value)}
-                placeholder="Repita a nova senha"
-                required
-                minLength={6}
-                className="w-full pl-3 pr-10 py-2 text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs transition-all duration-150 focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 placeholder:text-slate-400 text-slate-900"
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmarSenha(!showConfirmarSenha)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
-                tabIndex={-1}
-                aria-label={showConfirmarSenha ? 'Ocultar senha' : 'Exibir senha'}
-              >
-                {showConfirmarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
+          <PasswordInput
+            id="input-confirmar-senha"
+            label="Confirmar Nova Senha"
+            value={confirmarSenha}
+            onChange={(e) => setConfirmarSenha(e.target.value)}
+            placeholder="Repita a nova senha"
+            required
+            minLength={6}
+            autoComplete="new-password"
+          />
 
           {/* Actions */}
           <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
@@ -225,9 +168,7 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
             </Button>
             <Button
               type="submit"
-              variant="primary"
               isLoading={loading}
-              leftIcon={<KeyRound className="w-4 h-4" />}
             >
               Salvar Nova Senha
             </Button>

@@ -7,6 +7,7 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   subtitle?: string;
   headerAction?: React.ReactNode;
   interactive?: boolean;
+  bodyPadding?: 'none' | 'sm' | 'md' | 'lg';
 }
 
 export const Card: React.FC<CardProps> = ({
@@ -15,9 +16,17 @@ export const Card: React.FC<CardProps> = ({
   subtitle,
   headerAction,
   interactive = false,
+  bodyPadding = 'md',
   className,
   ...props
 }) => {
+  const paddingClasses = {
+    none: '',
+    sm: 'p-3.5',
+    md: 'p-5',
+    lg: 'p-6 sm:p-7',
+  };
+
   return (
     <div
       className={twMerge(
@@ -38,7 +47,7 @@ export const Card: React.FC<CardProps> = ({
           {headerAction && <div className="shrink-0">{headerAction}</div>}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div className={paddingClasses[bodyPadding]}>{children}</div>
     </div>
   );
 };

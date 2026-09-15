@@ -52,6 +52,12 @@ export const HistoricoPage: React.FC = () => {
     setManualDateInput,
     solicitacaoParaExcluir,
     setSolicitacaoParaExcluir,
+    entryDateError,
+    setEntryDateError,
+    deleteError,
+    setDeleteError,
+    downloadError,
+    setDownloadError,
     openEntryDateEditor: handleOpenEditDataEntrada,
     saveEntryDate: handleSaveDataEntrada,
     isUpdatingEntryDate,
@@ -67,18 +73,37 @@ export const HistoricoPage: React.FC = () => {
       <PageHeader
         icon={<History className="w-5 h-5 text-blue-700" />}
         title="Histórico de Solicitações e Planilhas Geradas"
-        description="Consulte as solicitações realizadas, rebaixe arquivos `.xlsx` preenchidos e confira o detalhamento nota a nota"
+        description="Consulte as solicitações realizadas, baixe novamente os arquivos gerados e confira o detalhamento nota a nota"
       />
       {empresasError && <ErrorAlert message={getErrorMessage(empresasError)} />}
+      {downloadError && (
+        <ErrorAlert
+          title="Falha no Download"
+          message={downloadError}
+          onDismiss={() => setDownloadError(null)}
+        />
+      )}
+      {deleteError && (
+        <ErrorAlert
+          title="Falha na Exclusão"
+          message={deleteError}
+          onDismiss={() => setDeleteError(null)}
+        />
+      )}
 
       {/* Filters Bar */}
       <Card className="p-3.5">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
+            <label htmlFor="filtro-empresa" className="block text-xs font-semibold text-slate-700 mb-1">
+              Empresa
+            </label>
             <select
+              id="filtro-empresa"
+              aria-label="Filtrar por Empresa"
               value={empresaFilter || ''}
               onChange={(e) => setEmpresaFilter(e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
+              className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
             >
               <option value="">Todas as Empresas</option>
               {empresas.map((emp) => (
@@ -90,10 +115,15 @@ export const HistoricoPage: React.FC = () => {
           </div>
 
           <div className="w-full sm:w-52">
+            <label htmlFor="filtro-status" className="block text-xs font-semibold text-slate-700 mb-1">
+              Status
+            </label>
             <select
+              id="filtro-status"
+              aria-label="Filtrar por Status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
+              className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
             >
               <option value="">Todos os Status</option>
               <option value="pendente">Pendente</option>
@@ -309,7 +339,7 @@ export const HistoricoPage: React.FC = () => {
             {/* Totais Consolidados para Conferência */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Notas</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Valor total das notas</span>
                 <span className="text-base font-bold font-mono text-slate-900 tabular-nums">{formatCurrency(totals.notas)}</span>
               </div>
               <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
@@ -472,6 +502,14 @@ export const HistoricoPage: React.FC = () => {
         maxWidth="sm"
       >
         <form onSubmit={handleSaveDataEntrada} className="space-y-4">
+          {entryDateError && (
+            <ErrorAlert
+              title="Falha ao salvar data"
+              message={entryDateError}
+              onDismiss={() => setEntryDateError(null)}
+            />
+          )}
+
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
               Data de Entrada Física no Estabelecimento
@@ -486,6 +524,10 @@ export const HistoricoPage: React.FC = () => {
             <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
               Esta data será salva e indicada com o selo de origem <strong>Manual</strong> para conferência contábil.
             </p>
+          </div>
+
+          <div className="bg-amber-50/90 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-900 leading-relaxed">
+            <strong>Atenção:</strong> Ao alterar a data de entrada contábil desta nota, os arquivos da planilha serão recalculados e gerados novamente com a nova ordenação contábil.
           </div>
 
           <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">

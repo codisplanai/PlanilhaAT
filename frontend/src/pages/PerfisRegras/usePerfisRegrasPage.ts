@@ -58,6 +58,13 @@ export function usePerfisRegrasPage() {
   const [editingRegraCfop, setEditingRegraCfop] = useState<RegraCfopEfetiva | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [perfilParaExcluir, setPerfilParaExcluir] = useState<PerfilRegras | null>(null);
+  const [regraParaExcluir, setRegraParaExcluir] = useState<RegraAliquota | null>(null);
+  const [regraCfopParaExcluir, setRegraCfopParaExcluir] = useState<RegraCfopEfetiva | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [aOriFeedback, setAOriFeedback] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [aOriError, setAOriError] = useState<string | null>(null);
+
   const perfisQuery = usePerfisQuery();
   const perfis = perfisQuery.data ?? [];
   const activePerfil = perfis.find((perfil) => perfil.id === selectedPerfilId) || perfis[0] || null;
@@ -114,8 +121,10 @@ export function usePerfisRegrasPage() {
     onSuccess: async () => {
       await invalidatePerfis();
       setSelectedPerfilId(null);
+      setPerfilParaExcluir(null);
+      setDeleteError(null);
     },
-    onError: (error) => alert(getErrorMessage(error)),
+    onError: (error) => setDeleteError(getErrorMessage(error)),
   });
 
   const createRegraMutation = useMutation({
@@ -137,8 +146,12 @@ export function usePerfisRegrasPage() {
   });
   const deleteRegraMutation = useMutation({
     mutationFn: regrasApi.deletar,
-    onSuccess: invalidateRegras,
-    onError: (error) => alert(getErrorMessage(error)),
+    onSuccess: async () => {
+      await invalidateRegras();
+      setRegraParaExcluir(null);
+      setDeleteError(null);
+    },
+    onError: (error) => setDeleteError(getErrorMessage(error)),
   });
 
   const createRegraCfopMutation = useMutation({
@@ -160,8 +173,12 @@ export function usePerfisRegrasPage() {
   });
   const deleteRegraCfopMutation = useMutation({
     mutationFn: regrasCfopApi.deletar,
-    onSuccess: invalidateRegrasCfop,
-    onError: (error) => alert(getErrorMessage(error)),
+    onSuccess: async () => {
+      await invalidateRegrasCfop();
+      setRegraCfopParaExcluir(null);
+      setDeleteError(null);
+    },
+    onError: (error) => setDeleteError(getErrorMessage(error)),
   });
 
   const openCreatePerfil = () => {
@@ -203,6 +220,8 @@ export function usePerfisRegrasPage() {
 
   const toggleLimitarAliquotaOrigem = async (perfil: PerfilRegras) => {
     const current = Boolean(perfil.configuracoes_extras?.limitar_a_ori_reducoes);
+    setAOriFeedback('saving');
+    setAOriError(null);
     try {
       await updatePerfilMutation.mutateAsync({
         id: perfil.id,
@@ -215,9 +234,47 @@ export function usePerfisRegrasPage() {
           },
         },
       });
-    } catch {
-      // erro mantido na mutation
+      setAOriFeedback('saved');
+      setTimeout(() => {
+        setAOriFeedback((prev) => (prev === 'saved' ? 'idle' : prev));
+      }, 3000);
+    } catch (err) {
+      setAOriFeedback('error');
+      setAOriError(getErrorMessage(err));
     }
+  };
+
+  const confirmDeletePerfil = () => {
+    if (perfilParaExcluir) {
+      deletePerfilMutation.mutate(perfilParaExcluir.id);
+    }
+  };
+
+  const cancelDeletePerfil = () => {
+    setPerfilParaExcluir(null);
+    setDeleteError(null);
+  };
+
+  const confirmDeleteRegra = () => {
+    if (regraParaExcluir) {
+      deleteRegraMutation.mutate(regraParaExcluir.id);
+    }
+  };
+
+  const cancelDeleteRegra = () => {
+    setRegraParaExcluir(null);
+    setDeleteError(null);
+  };
+
+  const confirmDeleteRegraCfop = () => {
+    if (regraCfopParaExcluir) {
+      deleteRegraCfopMutation.mutate(regraCfopParaExcluir.regra_id);
+    }
+  };
+
+  const cancelDeleteRegraCfop = () => {
+    setRegraCfopParaExcluir(null);
+    setDeleteError(null);
   };
 
   const openCreateRegra = (tipo: 'padrao' | 'excecao' = 'padrao') => {
@@ -309,7 +366,9 @@ export function usePerfisRegrasPage() {
     setSelectedPerfilId,
     regrasPadrao: regras.filter((regra) => !regra.ncm),
     regrasExcecao: regras.filter((regra) => Boolean(regra.ncm)),
+    regrasQuery,
     isLoadingRegras: regrasQuery.isLoading,
+    regrasCfopQuery,
     regrasCfopEfetivas: regrasCfopQuery.data ?? [],
     isLoadingRegrasCfop: regrasCfopQuery.isLoading,
     perfilModalOpen,
@@ -323,6 +382,26 @@ export function usePerfisRegrasPage() {
     editingRegraCfop,
     errorMessage,
     setErrorMessage,
+    perfilParaExcluir,
+    setPerfilParaExcluir,
+    confirmDeletePerfil,
+    cancelDeletePerfil,
+    isDeletingPerfil: deletePerfilMutation.isPending,
+    regraParaExcluir,
+    setRegraParaExcluir,
+    confirmDeleteRegra,
+    cancelDeleteRegra,
+    isDeletingRegra: deleteRegraMutation.isPending,
+    regraCfopParaExcluir,
+    setRegraCfopParaExcluir,
+    confirmDeleteRegraCfop,
+    cancelDeleteRegraCfop,
+    isDeletingRegraCfop: deleteRegraCfopMutation.isPending,
+    deleteError,
+    setDeleteError,
+    aOriFeedback,
+    aOriError,
+    setAOriError,
     openCreatePerfil,
     openEditPerfil,
     deletePerfil: deletePerfilMutation.mutate,

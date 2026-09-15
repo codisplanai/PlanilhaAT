@@ -78,10 +78,20 @@ export function useAdminTemplatesPage() {
     defaultValues: getDefaultMapping('antecipacao_parcial'),
   });
 
+  const [promotingId, setPromotingId] = useState<number | null>(null);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
+
   const promoteMutation = useMutation({
-    mutationFn: (id: number) => templatesApi.promover(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.templates }),
-    onError: (error) => alert(getErrorMessage(error)),
+    mutationFn: (id: number) => {
+      setPromotingId(id);
+      return templatesApi.promover(id);
+    },
+    onSettled: () => setPromotingId(null),
+    onSuccess: () => {
+      setPromoteError(null);
+      return queryClient.invalidateQueries({ queryKey: queryKeys.templates });
+    },
+    onError: (error) => setPromoteError(getErrorMessage(error)),
   });
 
   const uploadMutation = useMutation({
@@ -173,7 +183,10 @@ export function useAdminTemplatesPage() {
     openUploadModal,
     selectFile,
     promoteTemplate: promoteMutation.mutate,
-    isPromoting: promoteMutation.isPending,
+    promotingId,
+    isPromoting: promotingId !== null,
+    promoteError,
+    setPromoteError,
     uploadTemplate,
     register: form.register,
     errors: form.formState.errors,

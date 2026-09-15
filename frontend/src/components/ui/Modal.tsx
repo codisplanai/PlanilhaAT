@@ -13,7 +13,7 @@ export interface ModalProps {
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '6xl';
 }
 
-let openModalCount = 0;
+let modalStack: string[] = [];
 let originalOverflow = '';
 
 export const Modal: React.FC<ModalProps> = ({
@@ -24,6 +24,7 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   maxWidth = 'lg',
 }) => {
+  const instanceId = useId();
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -36,11 +37,11 @@ export const Modal: React.FC<ModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    if (openModalCount === 0) {
+    if (modalStack.length === 0) {
       originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
     }
-    openModalCount += 1;
+    modalStack.push(instanceId);
 
     const focusTimer = window.setTimeout(() => {
       if (dialogRef.current?.contains(document.activeElement)) return;
@@ -54,6 +55,9 @@ export const Modal: React.FC<ModalProps> = ({
     }, 50);
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Only the top-most modal in the stack handles keyboard events
+      if (modalStack[modalStack.length - 1] !== instanceId) return;
+
       if (event.key === 'Escape') {
         event.preventDefault();
         onCloseRef.current();
@@ -80,17 +84,24 @@ export const Modal: React.FC<ModalProps> = ({
         first.focus();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.clearTimeout(focusTimer);
       window.removeEventListener('keydown', handleKeyDown);
-      openModalCount = Math.max(0, openModalCount - 1);
-      if (openModalCount === 0) document.body.style.overflow = originalOverflow;
+      modalStack = modalStack.filter((id) => id !== instanceId);
+      if (modalStack.length === 0) {
+        document.body.style.overflow = originalOverflow;
+      }
       previouslyFocused?.focus();
     };
-  }, [isOpen]);
+  }, [isOpen, instanceId]);
 
   if (!isOpen) return null;
+
+  const stackIndex = Math.max(0, modalStack.indexOf(instanceId));
+  const isTopModal = modalStack[modalStack.length - 1] === instanceId;
+  const zIndex = 50 + stackIndex * 10;
 
   const maxWidths = {
     sm: 'max-w-sm',
@@ -104,8 +115,19 @@ export const Modal: React.FC<ModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/50 backdrop-blur-md animate-fade-in"
-      onMouseDown={(event) => event.target === event.currentTarget && onCloseRef.current()}
+      style={{ zIndex }}
+      aria-hidden={!isTopModal ? 'true' : undefined}
+      className={twMerge(
+        clsx(
+          'fixed inset-0 flex items-center justify-center p-3 sm:p-6 bg-slate-950/50 backdrop-blur-md animate-fade-in',
+          !isTopModal && 'pointer-events-none opacity-90'
+        )
+      )}
+      onMouseDown={(event) => {
+        if (isTopModal && event.target === event.currentTarget) {
+          onCloseRef.current();
+        }
+      }}
     >
       <div
         ref={dialogRef}
@@ -116,7 +138,7 @@ export const Modal: React.FC<ModalProps> = ({
         tabIndex={-1}
         className={twMerge(
           clsx(
-            'w-full bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] animate-scale-in',
+            'w-full bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] animate-scale-in pointer-events-auto',
             maxWidths[maxWidth]
           )
         )}
@@ -136,7 +158,7 @@ export const Modal: React.FC<ModalProps> = ({
             type="button"
             onClick={() => onCloseRef.current()}
             aria-label="Fechar janela"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-600"
           >
             <X className="w-5 h-5" />
           </button>

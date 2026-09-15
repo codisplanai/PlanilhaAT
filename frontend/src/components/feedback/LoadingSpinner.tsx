@@ -23,11 +23,10 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
       className="flex flex-col items-center justify-center py-12 gap-3.5 text-slate-500 animate-fade-in"
     >
       <div className="relative flex items-center justify-center">
-        <div className="absolute inset-0 rounded-full bg-blue-500/10 animate-ping" />
         <Loader2 className={`${sizes[size]} animate-spin text-blue-600`} />
       </div>
       {message && (
-        <p className="text-xs font-semibold text-slate-600 tracking-tight animate-pulse">
+        <p className="text-xs font-semibold text-slate-600 tracking-tight">
           {message}
         </p>
       )}

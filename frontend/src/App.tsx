@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { LoadingSpinner } from './components/feedback/LoadingSpinner';
+import { ErrorBoundary } from './components/feedback/ErrorBoundary';
 import { Layout } from './components/layout/Layout';
 import { AdminRoute } from './components/auth/AdminRoute';
 import { useAuthSession } from './hooks/useAuthSession';
@@ -65,54 +66,56 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Suspense fallback={<LoadingSpinner message="Carregando página..." />}>
-          <Routes>
-            <Route
-              path="/login"
-              element={
-                user ? (
-                  <Navigate to="/" replace />
-                ) : (
-                  <LoginPage onAuthenticated={startSession} />
-                )
-              }
-            />
-
-            <Route
-              element={
-                user ? (
-                  <Layout user={user} onLogout={handleLogout} />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              }
-            >
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/empresas" element={<EmpresasPage />} />
-              <Route path="/perfis-regras" element={<PerfisRegrasPage />} />
-              <Route path="/nova-solicitacao" element={<NovaSolicitacaoPage />} />
-              <Route path="/solicitacoes" element={<HistoricoPage />} />
+        <ErrorBoundary>
+          <Suspense fallback={<LoadingSpinner message="Carregando sistema..." />}>
+            <Routes>
               <Route
-                path="/templates"
+                path="/login"
                 element={
-                  <AdminRoute user={user}>
-                    <AdminTemplatesPage />
-                  </AdminRoute>
+                  user ? (
+                    <Navigate to="/" replace />
+                  ) : (
+                    <LoginPage onAuthenticated={startSession} />
+                  )
                 }
               />
-              <Route
-                path="/usuarios"
-                element={
-                  <AdminRoute user={user}>
-                    <UsuariosPage user={user} />
-                  </AdminRoute>
-                }
-              />
-            </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+              <Route
+                element={
+                  user ? (
+                    <Layout user={user} onLogout={handleLogout} />
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
+              >
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/empresas" element={<EmpresasPage />} />
+                <Route path="/perfis-regras" element={<PerfisRegrasPage />} />
+                <Route path="/nova-solicitacao" element={<NovaSolicitacaoPage />} />
+                <Route path="/solicitacoes" element={<HistoricoPage />} />
+                <Route
+                  path="/templates"
+                  element={
+                    <AdminRoute user={user}>
+                      <AdminTemplatesPage />
+                    </AdminRoute>
+                  }
+                />
+                <Route
+                  path="/usuarios"
+                  element={
+                    <AdminRoute user={user}>
+                      <UsuariosPage user={user} />
+                    </AdminRoute>
+                  }
+                />
+              </Route>
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>
   );

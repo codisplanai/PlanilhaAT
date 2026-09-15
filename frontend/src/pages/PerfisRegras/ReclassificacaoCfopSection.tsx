@@ -4,6 +4,7 @@ import { Plus, Trash2, TriangleAlert } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Select } from '../../components/ui/Select';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { useReclassificacaoCfopSection } from './useReclassificacaoCfopSection';
@@ -29,6 +30,12 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
 
   const [modalRegraAberto, setModalRegraAberto] = useState(false);
   const [regraDaExcecao, setRegraDaExcecao] = useState<RegraReclassificacaoCfop | null>(null);
+  const [regraParaExcluir, setRegraParaExcluir] = useState<RegraReclassificacaoCfop | null>(null);
+  const [excecaoParaExcluir, setExcecaoParaExcluir] = useState<{
+    regraId: number;
+    excecaoId: number;
+    descricao: string;
+  } | null>(null);
 
   const [ncm, setNcm] = useState('');
   const [cfopOrigem, setCfopOrigem] = useState('');
@@ -52,6 +59,7 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
 
   const submeterRegra = (e: React.FormEvent) => {
     e.preventDefault();
+    setErro(null);
     criarRegra.mutate(
       {
         perfil_regras_id: perfilId,
@@ -74,6 +82,7 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
   const submeterExcecao = (e: React.FormEvent) => {
     e.preventDefault();
     if (!regraDaExcecao) return;
+    setErro(null);
     criarExcecao.mutate(
       {
         regraId: regraDaExcecao.id,
@@ -98,16 +107,17 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
     <div className="space-y-4 pt-1">
       <div className="flex justify-between items-center bg-blue-50/40 p-3 rounded-lg border border-blue-100/60">
         <div>
-          <p className="text-xs font-semibold text-blue-950">
-            Reclassificação de CFOP por Produto (NCM + Descrição)
-          </p>
-          <p className="text-[11px] text-slate-500">
-            Corrige o CFOP do item antes do roteamento por planilha. Preserva o 1º dígito (entrada/saída) na planilha gerada.
+          <h4 className="text-xs font-bold text-blue-950 uppercase tracking-wider">
+            Reclassificação de CFOP por NCM / Produto
+          </h4>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Itens que casarem com estas regras terão o CFOP reescrito antes da resolução da planilha.
           </p>
         </div>
         <Button
           size="sm"
           onClick={() => {
+            limparFormRegra();
             setErro(null);
             setModalRegraAberto(true);
           }}
@@ -117,30 +127,28 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
         </Button>
       </div>
 
-      {erro && <ErrorAlert message={erro} onDismiss={() => setErro(null)} />}
-
       {regras.data && regras.data.length > 0 ? (
-        <div className="overflow-x-auto -mx-5 -my-2">
+        <div className="overflow-x-auto">
           <table className="w-full text-left text-xs divide-y divide-slate-100">
             <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="py-3 px-4">NCM</th>
-                <th className="py-3 px-4">CFOP Origem</th>
-                <th className="py-3 px-4">Novo CFOP</th>
-                <th className="py-3 px-4">Termos Inclusão</th>
-                <th className="py-3 px-4">Exclusão</th>
-                <th className="py-3 px-4">Descrição / Motivo</th>
-                <th className="py-3 px-4">Exceções</th>
+                <th className="py-3 px-4 font-mono">NCM</th>
+                <th className="py-3 px-4 font-mono">CFOP Origem</th>
+                <th className="py-3 px-4 font-mono">Novo CFOP</th>
+                <th className="py-3 px-4">Termos de Inclusão</th>
+                <th className="py-3 px-4">Termos de Exclusão</th>
+                <th className="py-3 px-4">Descrição</th>
+                <th className="py-3 px-4">Exceções Específicas</th>
                 <th className="py-3 px-4 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100/80">
               {regras.data.map((regra) => (
-                <tr key={regra.id} className="hover:bg-slate-50/70 transition-colors align-top">
-                  <td className="py-3 px-4 font-mono font-bold text-slate-800">{regra.ncm}</td>
+                <tr key={regra.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="py-3 px-4 font-mono font-bold text-slate-900">{regra.ncm}</td>
                   <td className="py-3 px-4 font-mono text-slate-600">
                     {regra.cfop_origem_sufixo ? (
-                      <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                      <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">
                         {regra.cfop_origem_sufixo}
                       </span>
                     ) : (
@@ -176,8 +184,13 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
                             type="button"
                             className="text-slate-400 hover:text-red-600 cursor-pointer p-0.5"
                             title="Remover exceção"
+                            aria-label={`Remover exceção ${exc.descricao_exata}`}
                             onClick={() =>
-                              deletarExcecao.mutate({ regraId: regra.id, excecaoId: exc.id })
+                              setExcecaoParaExcluir({
+                                regraId: regra.id,
+                                excecaoId: exc.id,
+                                descricao: exc.descricao_exata,
+                              })
                             }
                           >
                             <Trash2 className="w-3 h-3" />
@@ -202,8 +215,9 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
                       size="sm"
                       variant="ghost"
                       className="text-slate-400 hover:text-rose-700"
-                      onClick={() => deletarRegra.mutate(regra.id)}
+                      onClick={() => setRegraParaExcluir(regra)}
                       leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+                      aria-label={`Excluir reclassificação do NCM ${regra.ncm}`}
                     >
                       Excluir
                     </Button>
@@ -227,6 +241,13 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
         subtitle="Altera o CFOP de itens específicos por NCM e descrição antes do roteamento por planilha"
       >
         <form onSubmit={submeterRegra} className="space-y-4">
+          {erro && (
+            <ErrorAlert
+              title="Erro ao cadastrar reclassificação"
+              message={erro}
+              onDismiss={() => setErro(null)}
+            />
+          )}
           <Input
             label="NCM (8 dígitos)"
             value={ncm}
@@ -290,6 +311,13 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
         subtitle="Avaliada com prioridade máxima antes dos termos de descrição"
       >
         <form onSubmit={submeterExcecao} className="space-y-4">
+          {erro && (
+            <ErrorAlert
+              title="Erro ao cadastrar exceção"
+              message={erro}
+              onDismiss={() => setErro(null)}
+            />
+          )}
           <div className="flex items-start gap-2 text-xs text-slate-600 bg-slate-50 rounded-lg p-3">
             <TriangleAlert className="w-4 h-4 shrink-0 text-amber-600" />
             <span>
@@ -328,6 +356,43 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(regraParaExcluir)}
+        onClose={() => setRegraParaExcluir(null)}
+        onConfirm={() => {
+          if (regraParaExcluir) {
+            deletarRegra.mutate(regraParaExcluir.id, {
+              onSuccess: () => setRegraParaExcluir(null),
+            });
+          }
+        }}
+        title="Excluir Reclassificação"
+        message={`Deseja remover permanentemente a reclassificação do NCM ${regraParaExcluir?.ncm} para ${regraParaExcluir?.cfop_destino_sufixo}?`}
+        confirmLabel="Sim, Excluir"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={deletarRegra.isPending}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(excecaoParaExcluir)}
+        onClose={() => setExcecaoParaExcluir(null)}
+        onConfirm={() => {
+          if (excecaoParaExcluir) {
+            deletarExcecao.mutate(
+              { regraId: excecaoParaExcluir.regraId, excecaoId: excecaoParaExcluir.excecaoId },
+              { onSuccess: () => setExcecaoParaExcluir(null) },
+            );
+          }
+        }}
+        title="Remover Exceção de Descrição"
+        message={`Deseja remover a exceção para "${excecaoParaExcluir?.descricao}"?`}
+        confirmLabel="Sim, Remover"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={deletarExcecao.isPending}
+      />
     </div>
   );
 };

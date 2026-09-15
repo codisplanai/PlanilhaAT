@@ -6,6 +6,7 @@ import {
   Trash2,
   Sparkles,
   Zap,
+  Check,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -14,6 +15,8 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Modal } from '../../components/ui/Modal';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { Tabs } from '../../components/ui/Tabs';
 import { Badge } from '../../components/ui/Badge';
 import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
@@ -38,7 +41,9 @@ export const PerfisRegrasPage: React.FC = () => {
     setSelectedPerfilId,
     regrasPadrao,
     regrasExcecao,
+    regrasQuery,
     isLoadingRegras,
+    regrasCfopQuery,
     regrasCfopEfetivas,
     isLoadingRegrasCfop,
     perfilModalOpen,
@@ -52,9 +57,27 @@ export const PerfisRegrasPage: React.FC = () => {
     editingRegraCfop,
     errorMessage,
     setErrorMessage,
+    perfilParaExcluir,
+    setPerfilParaExcluir,
+    confirmDeletePerfil,
+    cancelDeletePerfil,
+    isDeletingPerfil,
+    regraParaExcluir,
+    setRegraParaExcluir,
+    confirmDeleteRegra,
+    cancelDeleteRegra,
+    isDeletingRegra,
+    regraCfopParaExcluir,
+    setRegraCfopParaExcluir,
+    confirmDeleteRegraCfop,
+    cancelDeleteRegraCfop,
+    isDeletingRegraCfop,
+    deleteError,
+    setDeleteError,
+    aOriFeedback,
+    aOriError,
     openCreatePerfil: handleOpenCreatePerfil,
     openEditPerfil: handleOpenEditPerfil,
-    deletePerfil,
     submitPerfil,
     toggleLimitarAliquotaOrigem,
     isTogglingAliquotaOrigem,
@@ -63,7 +86,6 @@ export const PerfisRegrasPage: React.FC = () => {
     isSubmittingPerfil,
     openCreateRegra: handleOpenCreateRegra,
     openEditRegra: handleOpenEditRegra,
-    deleteRegra,
     submitRegra,
     registerRegra,
     errorsRegra,
@@ -71,7 +93,6 @@ export const PerfisRegrasPage: React.FC = () => {
     tipoRegraWatch,
     openCreateRegraCfop: handleOpenCreateRegraCfop,
     openEditRegraCfop: handleOpenEditRegraCfop,
-    deleteRegraCfop,
     submitRegraCfop,
     registerRegraCfop,
     errorsRegraCfop,
@@ -93,6 +114,30 @@ export const PerfisRegrasPage: React.FC = () => {
           </Button>
         }
       />
+
+      {deleteError && (
+        <ErrorAlert
+          title="Falha ao excluir"
+          message={deleteError}
+          onDismiss={() => setDeleteError(null)}
+        />
+      )}
+      {regrasQuery.error && (
+        <ErrorAlert
+          title="Erro ao carregar regras estaduais"
+          message={getErrorMessage(regrasQuery.error)}
+          actionLabel="Tentar novamente"
+          onAction={() => regrasQuery.refetch()}
+        />
+      )}
+      {regrasCfopQuery.error && (
+        <ErrorAlert
+          title="Erro ao carregar regras de CFOP"
+          message={getErrorMessage(regrasCfopQuery.error)}
+          actionLabel="Tentar novamente"
+          onAction={() => regrasCfopQuery.refetch()}
+        />
+      )}
 
       {isLoadingPerfis ? (
         <LoadingSpinner message="Carregando perfis fiscais..." />
@@ -122,8 +167,17 @@ export const PerfisRegrasPage: React.FC = () => {
                 return (
                   <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isSelected}
                     onClick={() => setSelectedPerfilId(p.id)}
-                    className={`p-4 rounded-xl border text-left cursor-pointer transition-all duration-150 ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedPerfilId(p.id);
+                      }
+                    }}
+                    className={`p-4 rounded-xl border text-left cursor-pointer transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-blue-600 ${
                       isSelected
                         ? 'bg-blue-50/80 border-blue-600 shadow-xs ring-2 ring-blue-600/20'
                         : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/60'
@@ -146,6 +200,7 @@ export const PerfisRegrasPage: React.FC = () => {
                           }}
                           className="p-1 rounded-md text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
                           title="Editar perfil"
+                          aria-label={`Editar perfil ${p.nome}`}
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
@@ -154,12 +209,11 @@ export const PerfisRegrasPage: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (confirm(`Deseja remover o perfil "${p.nome}"?`)) {
-                                deletePerfil(p.id);
-                              }
+                              setPerfilParaExcluir(p);
                             }}
                             className="p-1 rounded-md text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
                             title="Remover perfil"
+                            aria-label={`Remover perfil ${p.nome}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -190,54 +244,69 @@ export const PerfisRegrasPage: React.FC = () => {
               </div>
 
               {/* Card de Configuração: Limitação da Alíquota de Origem (A.ORI) a 10% */}
-              <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs transition-all hover:border-slate-300">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm">
-                        Limitar Alíquota de Origem (A.ORI) a 10%
-                      </span>
-                      {Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes) ? (
-                        <Badge variant="success" size="sm">Ativo neste Perfil</Badge>
-                      ) : (
-                        <Badge variant="neutral" size="sm">Inativo</Badge>
-                      )}
+              {(() => {
+                const limitarAori = Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes);
+                return (
+                  <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs transition-all hover:border-slate-300">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">
+                            Limitar Alíquota de Origem (A.ORI) a 10%
+                          </span>
+                          {limitarAori ? (
+                            <Badge variant="success" size="sm">Ativo neste Perfil</Badge>
+                          ) : (
+                            <Badge variant="neutral" size="sm">Inativo</Badge>
+                          )}
+                          {aOriFeedback === 'saving' && (
+                            <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
+                          )}
+                          {aOriFeedback === 'saved' && (
+                            <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Salvo
+                            </span>
+                          )}
+                          {aOriFeedback === 'error' && (
+                            <span className="text-[11px] text-rose-600 font-semibold">
+                              {aOriError || 'Erro ao salvar'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                          Para itens calculados sob <strong>Redução por Produto</strong> ou <strong>Termo de Acordo</strong>,
+                          alíquotas interestaduais superiores a 10% (como 12%) são automaticamente limitadas a <strong>10%</strong> na planilha e no cálculo fiscal (Crédito e Valor Devido). Alíquotas de 7% ou 4% permanecem conforme a nota.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 self-start sm:self-center">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={limitarAori}
+                          disabled={isTogglingAliquotaOrigem}
+                          onClick={() => toggleLimitarAliquotaOrigem(activePerfil)}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                            limitarAori ? 'bg-blue-600' : 'bg-slate-200'
+                          } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                              limitarAori ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
-                      Para itens calculados sob <strong>Redução por Produto</strong> ou <strong>Termo de Acordo</strong>,
-                      alíquotas interestaduais superiores a 10% (como 12%) são automaticamente limitadas a <strong>10%</strong> na planilha e no cálculo fiscal (Crédito e Valor Devido). Alíquotas de 7% ou 4% permanecem conforme a nota.
-                    </p>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0 self-start sm:self-center">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes)}
-                      disabled={isTogglingAliquotaOrigem}
-                      onClick={() => toggleLimitarAliquotaOrigem(activePerfil)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
-                        Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes)
-                          ? 'bg-blue-600'
-                          : 'bg-slate-200'
-                      } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                          Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes)
-                            ? 'translate-x-5'
-                            : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Seção 0: Reduções por Produto (NCM + Descrição) */}
               <ReducaoProdutoSection perfilId={activePerfil.id} />
 
               {/* Seção 1: Regras Padrão por Estado */}
               <Card
+                bodyPadding="none"
                 title={`Alíquotas Padrão por Estado — ${activePerfil.nome}`}
                 subtitle="Alíquota base do estado. Vale quando não há redução por produto, termo de acordo nem exceção de NCM."
                 headerAction={
@@ -252,13 +321,17 @@ export const PerfisRegrasPage: React.FC = () => {
                 }
               >
                 {isLoadingRegras ? (
-                  <LoadingSpinner size="sm" message="Carregando regras estaduais..." />
+                  <div className="p-5">
+                    <LoadingSpinner size="sm" message="Carregando regras estaduais..." />
+                  </div>
                 ) : regrasPadrao.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                    Nenhuma alíquota padrão configurada para este perfil. Clique em "Nova Regra Estadual" para definir a alíquota padrão da UF.
-                  </p>
+                  <div className="p-5">
+                    <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                      Nenhuma alíquota padrão configurada para este perfil. Clique em "Nova Regra Estadual" para definir a alíquota padrão da UF.
+                    </p>
+                  </div>
                 ) : (
-                  <div className="overflow-x-auto -mx-5 -my-5">
+                  <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs divide-y divide-slate-100">
                       <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                         <tr>
@@ -295,18 +368,16 @@ export const PerfisRegrasPage: React.FC = () => {
                                   onClick={() => handleOpenEditRegra(regra)}
                                   className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                                   title="Editar regra"
+                                  aria-label={`Editar regra padrão de ${regra.uf}`}
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    if (confirm(`Remover regra padrão de ${regra.uf}?`)) {
-                                      deleteRegra(regra.id);
-                                    }
-                                  }}
+                                  onClick={() => setRegraParaExcluir(regra)}
                                   className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   title="Remover regra"
+                                  aria-label={`Remover regra padrão de ${regra.uf}`}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -322,6 +393,7 @@ export const PerfisRegrasPage: React.FC = () => {
 
               {/* Seção 2: Exceções por Estado + NCM */}
               <Card
+                bodyPadding="none"
                 title="Exceções Tributárias por NCM"
                 subtitle="Sobrescreve a alíquota padrão do estado. É superada pelas reduções por produto e pelo termo de acordo da empresa."
                 headerAction={
@@ -336,13 +408,17 @@ export const PerfisRegrasPage: React.FC = () => {
                 }
               >
                 {isLoadingRegras ? (
-                  <LoadingSpinner size="sm" message="Carregando exceções..." />
+                  <div className="p-5">
+                    <LoadingSpinner size="sm" message="Carregando exceções..." />
+                  </div>
                 ) : regrasExcecao.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic py-6 text-center bg-purple-50/20 rounded-xl border border-dashed border-purple-200/80">
-                    Nenhuma exceção por NCM configurada. Itens serão calculados pela alíquota padrão da UF.
-                  </p>
+                  <div className="p-5">
+                    <p className="text-xs text-slate-500 italic py-6 text-center bg-purple-50/20 rounded-xl border border-dashed border-purple-200/80">
+                      Nenhuma exceção por NCM configurada. Itens serão calculados pela alíquota padrão da UF.
+                    </p>
+                  </div>
                 ) : (
-                  <div className="overflow-x-auto -mx-5 -my-5">
+                  <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs divide-y divide-purple-100/60">
                       <thead className="bg-purple-50/50 text-purple-900 font-bold uppercase tracking-wider text-[10px]">
                         <tr>
@@ -382,18 +458,16 @@ export const PerfisRegrasPage: React.FC = () => {
                                   onClick={() => handleOpenEditRegra(regra)}
                                   className="p-1.5 text-slate-400 hover:text-purple-800 hover:bg-purple-50 rounded-lg transition-colors cursor-pointer"
                                   title="Editar exceção"
+                                  aria-label={`Editar exceção NCM ${regra.ncm}`}
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    if (confirm(`Remover exceção NCM ${regra.ncm} para ${regra.uf}?`)) {
-                                      deleteRegra(regra.id);
-                                    }
-                                  }}
+                                  onClick={() => setRegraParaExcluir(regra)}
                                   className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   title="Remover exceção"
+                                  aria-label={`Remover exceção NCM ${regra.ncm}`}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -409,6 +483,7 @@ export const PerfisRegrasPage: React.FC = () => {
 
               {/* Seção 3: Roteamento por CFOP -> Planilha */}
               <Card
+                bodyPadding="none"
                 title="Roteamento por CFOP -> Planilha"
                 subtitle="Define em qual planilha cada item da nota entra a partir do CFOP, e reclassifica produtos específicos por NCM"
                 headerAction={
@@ -424,111 +499,102 @@ export const PerfisRegrasPage: React.FC = () => {
                   ) : null
                 }
               >
-                {/* Abas internas do Card de CFOP */}
-                <div className="flex border-b border-slate-200 -mt-1 mb-4 gap-6">
-                  <button
-                    type="button"
-                    onClick={() => setCfopTab('geral')}
-                    className={`pb-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
-                      cfopTab === 'geral'
-                        ? 'border-blue-600 text-blue-900'
-                        : 'border-transparent text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    Roteamento Geral (Sufixo CFOP → Planilha)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCfopTab('reclassificacao')}
-                    className={`pb-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
-                      cfopTab === 'reclassificacao'
-                        ? 'border-blue-600 text-blue-900'
-                        : 'border-transparent text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    Reclassificação por NCM / Produto
-                  </button>
+                <div className="p-5 pb-0">
+                  <Tabs
+                    tabs={[
+                      { id: 'geral', label: 'Roteamento Geral (Sufixo CFOP → Planilha)' },
+                      { id: 'reclassificacao', label: 'Reclassificação por NCM / Produto' },
+                    ]}
+                    activeTab={cfopTab}
+                    onChange={(id) => setCfopTab(id as 'geral' | 'reclassificacao')}
+                    className="mb-4"
+                  />
                 </div>
 
                 {cfopTab === 'geral' && (
                   isLoadingRegrasCfop ? (
-                    <LoadingSpinner size="sm" message="Carregando regras de CFOP..." />
+                    <div className="p-5">
+                      <LoadingSpinner size="sm" message="Carregando regras de CFOP..." />
+                    </div>
                   ) : regrasCfopEfetivas.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                      Nenhuma regra de CFOP cadastrada.
-                    </p>
+                    <div className="p-5">
+                      <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                        Nenhuma regra de CFOP cadastrada.
+                      </p>
+                    </div>
                   ) : (
-                  <div className="overflow-x-auto -mx-5 -my-5">
-                    <table className="w-full text-left text-xs divide-y divide-slate-100">
-                      <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                        <tr>
-                          <th className="py-3 px-4 font-mono">CFOP (sufixo)</th>
-                          <th className="py-3 px-4">Planilha de Destino</th>
-                          <th className="py-3 px-4">Origem</th>
-                          <th className="py-3 px-4">Descrição</th>
-                          <th className="py-3 px-4 text-right">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100/80">
-                        {regrasCfopEfetivas.map((regra) => (
-                          <tr key={regra.cfop_sufixo} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="py-3 px-4">
-                              <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
-                                {regra.cfop_sufixo}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4">
-                              <Badge variant={DESTINO_CFOP_BADGE_VARIANTS[regra.destino]} size="sm">
-                                {DESTINO_CFOP_LABELS[regra.destino]}
-                              </Badge>
-                            </td>
-                            <td className="py-3 px-4">
-                              {regra.origem === 'perfil' ? (
-                                <Badge variant="purple" size="sm">
-                                  <Zap className="w-3 h-3 text-purple-600 shrink-0" />
-                                  <span>Exceção deste perfil</span>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs divide-y divide-slate-100">
+                        <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                          <tr>
+                            <th className="py-3 px-4 font-mono">CFOP (sufixo)</th>
+                            <th className="py-3 px-4">Planilha de Destino</th>
+                            <th className="py-3 px-4">Origem</th>
+                            <th className="py-3 px-4">Descrição</th>
+                            <th className="py-3 px-4 text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100/80">
+                          {regrasCfopEfetivas.map((regra) => (
+                            <tr key={regra.cfop_sufixo} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-3 px-4">
+                                <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
+                                  {regra.cfop_sufixo}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <Badge variant={DESTINO_CFOP_BADGE_VARIANTS[regra.destino]} size="sm">
+                                  {DESTINO_CFOP_LABELS[regra.destino]}
                                 </Badge>
-                              ) : (
-                                <Badge variant="neutral" size="sm">Padrão do sistema</Badge>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-slate-600">
-                              {regra.descricao || '-'}
-                            </td>
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEditRegraCfop(regra)}
-                                  className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                                  title={regra.origem === 'perfil' ? 'Editar exceção' : 'Sobrescrever para este perfil'}
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                {regra.origem === 'perfil' && (
+                              </td>
+                              <td className="py-3 px-4">
+                                {regra.origem === 'perfil' ? (
+                                  <Badge variant="purple" size="sm">
+                                    <Zap className="w-3 h-3 text-purple-600 shrink-0" />
+                                    <span>Exceção deste perfil</span>
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="neutral" size="sm">Padrão do sistema</Badge>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-slate-600">
+                                {regra.descricao || '-'}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1">
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      if (confirm(`Remover a exceção de CFOP ${regra.cfop_sufixo} deste perfil? Voltará a usar o padrão do sistema.`)) {
-                                        deleteRegraCfop(regra.regra_id);
-                                      }
-                                    }}
-                                    className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                    title="Remover exceção"
+                                    onClick={() => handleOpenEditRegraCfop(regra)}
+                                    className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                                    title={regra.origem === 'perfil' ? 'Editar exceção' : 'Sobrescrever para este perfil'}
+                                    aria-label={`Editar regra de CFOP ${regra.cfop_sufixo}`}
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Edit2 className="w-3.5 h-3.5" />
                                   </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ))}
+                                  {regra.origem === 'perfil' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setRegraCfopParaExcluir(regra)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Remover exceção"
+                                      aria-label={`Remover regra de CFOP ${regra.cfop_sufixo}`}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
                 {cfopTab === 'reclassificacao' && (
-                  <ReclassificacaoCfopSection perfilId={activePerfil.id} />
+                  <div className="p-5 pt-0">
+                    <ReclassificacaoCfopSection perfilId={activePerfil.id} />
+                  </div>
                 )}
               </Card>
             </div>
@@ -738,6 +804,45 @@ export const PerfisRegrasPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Confirmação de Exclusão de Perfil */}
+      <ConfirmDialog
+        isOpen={Boolean(perfilParaExcluir)}
+        onClose={cancelDeletePerfil}
+        onConfirm={confirmDeletePerfil}
+        title="Excluir Perfil de Regras"
+        message={`Tem certeza de que deseja remover o perfil "${perfilParaExcluir?.nome}"? Todas as regras deste perfil serão removidas permanentemente.`}
+        confirmLabel="Sim, Excluir Perfil"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={isDeletingPerfil}
+      />
+
+      {/* Confirmação de Exclusão de Regra Alíquota */}
+      <ConfirmDialog
+        isOpen={Boolean(regraParaExcluir)}
+        onClose={cancelDeleteRegra}
+        onConfirm={confirmDeleteRegra}
+        title="Excluir Regra de Alíquota"
+        message={`Tem certeza de que deseja remover a regra para o estado "${regraParaExcluir?.uf}" ${regraParaExcluir?.ncm ? `(NCM ${regraParaExcluir.ncm})` : '(padrão)'}?`}
+        confirmLabel="Sim, Excluir Regra"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={isDeletingRegra}
+      />
+
+      {/* Confirmação de Exclusão de Regra CFOP */}
+      <ConfirmDialog
+        isOpen={Boolean(regraCfopParaExcluir)}
+        onClose={cancelDeleteRegraCfop}
+        onConfirm={confirmDeleteRegraCfop}
+        title="Remover Exceção de CFOP"
+        message={`Tem certeza de que deseja remover a exceção para o CFOP ${regraCfopParaExcluir?.cfop_sufixo}? O roteamento voltará ao padrão do sistema.`}
+        confirmLabel="Sim, Remover Exceção"
+        cancelLabel="Cancelar"
+        variant="danger"
+        isLoading={isDeletingRegraCfop}
+      />
     </div>
   );
 };

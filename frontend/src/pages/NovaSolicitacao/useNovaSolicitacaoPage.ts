@@ -13,7 +13,7 @@ export const REQUEST_STEPS = [
   { num: 1, label: 'Empresa' },
   { num: 2, label: 'Período' },
   { num: 3, label: 'XMLs e Dados' },
-  { num: 4, label: 'Resultado' },
+  { num: 4, label: 'Revisão e resultado' },
 ] as const;
 
 function currentMonthPeriod() {
@@ -36,6 +36,7 @@ export function useNovaSolicitacaoPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultadoSolicitacao, setResultadoSolicitacao] = useState<Solicitacao | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const empresasQuery = useEmpresasQuery();
 
   const filteredEmpresas = (empresasQuery.data ?? []).filter((empresa) => {
@@ -48,12 +49,28 @@ export function useNovaSolicitacaoPage() {
     );
   });
 
+  const validatePeriod = (): boolean => {
+    if (!periodoInicio || !periodoFim) {
+      setErrorMessage('Informe a data inicial e a data final do período de apuração.');
+      return false;
+    }
+    if (periodoFim < periodoInicio) {
+      setErrorMessage('A data final do período não pode ser anterior à data inicial.');
+      return false;
+    }
+    setErrorMessage(null);
+    return true;
+  };
+
+  const advanceFromPeriod = () => {
+    if (validatePeriod()) {
+      setCurrentStep(3);
+    }
+  };
+
   const generateSpreadsheet = async () => {
     if (!selectedEmpresa) return;
-    if (!periodoInicio || !periodoFim || periodoFim < periodoInicio) {
-      setErrorMessage('O período final não pode ser anterior ao período inicial.');
-      return;
-    }
+    if (!validatePeriod()) return;
     if (files.xmlFiles.length === 0 && !files.spedFile) {
       setErrorMessage('Envie os XMLs de NF-e, o arquivo SPED Fiscal, ou ambos.');
       return;
@@ -84,17 +101,19 @@ export function useNovaSolicitacaoPage() {
 
   const downloadSpreadsheet = async (tipo?: TipoPlanilha) => {
     if (!resultadoSolicitacao) return;
+    setDownloadError(null);
     try {
       const companyName = selectedEmpresa?.razao_social.slice(0, 15).replace(/\s+/g, '_') || 'Empresa';
       const filename = `Planilha_${tipo || 'todas'}_${companyName}_${periodoInicio.slice(0, 7)}.xlsx`;
       await solicitacoesApi.downloadPlanilha(resultadoSolicitacao.id, filename, tipo);
     } catch (error) {
-      alert(getErrorMessage(error));
+      setDownloadError(getErrorMessage(error));
     }
   };
 
   const startNewRequest = () => {
     setResultadoSolicitacao(null);
+    setDownloadError(null);
     files.resetFiles();
     setCurrentStep(1);
   };
@@ -115,6 +134,10 @@ export function useNovaSolicitacaoPage() {
     resultadoSolicitacao,
     errorMessage,
     setErrorMessage,
+    downloadError,
+    setDownloadError,
+    advanceFromPeriod,
+    validatePeriod,
     empresasQuery,
     filteredEmpresas,
     generateSpreadsheet,

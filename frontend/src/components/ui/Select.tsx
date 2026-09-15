@@ -35,9 +35,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
       {label && (
         <label
           htmlFor={selectId}
-          className="block text-xs font-semibold uppercase tracking-wider text-slate-700 select-none"
+          className="block text-xs font-semibold text-slate-700 select-none"
         >
           {label}
+          {props.required && <span className="text-rose-500 ml-0.5">*</span>}
         </label>
       )}
       <div className="relative">
@@ -48,7 +49,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(({
           aria-describedby={error || helperText ? messageId : undefined}
           className={twMerge(
             clsx(
-              'w-full pl-3 pr-10 py-2 text-xs sm:text-sm bg-white border rounded-lg shadow-2xs transition-all duration-150 appearance-none cursor-pointer',
+              'w-full pl-3 pr-10 py-2 text-base sm:text-sm min-h-[40px] bg-white border rounded-lg shadow-2xs transition-all duration-150 appearance-none cursor-pointer',
               'focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600',
               'text-slate-900',
               error

@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Building2,
@@ -24,7 +24,7 @@ import {
   formatCompetencia,
 } from '../../lib/formatters';
 import { StatusBadge } from '../../components/domain/StatusBadge';
-import { getPlanilhaLabel } from '../../constants/domain';
+import { getPlanilhaLabel, TIPOS_PLANILHA_OPTIONS } from '../../constants/domain';
 import { CodisplanLogo } from '../../components/ui/CodisplanLogo';
 import {
   useEmpresasQuery,
@@ -34,6 +34,8 @@ import {
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const { data: solicitacoes = [], isLoading: isLoadingSols, error: solicitacoesError } = useSolicitacoesQuery();
   const { data: empresas = [], isLoading: isLoadingEmps, error: empresasError } = useEmpresasQuery();
@@ -49,13 +51,17 @@ export const DashboardPage: React.FC = () => {
   const getEmpresa = (id: number) => empresas.find((e) => e.id === id);
 
   const handleDownload = async (id: string, tipo: string, empId: number, data: string) => {
+    setDownloadError(null);
+    setDownloadingId(id);
     try {
       const emp = getEmpresa(empId);
       const empNome = emp ? emp.razao_social.slice(0, 15).replace(/\s+/g, '_') : 'Empresa';
       const filename = `Planilha_${tipo}_${empNome}_${data.slice(0, 7)}.xlsx`;
       await solicitacoesApi.downloadPlanilha(id, filename);
     } catch (err) {
-      alert(getErrorMessage(err));
+      setDownloadError(getErrorMessage(err));
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -96,6 +102,14 @@ export const DashboardPage: React.FC = () => {
 
       {(solicitacoesError || empresasError || templatesError) && (
         <ErrorAlert message={getErrorMessage(solicitacoesError || empresasError || templatesError)} />
+      )}
+
+      {downloadError && (
+        <ErrorAlert
+          title="Erro ao baixar planilha"
+          message={downloadError}
+          onDismiss={() => setDownloadError(null)}
+        />
       )}
 
       {/* Metrics Cards Grid */}
@@ -152,7 +166,7 @@ export const DashboardPage: React.FC = () => {
                 Modelos de Excel
               </p>
               <p className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
-                {isLoadingTemplates ? '...' : `${templatesAtivos.length}/4`}
+                {isLoadingTemplates ? '...' : `${templatesAtivos.length}/${TIPOS_PLANILHA_OPTIONS.length}`}
               </p>
             </div>
             <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 border border-amber-200/60 flex items-center justify-center shadow-2xs">
@@ -189,6 +203,7 @@ export const DashboardPage: React.FC = () => {
       <Card
         title="Solicitações Recentes de Processamento"
         subtitle="Acompanhamento das últimas planilhas geradas e download direto"
+        bodyPadding="none"
         headerAction={
           <NavLink
             to="/solicitacoes"
@@ -200,27 +215,31 @@ export const DashboardPage: React.FC = () => {
         }
       >
         {isLoadingSols ? (
-          <LoadingSpinner message="Carregando solicitações..." />
+          <div className="p-6 sm:p-8">
+            <LoadingSpinner message="Carregando solicitações..." />
+          </div>
         ) : recentSolicitacoes.length === 0 ? (
-          <EmptyState
-            icon={<FileSpreadsheet className="w-7 h-7 text-blue-700" />}
-            title="Nenhuma planilha gerada ainda"
-            description="Inicie a primeira solicitação para carregar os XMLs de notas fiscais e gerar a planilha Excel."
-            actionLabel="Gerar Primeira Planilha"
-            onAction={() => navigate('/nova-solicitacao')}
-          />
+          <div className="p-6 sm:p-8">
+            <EmptyState
+              icon={<FileSpreadsheet className="w-7 h-7 text-blue-700" />}
+              title="Nenhuma planilha gerada ainda"
+              description="Inicie a primeira solicitação para carregar os XMLs de notas fiscais e gerar a planilha Excel."
+              actionLabel="Gerar Primeira Planilha"
+              onAction={() => navigate('/nova-solicitacao')}
+            />
+          </div>
         ) : (
-          <div className="overflow-x-auto -mx-5 -my-5">
+          <div className="overflow-x-auto">
             <table className="w-full text-left text-xs divide-y divide-slate-100">
               <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
-                  <th className="py-3 px-5">Empresa</th>
-                  <th className="py-3 px-4">Competência</th>
-                  <th className="py-3 px-4">Tipo</th>
-                  <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4 text-center">Notas</th>
-                  <th className="py-3 px-4">Data</th>
-                  <th className="py-3 px-5 text-right">Ação</th>
+                  <th scope="col" className="py-3 px-5">Empresa</th>
+                  <th scope="col" className="py-3 px-4">Competência</th>
+                  <th scope="col" className="py-3 px-4">Tipo</th>
+                  <th scope="col" className="py-3 px-4 text-center">Status</th>
+                  <th scope="col" className="py-3 px-4 text-center">Notas</th>
+                  <th scope="col" className="py-3 px-4">Data</th>
+                  <th scope="col" className="py-3 px-5 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100/80">
@@ -257,6 +276,8 @@ export const DashboardPage: React.FC = () => {
                             size="sm"
                             variant="outline"
                             onClick={() => handleDownload(sol.id, sol.tipo_planilha, sol.empresa_id, sol.periodo_inicio)}
+                            isLoading={downloadingId === sol.id}
+                            disabled={downloadingId !== null}
                             leftIcon={<Download className="w-3.5 h-3.5 text-blue-700" />}
                           >
                             Baixar .xlsx

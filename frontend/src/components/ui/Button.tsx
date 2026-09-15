@@ -39,8 +39,8 @@ export const Button: React.FC<ButtonProps> = ({
   };
 
   const sizes = {
-    sm: 'text-xs px-3 py-1.5 gap-1.5 min-h-[32px]',
-    md: 'text-xs sm:text-sm px-4 py-2 gap-2 min-h-[38px]',
+    sm: 'text-xs px-3 py-1.5 gap-1.5 min-h-[36px]',
+    md: 'text-xs sm:text-sm px-4 py-2 gap-2 min-h-[40px]',
     lg: 'text-sm sm:text-base px-5 py-2.5 gap-2.5 min-h-[44px]',
   };
 
@@ -48,6 +48,7 @@ export const Button: React.FC<ButtonProps> = ({
     <button
       className={twMerge(clsx(baseStyles, variants[variant], sizes[size], className))}
       disabled={disabled || isLoading}
+      aria-busy={isLoading}
       {...props}
     >
       {isLoading ? (

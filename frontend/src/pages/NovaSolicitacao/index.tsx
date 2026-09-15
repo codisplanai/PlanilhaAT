@@ -62,6 +62,9 @@ export const NovaSolicitacaoPage: React.FC = () => {
     resultadoSolicitacao,
     errorMessage,
     setErrorMessage,
+    downloadError,
+    setDownloadError,
+    advanceFromPeriod,
     empresasQuery: { isLoading: isLoadingEmpresas, error: empresasError },
     filteredEmpresas,
     generateSpreadsheet: handleGerarPlanilha,
@@ -99,13 +102,13 @@ export const NovaSolicitacaoPage: React.FC = () => {
       {fileError && <ErrorAlert title="Arquivo não aceito" message={fileError} onDismiss={clearFileError} />}
 
       {/* Modern Stepper Bar */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs">
-        <div className="flex items-center justify-between">
+      <nav aria-label="Etapas da solicitação" className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <ol className="flex items-center justify-between">
           {REQUEST_STEPS.map((s, idx) => {
             const isDone = currentStep > s.num || (currentStep === 4 && resultadoSolicitacao?.status === 'concluido');
             const isCurrent = currentStep === s.num;
             return (
-              <React.Fragment key={s.num}>
+              <li key={s.num} className="flex-1 flex items-center" aria-current={isCurrent ? 'step' : undefined}>
                 <div className="flex items-center gap-2.5">
                   <div
                     className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold transition-all duration-200 select-none ${
@@ -136,11 +139,14 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     }`}
                   />
                 )}
-              </React.Fragment>
+              </li>
             );
           })}
+        </ol>
+        <div className="sm:hidden text-center text-xs font-bold text-blue-900 mt-2.5 pt-2 border-t border-slate-100">
+          Etapa {currentStep} de 4: {REQUEST_STEPS[currentStep - 1]?.label}
         </div>
-      </div>
+      </nav>
 
       {/* Main Content by Step */}
       <Card className="p-6 sm:p-7">
@@ -164,13 +170,14 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 placeholder="Filtrar por Razão Social, CNPJ ou Estado..."
                 value={empresaSearch}
                 onChange={(e) => setEmpresaSearch(e.target.value)}
-                className="w-full pl-9 pr-8 py-2.5 text-xs sm:text-sm bg-slate-50/70 border border-slate-200/90 rounded-xl focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 transition-all text-slate-900 placeholder:text-slate-400"
+                className="w-full pl-9 pr-8 py-2.5 text-base sm:text-sm min-h-[40px] bg-slate-50/70 border border-slate-200/90 rounded-xl focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 transition-all text-slate-900 placeholder:text-slate-400"
               />
               {empresaSearch && (
                 <button
                   type="button"
                   onClick={() => setEmpresaSearch('')}
-                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  aria-label="Limpar filtro de empresa"
+                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -180,40 +187,73 @@ export const NovaSolicitacaoPage: React.FC = () => {
             {isLoadingEmpresas ? (
               <LoadingSpinner message="Carregando empresas cadastradas..." />
             ) : filteredEmpresas.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-                Nenhuma empresa encontrada com o termo pesquisado.
+              <div className="py-8 text-center text-xs text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 space-y-2">
+                <p>
+                  {empresaSearch
+                    ? 'Nenhuma empresa encontrada com o termo pesquisado.'
+                    : 'Nenhuma empresa ativa cadastrada no sistema.'}
+                </p>
+                {empresaSearch && (
+                  <Button size="sm" variant="outline" onClick={() => setEmpresaSearch('')}>
+                    Limpar pesquisa
+                  </Button>
+                )}
               </div>
             ) : (
-              <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+              <div
+                role="radiogroup"
+                aria-label="Lista de empresas para seleção"
+                className="max-h-80 overflow-y-auto space-y-2 pr-1"
+              >
                 {filteredEmpresas.map((empresa) => {
                   const isSelected = selectedEmpresa?.id === empresa.id;
                   return (
                     <div
                       key={empresa.id}
+                      role="radio"
+                      aria-checked={isSelected}
+                      tabIndex={0}
                       onClick={() => setSelectedEmpresa(empresa)}
-                      className={`p-3.5 rounded-xl border transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none ${
+                      onKeyDown={(e) => {
+                        if (e.key === ' ' || e.key === 'Enter') {
+                          e.preventDefault();
+                          setSelectedEmpresa(empresa);
+                        }
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none focus:outline-none focus:ring-2 focus:ring-blue-600 ${
                         isSelected
                           ? 'bg-blue-50/80 border-blue-600 ring-2 ring-blue-600/20 shadow-xs'
                           : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/60'
                       }`}
                     >
-                      <div className="space-y-1">
-                        <div className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
-                          <span>{empresa.razao_social}</span>
-                          <span className="font-bold text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
-                            {empresa.uf}
-                          </span>
-                          {empresa.optante_simples_nacional && (
-                            <span className="font-bold text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
-                              Simples Nacional
-                            </span>
-                          )}
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
+                            isSelected
+                              ? 'border-blue-600 bg-blue-600 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </div>
-                        <div className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center gap-3">
-                          <span>CNPJ: {formatCNPJ(empresa.cnpj)}</span>
-                          {empresa.inscricao_estadual && (
-                            <span className="text-slate-600 font-semibold">• I.E.: {empresa.inscricao_estadual}</span>
-                          )}
+                        <div className="space-y-1">
+                          <div className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
+                            <span>{empresa.razao_social}</span>
+                            <span className="font-bold text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                              {empresa.uf}
+                            </span>
+                            {empresa.optante_simples_nacional && (
+                              <span className="font-bold text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                                Simples Nacional
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center gap-3">
+                            <span>CNPJ: {formatCNPJ(empresa.cnpj)}</span>
+                            {empresa.inscricao_estadual && (
+                              <span className="text-slate-600 font-semibold">• I.E.: {empresa.inscricao_estadual}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -223,7 +263,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                             <CheckCircle2 className="w-3.5 h-3.5" /> Selecionada
                           </span>
                         ) : (
-                          <span className="text-[11px] font-medium text-slate-400 hover:text-slate-600">
+                          <span className="text-[11px] font-medium text-slate-400">
                             Selecionar
                           </span>
                         )}
@@ -281,7 +321,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                <label className="block text-xs font-semibold text-slate-700">
                   Data Inicial do Período
                 </label>
                 <div className="relative">
@@ -289,13 +329,13 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     type="date"
                     value={periodoInicio}
                     onChange={(e) => setPeriodoInicio(e.target.value)}
-                    className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
+                    className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                <label className="block text-xs font-semibold text-slate-700">
                   Data Final do Período
                 </label>
                 <div className="relative">
@@ -304,7 +344,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     value={periodoFim}
                     onChange={(e) => setPeriodoFim(e.target.value)}
                     min={periodoInicio}
-                    className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
+                    className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
                   />
                 </div>
               </div>
@@ -313,7 +353,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
             <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3.5 text-xs text-blue-950 flex items-center gap-2.5">
               <Calendar className="w-4 h-4 text-blue-700 shrink-0" />
               <span>
-                Notas fiscais com data de emissão fora deste intervalo serão bloqueadas pela Camada de Sanidade do backend.
+                Notas fiscais com data de emissão fora deste intervalo são desconsideradas na apuração contábil.
               </span>
             </div>
 
@@ -321,7 +361,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
               <Button variant="outline" onClick={() => setCurrentStep(1)} leftIcon={<ArrowLeft className="w-4 h-4" />}>
                 Voltar
               </Button>
-              <Button onClick={() => setCurrentStep(3)} rightIcon={<ArrowRight className="w-4 h-4" />}>
+              <Button onClick={advanceFromPeriod} rightIcon={<ArrowRight className="w-4 h-4" />}>
                 Avançar: Upload de Arquivos
               </Button>
             </div>
@@ -378,8 +418,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 <p className="text-xs sm:text-sm font-semibold text-slate-800">
                   Arraste os arquivos XML ou pacotes .ZIP aqui, ou <span className="text-blue-700 underline font-bold">clique para selecionar</span>
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Suporta seleção múltipla de XMLs de NF-e ou arquivos compactados (.zip)
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Suporta múltiplos XMLs de NF-e ou arquivos compactados (.zip) • Limite: até 20 MB por arquivo e 100 MB no lote
                 </p>
               </div>
 
@@ -472,8 +512,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   <p className="text-xs sm:text-sm font-semibold text-slate-800">
                     Arraste o arquivo SPED Fiscal (.txt) aqui, ou <span className="text-indigo-700 underline font-bold">clique para selecionar</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Arquivo gerado pelo sistema contábil contendo os registros 0000, 0150, 0200, C100 e C170
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Arquivo de texto (.txt) gerado pelo sistema contendo blocos 0 e C • Limite: até 20 MB
                   </p>
                 </div>
               ) : (
@@ -545,7 +585,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                         Anexar planilha contábil (.xls / .xlsx)
                       </p>
                       <p className="text-[11px] text-emerald-700">
-                        Cruzamento inequívoco por Chave de Acesso ou CNPJ + Série + Número
+                        Cruzamento inequívoco por Chave de Acesso ou CNPJ + Série + Número • Limite: até 20 MB
                       </p>
                     </div>
                   </div>
@@ -579,6 +619,16 @@ export const NovaSolicitacaoPage: React.FC = () => {
               )}
             </div>
 
+            {/* Aviso de Requisitos */}
+            <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-700 space-y-1">
+              <p className="font-bold text-slate-900">Resumo das entradas fornecidas:</p>
+              <ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+                <li>XMLs de NF-e adicionados: <strong>{xmlFiles.length} arquivo(s)</strong></li>
+                <li>SPED Fiscal: <strong>{spedFile ? `Anexado (${spedFile.name})` : 'Não anexado'}</strong></li>
+                <li>Planilha auxiliar: <strong>{planilhaEntradaFile ? `Anexada (${planilhaEntradaFile.name})` : 'Não anexada'}</strong></li>
+              </ul>
+            </div>
+
             <div className="pt-4 border-t border-slate-100 flex justify-between">
               <Button variant="outline" onClick={() => setCurrentStep(2)} leftIcon={<ArrowLeft className="w-4 h-4" />}>
                 Voltar
@@ -588,27 +638,26 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 disabled={xmlFiles.length === 0 && !spedFile}
                 rightIcon={<ArrowRight className="w-4 h-4" />}
               >
-                Avançar: Revisão e Envio
+                Avançar: Revisão e Processamento
               </Button>
             </div>
           </div>
         )}
 
-        {/* ETAPA 4: REVISÃO, PROCESSAMENTO E DOWNLOAD */}
+        {/* ETAPA 4: REVISÃO E PROCESSAMENTO */}
         {currentStep === 4 && (
           <div className="space-y-6 animate-fade-in">
             {!resultadoSolicitacao && (
               <>
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                    Etapa 4: Revisão dos Dados e Geração
+                    Etapa 4: Revisar e Iniciar Apuração
                   </h2>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    Confira as informações antes de executar o motor de cálculo. O sistema roteia cada item pelo CFOP e gera automaticamente as planilhas aplicáveis (Antecipação Parcial, Antecipação Tributária e/ou DIFAL).
+                    Confirme os parâmetros antes de disparar o processamento dos XMLs e regras fiscais.
                   </p>
                 </div>
 
-                {/* Resumo */}
                 <div className="bg-slate-50/70 border border-slate-200/80 rounded-xl p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   <div>
                     <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Empresa Destinatária</span>
@@ -691,30 +740,70 @@ export const NovaSolicitacaoPage: React.FC = () => {
               </>
             )}
 
-            {/* RESULTADO CONCLUÍDO COM SUCESSO */}
+            {/* RESULTADO CONCLUÍDO */}
             {resultadoSolicitacao && (
               <div className="space-y-6 animate-fade-in">
-                <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-6 text-center shadow-xs">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center mx-auto mb-3 shadow-md shadow-emerald-600/20">
-                    <FileCheck2 className="w-7 h-7" />
-                  </div>
-                  <h2 className="text-lg sm:text-xl font-black text-emerald-950 tracking-tight">Planilha(s) Gerada(s) com Sucesso!</h2>
-                  <p className="text-xs text-emerald-800/90 mt-1 max-w-md mx-auto leading-relaxed">
-                    Cada item foi roteado pelo CFOP para a planilha correspondente. Uma mesma NF-e pode aparecer em
-                    mais de uma planilha, cada uma com os valores dos itens daquela natureza.
-                  </p>
+                {downloadError && (
+                  <ErrorAlert
+                    title="Falha no Download"
+                    message={downloadError}
+                    onDismiss={() => setDownloadError(null)}
+                  />
+                )}
 
-                  <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        startNewRequest();
-                      }}
+                {(() => {
+                  const temAvisos = (resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0) ||
+                    (resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => !s.arquivo_path));
+                  const temArquivos = resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => s.arquivo_path);
+
+                  return (
+                    <div
+                      className={`border rounded-2xl p-6 text-center shadow-xs transition-colors ${
+                        temAvisos
+                          ? 'bg-amber-50/90 border-amber-300/80 text-amber-950'
+                          : 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                      }`}
                     >
-                      Gerar Nova Solicitação
-                    </Button>
-                  </div>
-                </div>
+                      <div
+                        className={`w-14 h-14 rounded-2xl text-white flex items-center justify-center mx-auto mb-3 shadow-md ${
+                          temAvisos
+                            ? 'bg-amber-600 shadow-amber-600/20'
+                            : 'bg-emerald-600 shadow-emerald-600/20'
+                        }`}
+                      >
+                        {temAvisos ? <AlertTriangle className="w-7 h-7" /> : <FileCheck2 className="w-7 h-7" />}
+                      </div>
+                      <h2 className="text-lg sm:text-xl font-black tracking-tight">
+                        {temAvisos ? 'Apuração Concluída com Avisos Fiscais' : 'Planilha(s) Gerada(s) com Sucesso!'}
+                      </h2>
+                      <p className={`text-xs mt-1 max-w-md mx-auto leading-relaxed ${temAvisos ? 'text-amber-850' : 'text-emerald-800/90'}`}>
+                        {temAvisos
+                          ? 'Algumas notas ou itens exigiram atenção e foram desconsiderados pelas regras de sanidade, mas os dados válidos foram apurados.'
+                          : 'Cada item foi roteado pelo CFOP para a planilha correspondente. Uma mesma NF-e pode aparecer em mais de uma planilha.'}
+                      </p>
+
+                      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                        {temArquivos && (
+                          <Button
+                            variant="primary"
+                            onClick={() => handleDownload()}
+                            leftIcon={<Download className="w-4 h-4" />}
+                          >
+                            Baixar Todas as Planilhas (.zip)
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            startNewRequest();
+                          }}
+                        >
+                          Gerar Nova Solicitação
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Cards das planilhas geradas por destino */}
                 {resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.length > 0 && (
