@@ -58,96 +58,22 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
         ):
             nf_sped.v_bc_nota = nf_xml.v_bc_nota
 
-    # Se o SPED não possui itens detalhados (ex: SPED sem C170, apenas resumo analítico C190 ou capa C100),
-    # ou possui uma quantidade diferente de itens, mas o XML possui os itens detalhados da SEFAZ,
-    # adota a lista completa de itens do XML. O SPED continua sendo a fonte da data de entrada na capa
-    # da nota, mas agrupamentos contábeis do SPED não podem misturar mercadorias excluídas e tributadas.
-    sped_tem_itens_sinteticos = (
-        not all(it.descricao_confiavel for it in nf_sped.itens)
-        or all(it.ncm in ("", "00000000") for it in nf_sped.itens)
-        or any(it.descricao.startswith("NF-e ") or it.descricao.startswith("Item Analítico") for it in nf_sped.itens)
-    )
-    if nf_xml.itens and (sped_tem_itens_sinteticos or len(nf_sped.itens) != len(nf_xml.itens)):
+    # O XML oficial da SEFAZ é o documento fiscal autorizativo e a fonte fidedigna
+    # para os itens da mercadoria (NCM oficial, descrição da indústria, alíquota de origem
+    # interestadual de ICMS e valores comerciais reais).
+    # O SPED Fiscal é a fonte contábil que comprova a entrada física no estabelecimento
+    # (data_entrada extraída do campo DT_E_S do Registro C100).
+    # Portanto, havendo itens no XML da SEFAZ, adota-se a lista completa e oficial de itens do XML,
+    # preservando a data de entrada e os metadados de escrituração do SPED.
+    if nf_xml.itens:
         nf_sped.itens = [it.copy(deep=True) for it in nf_xml.itens]
+        if nf_xml.v_total_nota > Decimal("0.00"):
+            nf_sped.v_total_nota = nf_xml.v_total_nota
+        if nf_xml.v_bc_nota > Decimal("0.00"):
+            nf_sped.v_bc_nota = nf_xml.v_bc_nota
+        if nf_xml.v_icms_nota > Decimal("0.00"):
+            nf_sped.v_icms_nota = nf_xml.v_icms_nota
         return
-
-    # Se a quantidade de itens no SPED e no XML for igual (correspondência 1:1 direta)
-    if len(nf_sped.itens) == len(nf_xml.itens):
-        for sped_item, xml_item in zip(nf_sped.itens, nf_xml.itens):
-            # Prioriza NCM do XML por ser a classificação fiscal oficial emitida pelo fornecedor e autorizada pela SEFAZ
-            if xml_item.ncm and xml_item.ncm != "00000000":
-                sped_item.ncm = xml_item.ncm
-            if xml_item.cest and not sped_item.cest:
-                sped_item.cest = xml_item.cest
-            if xml_item.descricao and (
-                not sped_item.descricao
-                or sped_item.descricao.startswith("Item ")
-                or not sped_item.descricao_confiavel
-            ):
-                sped_item.descricao = xml_item.descricao
-                sped_item.descricao_confiavel = True
-
-            sped_item.ipi_despesas = xml_item.ipi_despesas
-            if (
-                sped_item.base_calculo == sped_item.v_total
-                and Decimal("0.00") < xml_item.base_calculo < xml_item.v_total
-            ):
-                sped_item.base_calculo = xml_item.base_calculo
-        return
-
-    # Caso a quantidade de itens divirja, enriquece NCM/CEST por correspondência de item_numero
-    xml_by_item = {it.item_numero: it for it in nf_xml.itens}
-    for sped_item in nf_sped.itens:
-        xml_item = xml_by_item.get(sped_item.item_numero)
-        if xml_item:
-            if xml_item.ncm and xml_item.ncm != "00000000":
-                sped_item.ncm = xml_item.ncm
-            if xml_item.cest and not sped_item.cest:
-                sped_item.cest = xml_item.cest
-            if xml_item.descricao and (
-                not sped_item.descricao
-                or sped_item.descricao.startswith("Item ")
-                or not sped_item.descricao_confiavel
-            ):
-                sped_item.descricao = xml_item.descricao
-                sped_item.descricao_confiavel = True
-
-    total_xml_expenses = sum(
-        (item.ipi_despesas for item in nf_xml.itens), Decimal("0.00")
-    )
-    if total_xml_expenses <= Decimal("0.00"):
-        return
-
-    if len(nf_sped.itens) == 1:
-        sped_item = nf_sped.itens[0]
-        sped_item.ipi_despesas = total_xml_expenses
-        if (
-            sped_item.base_calculo == sped_item.v_total
-            and Decimal("0.00") < nf_xml.v_bc_nota < nf_xml.v_total_nota
-        ):
-            sped_item.base_calculo = nf_xml.v_bc_nota
-        if sped_item.descricao.startswith("Item ") and nf_xml.itens:
-            sped_item.descricao = nf_xml.itens[0].descricao or sped_item.descricao
-        return
-
-    distributed_expenses = Decimal("0.00")
-    for sped_item in nf_sped.itens:
-        if Decimal("0.00") < sped_item.base_calculo < sped_item.v_total:
-            sped_item.ipi_despesas = sped_item.v_total - sped_item.base_calculo
-            distributed_expenses += sped_item.ipi_despesas
-
-    if distributed_expenses > Decimal("0.00"):
-        discrepancy = total_xml_expenses - distributed_expenses
-        if Decimal("-0.10") <= discrepancy <= Decimal("0.10") and discrepancy:
-            nf_sped.itens[-1].ipi_despesas += discrepancy
-        return
-
-    total_value = sum((item.v_total for item in nf_sped.itens), Decimal("0.00"))
-    if total_value > Decimal("0.00"):
-        for sped_item in nf_sped.itens:
-            sped_item.ipi_despesas = (
-                sped_item.v_total / total_value
-            ) * total_xml_expenses
 
 
 def ignored_note(

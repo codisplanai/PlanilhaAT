@@ -268,3 +268,64 @@ def test_sped_com_itens_agrupados_adota_detalhamento_do_xml():
     ]
     assert all(item.descricao_confiavel for item in nf_sped.itens)
 
+
+def test_sped_e_xml_mesma_quantidade_adota_itens_e_aliquotas_do_xml():
+    """
+    Mesmo quando o SPED e o XML têm a mesma quantidade de itens, o SPED pode ter
+    ordenação diferente, descrições abreviadas e alíquotas internas incorretas (ex: 0% ou 7%).
+    O XML oficial da SEFAZ deve sempre fornecer a lista autoritativa de itens,
+    enquanto o SPED fornece a data_entrada física.
+    """
+    from datetime import date, datetime
+    from decimal import Decimal
+    from app.services.extraction.base import ExtractedItemNF, ExtractedNFData
+    from app.services.pipeline_helpers import enrich_sped_with_xml
+
+    nf_sped = ExtractedNFData(
+        chave_acesso="28260808369748000178550050006864111452556219",
+        numero_nota="686411",
+        serie="5",
+        cnpj_emitente="08369748000178",
+        uf_emitente="SE",
+        cnpj_destinatario="05159012000187",
+        uf_destinatario="BA",
+        data_emissao=datetime(2026, 8, 12),
+        data_entrada=date(2026, 8, 14),
+        v_total_nota=Decimal("38679.60"),
+        v_bc_nota=Decimal("38679.60"),
+        itens=[
+            ExtractedItemNF(item_numero=1, ncm="11041900", cfop="2102", descricao="MIST BOLO CHOCOLATE",
+                            v_item=Decimal("2495.00"), v_total=Decimal("2495.00"),
+                            base_calculo=Decimal("0.00"), ipi_despesas=Decimal("0.00"),
+                            a_ori=Decimal("0.00")),
+            ExtractedItemNF(item_numero=2, ncm="10059010", cfop="2102", descricao="MILHO PIPOCA",
+                            v_item=Decimal("10528.00"), v_total=Decimal("10528.00"),
+                            base_calculo=Decimal("10528.00"), ipi_despesas=Decimal("0.00"),
+                            a_ori=Decimal("0.07")),
+        ],
+        origem_extracao="sped",
+    )
+
+    nf_xml = nf_sped.copy(deep=True)
+    nf_xml.data_entrada = None
+    nf_xml.origem_extracao = "xml"
+    nf_xml.itens = [
+        ExtractedItemNF(item_numero=1, ncm="19012090", cfop="6101", descricao="MISTURA BOLO MARATA CHOCOLATE",
+                        v_item=Decimal("2495.00"), v_total=Decimal("2495.00"),
+                        base_calculo=Decimal("2495.00"), ipi_despesas=Decimal("0.00"),
+                        a_ori=Decimal("0.12")),
+        ExtractedItemNF(item_numero=2, ncm="10059010", cfop="6101", descricao="MILHO DE PIPOCA MARATA 28X400G",
+                        v_item=Decimal("10528.00"), v_total=Decimal("10528.00"),
+                        base_calculo=Decimal("10528.00"), ipi_despesas=Decimal("0.00"),
+                        a_ori=Decimal("0.12")),
+    ]
+
+    enrich_sped_with_xml(nf_sped, nf_xml)
+
+    assert nf_sped.data_entrada == date(2026, 8, 14)
+    assert nf_sped.itens[0].descricao == "MISTURA BOLO MARATA CHOCOLATE"
+    assert nf_sped.itens[0].ncm == "19012090"
+    assert nf_sped.itens[0].a_ori == Decimal("0.12")
+    assert nf_sped.itens[1].descricao == "MILHO DE PIPOCA MARATA 28X400G"
+    assert nf_sped.itens[1].a_ori == Decimal("0.12")
+
