@@ -1,5 +1,10 @@
 import { apiClient } from './client';
-import type { Solicitacao, SolicitacaoCreate, NotaFiscalProcessada } from '../types/solicitacao';
+import type {
+  Solicitacao,
+  SolicitacaoCreate,
+  NotaFiscalProcessada,
+  PreAnaliseSolicitacao,
+} from '../types/solicitacao';
 
 export const solicitacoesApi = {
   listar: async (params?: { empresa_id?: number; status_filter?: string }): Promise<Solicitacao[]> => {
@@ -14,11 +19,35 @@ export const solicitacoesApi = {
     const { data } = await apiClient.post<Solicitacao>('/solicitacoes', payload);
     return data;
   },
-  processar: async (
+  preAnalisar: async (
     id: string,
     files?: File[],
     planilhaEntradas?: File | null,
     spedFile?: File | null
+  ): Promise<PreAnaliseSolicitacao> => {
+    const formData = new FormData();
+    if (files && files.length > 0) {
+      files.forEach((file) => {
+        formData.append('files', file);
+      });
+    }
+    if (spedFile) {
+      formData.append('sped_file', spedFile);
+    }
+    if (planilhaEntradas) {
+      formData.append('planilha_entradas', planilhaEntradas);
+    }
+    const { data } = await apiClient.post<PreAnaliseSolicitacao>(`/solicitacoes/${id}/pre-analisar`, formData, {
+      timeout: 120_000,
+    });
+    return data;
+  },
+  processar: async (
+    id: string,
+    files?: File[],
+    planilhaEntradas?: File | null,
+    spedFile?: File | null,
+    decisoesBonificacao?: Record<string, boolean>
   ): Promise<Solicitacao> => {
     const formData = new FormData();
     if (files && files.length > 0) {
@@ -31,6 +60,9 @@ export const solicitacoesApi = {
     }
     if (planilhaEntradas) {
       formData.append('planilha_entradas', planilhaEntradas);
+    }
+    if (decisoesBonificacao && Object.keys(decisoesBonificacao).length > 0) {
+      formData.append('decisoes_bonificacao', JSON.stringify(decisoesBonificacao));
     }
     const { data } = await apiClient.post<Solicitacao>(`/solicitacoes/${id}/processar`, formData, {
       timeout: 300_000,

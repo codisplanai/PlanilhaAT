@@ -157,3 +157,21 @@ class SolicitacaoListOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class NotaBonificacaoPendenciaOut(BaseModel):
+    chave_acesso: str
+    numero_nota: str
+    serie: Optional[str] = ""
+    cnpj_emitente: Optional[str] = ""
+    nome_emitente: Optional[str] = ""
+    cfops: List[str] = Field(default_factory=list)
+    valor_total: Decimal
+    tem_credito: bool
+    sugestao_revenda: bool
+    motivo_sugestao: str
+
+
+class PreAnaliseSolicitacaoOut(BaseModel):
+    requer_decisao: bool
+    notas_bonificacao: List[NotaBonificacaoPendenciaOut] = Field(default_factory=list)

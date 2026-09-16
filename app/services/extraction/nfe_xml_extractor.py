@@ -102,6 +102,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
         emit = self._find_elem(inf_nfe, "emit")
         cnpj_emitente = self._get_text(emit, "CNPJ") or self._get_text(emit, "CPF")
         cnpj_emitente = re.sub(r"\D", "", cnpj_emitente)
+        x_nome_emit = self._get_text(emit, "xNome")
         crt_emitente = self._get_text(emit, "CRT")
 
         ender_emit = self._find_elem(emit, "enderEmit")
@@ -132,6 +133,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
         icms_tot = self._find_elem(total_elem, "ICMSTot") if total_elem is not None else None
         v_total_nota = self._get_decimal(icms_tot, "vNF")
         v_bc_nota = self._get_decimal(icms_tot, "vBC")
+        v_icms_nota = self._get_decimal(icms_tot, "vICMS")
 
         # Itens da Nota (<det>)
         itens: list[ExtractedItemNF] = []
@@ -168,9 +170,10 @@ class NFeXMLExtractor(BaseNFEExtractor):
                         v_ipi = self._get_decimal(child, "vIPI")
                         break
 
-            # ICMS do item -> extrai Base de Cálculo (vBC) e Alíquota de Origem (A.ORI / pICMS)
+            # ICMS do item -> extrai Base de Cálculo (vBC), Alíquota de Origem (A.ORI / pICMS) e Valor do ICMS (vICMS)
             v_bc_item = Decimal("0.00")
             p_icms_item = Decimal("0.00")
+            v_icms_item = Decimal("0.00")
             icms_elem = self._find_elem(imposto, "ICMS")
             
             if icms_elem is not None:
@@ -188,6 +191,10 @@ class NFeXMLExtractor(BaseNFEExtractor):
                     
                     if p_val > 0:
                         p_icms_item = p_val
+
+                    v_icms_val = self._get_decimal(icms_group, "vICMS")
+                    if v_icms_val > 0:
+                        v_icms_item = v_icms_val
                     break
 
             # A.ORI em decimal (ex: 12.00% -> 0.1200)
@@ -215,7 +222,8 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 v_total=v_total_item,
                 base_calculo=v_bc_item,
                 ipi_despesas=ipi_despesas,
-                a_ori=a_ori
+                a_ori=a_ori,
+                v_icms=v_icms_item
             ))
 
         # Se houver discrepância e houver apenas 1 item, ajustar v_total_item com v_total_nota
@@ -238,6 +246,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
             data_entrada=data_entrada,
             v_total_nota=v_total_nota,
             v_bc_nota=v_bc_nota,
+            v_icms_nota=v_icms_nota,
             itens=itens,
-            raw_metadata={"qtd_itens": len(itens), "crt": crt_emitente}
+            raw_metadata={"qtd_itens": len(itens), "crt": crt_emitente, "emit_nome": x_nome_emit}
         )

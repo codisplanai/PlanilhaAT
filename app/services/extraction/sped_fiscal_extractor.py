@@ -133,7 +133,8 @@ class SpedFiscalExtractor:
                         v_total=c190["v_opr"] + c190["v_ipi"],
                         base_calculo=c190["base_calculo"],
                         ipi_despesas=c190["v_ipi"],
-                        a_ori=a_ori
+                        a_ori=a_ori,
+                        v_icms=c190.get("v_icms", Decimal("0.00"))
                     ))
 
             # Se ainda assim não houver itens, gera 1 item consolidado da capa C100
@@ -148,13 +149,15 @@ class SpedFiscalExtractor:
                     v_total=current_c100["v_total_nota"],
                     base_calculo=current_c100["v_bc_nota"],
                     ipi_despesas=current_c100["v_ipi_nota"] + current_c100["v_despesas_nota"],
-                    a_ori=Decimal("0.00")
+                    a_ori=Decimal("0.00"),
+                    v_icms=current_c100["v_icms_nota"]
                 ))
 
             # Resolver CNPJ e UF do emitente a partir do cadastro 0150
             cod_part = current_c100.get("cod_part", "")
             part_info = participantes.get(cod_part, {})
             cnpj_emitente = part_info.get("cnpj", "")
+            nome_emitente = part_info.get("nome", "")
             uf_emitente = part_info.get("uf", "")
 
             # Fallback para UF Emitente: primeiros 2 dígitos da Chave de Acesso
@@ -177,13 +180,15 @@ class SpedFiscalExtractor:
                 data_entrada=current_c100.get("data_entrada"),
                 v_total_nota=current_c100["v_total_nota"],
                 v_bc_nota=current_c100["v_bc_nota"],
+                v_icms_nota=current_c100["v_icms_nota"],
                 itens=current_itens,
                 raw_metadata={
                     "origem": "sped_fiscal",
                     "cod_part": cod_part,
                     "qtd_itens": len(current_itens),
                     "dest_ie": dest_ie,
-                    "dest_nome": dest_nome
+                    "dest_nome": dest_nome,
+                    "emit_nome": nome_emitente
                 },
                 origem_extracao="sped"
             )
@@ -333,6 +338,7 @@ class SpedFiscalExtractor:
                 cfop = fields[11].strip() if len(fields) > 11 else ""
                 vl_bc_icms = self._parse_sped_decimal(fields[13] if len(fields) > 13 else "0.00")
                 aliq_icms = self._parse_sped_decimal(fields[14] if len(fields) > 14 else "0.00")
+                vl_icms = self._parse_sped_decimal(fields[15] if len(fields) > 15 else "0.00")
                 vl_ipi = self._parse_sped_decimal(fields[24] if len(fields) > 24 else "0.00")
                 vl_bc_pis = self._parse_sped_decimal(fields[26] if len(fields) > 26 else "0.00")
 
@@ -368,7 +374,8 @@ class SpedFiscalExtractor:
                     v_total=v_total_item,
                     base_calculo=bc_item,
                     ipi_despesas=ipi_despesas_item,
-                    a_ori=a_ori
+                    a_ori=a_ori,
+                    v_icms=vl_icms
                 ))
 
             # 6. Registro C190: Registro Analítico (Fallback)
@@ -377,6 +384,7 @@ class SpedFiscalExtractor:
                 aliq_icms = self._parse_sped_decimal(fields[4] if len(fields) > 4 else "0.00")
                 vl_opr = self._parse_sped_decimal(fields[5] if len(fields) > 5 else "0.00")
                 vl_bc_icms = self._parse_sped_decimal(fields[6] if len(fields) > 6 else "0.00")
+                vl_icms = self._parse_sped_decimal(fields[7] if len(fields) > 7 else "0.00")
                 vl_ipi = self._parse_sped_decimal(fields[11] if len(fields) > 11 else "0.00")
                 if vl_bc_icms > Decimal("0.00"):
                     bc_c190 = vl_bc_icms
@@ -390,6 +398,7 @@ class SpedFiscalExtractor:
                     "a_ori": aliq_icms,
                     "v_opr": vl_opr,
                     "base_calculo": bc_c190,
+                    "v_icms": vl_icms,
                     "v_ipi": ipi_c190
                 })
 

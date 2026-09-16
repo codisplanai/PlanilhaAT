@@ -48,6 +48,9 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
     if "crt" in nf_xml.raw_metadata:
         nf_sped.raw_metadata["crt"] = nf_xml.raw_metadata["crt"]
 
+    if "emit_nome" in nf_xml.raw_metadata and not nf_sped.raw_metadata.get("emit_nome"):
+        nf_sped.raw_metadata["emit_nome"] = nf_xml.raw_metadata["emit_nome"]
+
     if nf_xml.v_bc_nota > Decimal("0.00"):
         if (
             nf_sped.v_bc_nota in (Decimal("0.00"), nf_sped.v_total_nota)

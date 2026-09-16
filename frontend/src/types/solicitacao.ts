@@ -118,3 +118,21 @@ export interface SolicitacaoCreate {
   tipo_planilha?: TipoPlanilha;
   template_id?: number;
 }
+
+export interface NotaBonificacaoPendencia {
+  chave_acesso: string;
+  numero_nota: string;
+  serie?: string;
+  cnpj_emitente?: string;
+  nome_emitente?: string;
+  cfops: string[];
+  valor_total: number;
+  tem_credito: boolean;
+  sugestao_revenda: boolean;
+  motivo_sugestao: string;
+}
+
+export interface PreAnaliseSolicitacao {
+  requer_decisao: boolean;
+  notas_bonificacao: NotaBonificacaoPendencia[];
+}

@@ -1,9 +1,10 @@
 import os
 import io
 import zipfile
+import json
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from typing import List, Optional, Dict
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -18,7 +19,12 @@ from app.models.solicitacao import Solicitacao
 from app.models.empresa import Empresa
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.template_xlsx import TemplateXlsx
-from app.schemas.solicitacao import SolicitacaoCreate, SolicitacaoListOut, SolicitacaoOut
+from app.schemas.solicitacao import (
+    SolicitacaoCreate,
+    SolicitacaoListOut,
+    SolicitacaoOut,
+    PreAnaliseSolicitacaoOut,
+)
 from app.schemas.nota_fiscal import NotaFiscalProcessadaOut, NotaFiscalDataEntradaUpdate
 from app.services.pipeline_service import ProcessingPipelineService
 from app.services.templates_admin.template_manager import TemplateManager
@@ -97,12 +103,55 @@ def criar_solicitacao(
     db.add(solicitacao)
     return commit_and_refresh(db, solicitacao)
 
+@router.post("/{id}/pre-analisar", response_model=PreAnaliseSolicitacaoOut)
+async def pre_analisar_solicitacao(
+    id: str,
+    files: Optional[List[UploadFile]] = File(None, description="Arquivos XML de NF-e a serem analisados"),
+    sped_file: Optional[UploadFile] = File(None, description="Arquivo opcional do SPED Fiscal EFD ICMS/IPI (.txt)"),
+    planilha_entradas: Optional[UploadFile] = File(None, description="Planilha opcional de datas de entrada (.xls/.xlsx)"),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user)
+):
+    solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
+    _authorize_solicitacao(solicitacao, current_user)
+
+    tem_xmls = any(has_upload(file) for file in files or [])
+    tem_sped = has_upload(sped_file)
+    if not tem_xmls and not tem_sped:
+        raise HTTPException(status_code=400, detail="Envie os arquivos XML de NF-e ou um arquivo SPED Fiscal (.txt) para análise.")
+
+    service = ProcessingPipelineService(db)
+    try:
+        xml_files_bytes = await read_xml_uploads(files)
+        sped_bytes, sped_filename = await read_optional_upload(sped_file, allowed_suffixes={".txt"})
+        planilha_bytes, planilha_filename = await read_optional_upload(
+            planilha_entradas,
+            allowed_suffixes={".xls", ".xlsx"},
+        )
+        return await run_in_threadpool(
+            service.pre_analisar,
+            solicitacao_id=id,
+            xml_files_bytes=xml_files_bytes if xml_files_bytes else None,
+            sped_file_bytes=sped_bytes,
+            sped_filename=sped_filename,
+            planilha_entradas_bytes=planilha_bytes,
+            planilha_entradas_filename=planilha_filename,
+        )
+    except PlanilhaATException as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Falha ao pré-analisar solicitação %s", id)
+        raise HTTPException(status_code=500, detail="Falha ao analisar os arquivos.")
+
 @router.post("/{id}/processar", response_model=SolicitacaoOut)
 async def processar_solicitacao(
     id: str,
     files: Optional[List[UploadFile]] = File(None, description="Arquivos XML de NF-e a serem processados"),
     sped_file: Optional[UploadFile] = File(None, description="Arquivo opcional do SPED Fiscal EFD ICMS/IPI (.txt)"),
     planilha_entradas: Optional[UploadFile] = File(None, description="Planilha opcional de datas de entrada do sistema contábil (.xls/.xlsx)"),
+    decisoes_bonificacao: Optional[str] = Form(None, description="JSON string com mapeamento {chave_acesso: bool} de decisões para revenda"),
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user)
 ):
@@ -115,6 +164,15 @@ async def processar_solicitacao(
 
     if not tem_xmls and not tem_sped:
         raise HTTPException(status_code=400, detail="Envie os arquivos XML de NF-e ou um arquivo SPED Fiscal (.txt) para processamento.")
+
+    decisoes_dict: Optional[Dict[str, bool]] = None
+    if decisoes_bonificacao:
+        try:
+            parsed = json.loads(decisoes_bonificacao)
+            if isinstance(parsed, dict):
+                decisoes_dict = {str(k): bool(v) for k, v in parsed.items()}
+        except Exception:
+            logger.warning("Falha ao decodificar decisoes_bonificacao da solicitação %s", id)
 
     service = ProcessingPipelineService(db)
     try:
@@ -136,6 +194,7 @@ async def processar_solicitacao(
             sped_filename=sped_filename,
             planilha_entradas_bytes=planilha_bytes,
             planilha_entradas_filename=planilha_filename,
+            decisoes_bonificacao=decisoes_dict,
         )
         return solicitacao_atualizada
     except PlanilhaATException as exc:

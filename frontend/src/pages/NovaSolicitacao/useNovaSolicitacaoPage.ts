@@ -6,15 +6,20 @@ import { queryKeys } from '../../api/queryKeys';
 import { solicitacoesApi } from '../../api/solicitacoes';
 import { useEmpresasQuery } from '../../hooks/useApiQueries';
 import type { Empresa } from '../../types/empresa';
-import type { Solicitacao, TipoPlanilha } from '../../types/solicitacao';
+import type { Solicitacao, TipoPlanilha, NotaBonificacaoPendencia } from '../../types/solicitacao';
 import { useFiscalInputFiles } from './useFiscalInputFiles';
 
-export const REQUEST_STEPS = [
+export interface RequestStep {
+  num: number;
+  label: string;
+}
+
+export const REQUEST_STEPS: RequestStep[] = [
   { num: 1, label: 'Empresa' },
   { num: 2, label: 'Período' },
-  { num: 3, label: 'XMLs e Dados' },
-  { num: 4, label: 'Revisão e resultado' },
-] as const;
+  { num: 3, label: 'Arquivos' },
+  { num: 4, label: 'Download' },
+];
 
 function currentMonthPeriod() {
   const today = new Date();
@@ -34,6 +39,9 @@ export function useNovaSolicitacaoPage() {
   const [periodoFim, setPeriodoFim] = useState(initialPeriod.end);
   const files = useFiscalInputFiles();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [solicitacaoIdAtiva, setSolicitacaoIdAtiva] = useState<string | null>(null);
+  const [pendenciasBonificacao, setPendenciasBonificacao] = useState<NotaBonificacaoPendencia[]>([]);
+  const [showModalBonificacao, setShowModalBonificacao] = useState(false);
   const [resultadoSolicitacao, setResultadoSolicitacao] = useState<Solicitacao | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -84,6 +92,24 @@ export function useNovaSolicitacaoPage() {
         periodo_inicio: periodoInicio,
         periodo_fim: periodoFim,
       });
+      setSolicitacaoIdAtiva(request.id);
+
+      // 1. Pré-análise de bonificação e amostra grátis
+      const preAnalise = await solicitacoesApi.preAnalisar(
+        request.id,
+        files.xmlFiles.length > 0 ? files.xmlFiles : undefined,
+        files.planilhaEntradaFile,
+        files.spedFile ?? undefined,
+      );
+
+      if (preAnalise.requer_decisao && preAnalise.notas_bonificacao.length > 0) {
+        setPendenciasBonificacao(preAnalise.notas_bonificacao);
+        setShowModalBonificacao(true);
+        setIsProcessing(false);
+        return;
+      }
+
+      // Se não houver bonificação/amostra que requer confirmação, processa diretamente
       const processedRequest = await solicitacoesApi.processar(
         request.id,
         files.xmlFiles.length > 0 ? files.xmlFiles : undefined,
@@ -97,6 +123,33 @@ export function useNovaSolicitacaoPage() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const confirmarBonificacoesEProcessar = async (decisoes: Record<string, boolean>) => {
+    if (!solicitacaoIdAtiva) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+    try {
+      const processedRequest = await solicitacoesApi.processar(
+        solicitacaoIdAtiva,
+        files.xmlFiles.length > 0 ? files.xmlFiles : undefined,
+        files.planilhaEntradaFile,
+        files.spedFile ?? undefined,
+        decisoes
+      );
+      setShowModalBonificacao(false);
+      setResultadoSolicitacao(processedRequest);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const cancelarModalBonificacao = () => {
+    setShowModalBonificacao(false);
+    setIsProcessing(false);
   };
 
   const downloadSpreadsheet = async (tipo?: TipoPlanilha) => {
@@ -114,6 +167,9 @@ export function useNovaSolicitacaoPage() {
   const startNewRequest = () => {
     setResultadoSolicitacao(null);
     setDownloadError(null);
+    setSolicitacaoIdAtiva(null);
+    setPendenciasBonificacao([]);
+    setShowModalBonificacao(false);
     files.resetFiles();
     setCurrentStep(1);
   };
@@ -132,6 +188,10 @@ export function useNovaSolicitacaoPage() {
     ...files,
     isProcessing,
     resultadoSolicitacao,
+    pendenciasBonificacao,
+    showModalBonificacao,
+    confirmarBonificacoesEProcessar,
+    cancelarModalBonificacao,
     errorMessage,
     setErrorMessage,
     downloadError,

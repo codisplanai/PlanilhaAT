@@ -31,6 +31,7 @@ import { ItensExcluidosSection } from '../../components/domain/ItensExcluidosSec
 import { AvisosAvaliacaoSection } from '../../components/domain/AvisosAvaliacaoSection';
 import { getEntryOriginLabel } from '../../constants/domain';
 import { TemplateUpdateBanner } from '../../components/feedback/TemplateUpdateBanner';
+import { ModalConfirmacaoBonificacao } from '../../components/ModalConfirmacaoBonificacao';
 import { formatCNPJ, formatDate, formatCurrency, formatPercent } from '../../lib/formatters';
 import { REQUEST_STEPS, useNovaSolicitacaoPage } from './useNovaSolicitacaoPage';
 
@@ -72,6 +73,10 @@ export const NovaSolicitacaoPage: React.FC = () => {
     generateSpreadsheet: handleGerarPlanilha,
     downloadSpreadsheet: handleDownload,
     startNewRequest,
+    pendenciasBonificacao,
+    showModalBonificacao,
+    confirmarBonificacoesEProcessar,
+    cancelarModalBonificacao,
   } = useNovaSolicitacaoPage();
 
   // Helper presets for quick period selection
@@ -1041,6 +1046,14 @@ export const NovaSolicitacaoPage: React.FC = () => {
           </div>
         )}
       </Card>
+
+      <ModalConfirmacaoBonificacao
+        isOpen={showModalBonificacao}
+        onClose={cancelarModalBonificacao}
+        notas={pendenciasBonificacao}
+        onConfirm={confirmarBonificacoesEProcessar}
+        isProcessing={isProcessing}
+      />
     </div>
   );
 };

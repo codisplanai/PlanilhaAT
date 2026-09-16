@@ -26,6 +26,7 @@ class ExtractedItemNF(BaseModel):
     base_calculo: Decimal # Base de cálculo do ICMS (vBC)
     ipi_despesas: Decimal # IPI + Frete + Seguro + Outras despesas acessórias
     a_ori: Decimal        # Alíquota de origem extraída do XML ou SPED (pICMS / ALIQ_ICMS), ex: 0.12 para 12%
+    v_icms: Decimal = Decimal("0.00")  # Valor do ICMS destacado (crédito) extraído do documento/item
 
 class ExtractedNFData(BaseModel):
     chave_acesso: str = ""
@@ -39,6 +40,7 @@ class ExtractedNFData(BaseModel):
     data_entrada: Optional[date] = None
     v_total_nota: Decimal
     v_bc_nota: Decimal
+    v_icms_nota: Decimal = Decimal("0.00")
     itens: List[ExtractedItemNF]
     raw_metadata: Dict[str, Any] = Field(default_factory=dict)
     origem_extracao: str = "xml"  # "xml" ou "sped"

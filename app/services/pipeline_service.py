@@ -49,6 +49,9 @@ from app.services.pipeline_helpers import (
 )
 
 
+SUFIXOS_BONIFICACAO_AMOSTRA = {"910", "911"}
+
+
 class ProcessingPipelineService:
     """
     Orquestrador completo de processamento:
@@ -85,6 +88,98 @@ class ProcessingPipelineService:
     def regenerate_outputs(self, solicitacao: Solicitacao) -> None:
         self.output_service.regenerate(solicitacao)
 
+    @staticmethod
+    def detect_bonificacoes(notes: List[Tuple[str, ExtractedNFData]]) -> List[Dict[str, Any]]:
+        pendencias = []
+        for filename, nf_data in notes:
+            bonif_items = [
+                it for it in nf_data.itens
+                if re.sub(r"\D", "", it.cfop or "")[-3:] in SUFIXOS_BONIFICACAO_AMOSTRA
+            ]
+            if not bonif_items:
+                continue
+
+            cfops = sorted(list({it.cfop for it in bonif_items if it.cfop}))
+            valor_total = sum((it.v_total for it in bonif_items), Decimal("0.00"))
+
+            is_sped = (nf_data.origem_extracao == "sped")
+            has_credit = (
+                nf_data.v_icms_nota > Decimal("0.00")
+                or any(it.v_icms > Decimal("0.00") or (it.base_calculo > Decimal("0.00") and it.a_ori > Decimal("0.00")) for it in bonif_items)
+            )
+
+            if is_sped:
+                motivo = (
+                    f"Crédito de ICMS de R$ {nf_data.v_icms_nota:.2f} identificado no SPED Fiscal"
+                    if has_credit and nf_data.v_icms_nota > 0
+                    else ("Destaque de crédito de ICMS identificado no item do SPED Fiscal" if has_credit else "Sem destaque de crédito no SPED Fiscal")
+                )
+            else:
+                motivo = (
+                    f"Destaque de ICMS próprio de R$ {nf_data.v_icms_nota:.2f} no XML da NF-e"
+                    if has_credit and nf_data.v_icms_nota > 0
+                    else ("Destaque de ICMS próprio identificado no item do XML da NF-e" if has_credit else "Sem destaque de ICMS próprio no XML da NF-e")
+                )
+
+            nome_emitente = nf_data.raw_metadata.get("emit_nome") or ""
+
+            pendencias.append({
+                "chave_acesso": nf_data.chave_acesso,
+                "numero_nota": nf_data.numero_nota,
+                "serie": nf_data.serie or "",
+                "cnpj_emitente": nf_data.cnpj_emitente or "",
+                "nome_emitente": nome_emitente,
+                "cfops": cfops,
+                "valor_total": valor_total,
+                "tem_credito": has_credit,
+                "sugestao_revenda": has_credit,
+                "motivo_sugestao": motivo,
+            })
+        return pendencias
+
+    def pre_analisar(
+        self,
+        solicitacao_id: str,
+        xml_files_bytes: Optional[List[Tuple[str, bytes]]] = None,
+        sped_file_bytes: Optional[bytes] = None,
+        sped_filename: Optional[str] = "sped_fiscal.txt",
+        planilha_entradas_bytes: Optional[bytes] = None,
+        planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx",
+    ) -> Dict[str, Any]:
+        solicitacao = self.db.query(Solicitacao).filter(Solicitacao.id == solicitacao_id).first()
+        if not solicitacao:
+            raise NotFoundException(f"Solicitação ID '{solicitacao_id}' não encontrada.")
+
+        empresa = self.db.query(Empresa).filter(Empresa.id == solicitacao.empresa_id).first()
+        if not empresa:
+            raise NotFoundException(f"Empresa ID '{solicitacao.empresa_id}' não encontrada.")
+
+        sources = self.source_loader.load(
+            solicitacao=solicitacao,
+            empresa=empresa,
+            xml_files=xml_files_bytes,
+            sped_content=sped_file_bytes,
+            sped_filename=sped_filename,
+            entry_sheet_content=planilha_entradas_bytes,
+            entry_sheet_filename=planilha_entradas_filename,
+        )
+
+        notas_filtradas = []
+        for filename, nf_data in sources.notes:
+            uf_fornecedor = (nf_data.uf_emitente or "").strip().upper()
+            uf_empresa_dest = (empresa.uf or "").strip().upper()
+            if uf_fornecedor and uf_empresa_dest and uf_fornecedor == uf_empresa_dest:
+                continue
+            if not SanityChecker.is_within_period(nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim):
+                continue
+            notas_filtradas.append((filename, nf_data))
+
+        pendencias = self.detect_bonificacoes(notas_filtradas)
+        return {
+            "requer_decisao": len(pendencias) > 0,
+            "notas_bonificacao": pendencias,
+        }
+
     def process_solicitacao(
         self,
         solicitacao_id: str,
@@ -92,7 +187,8 @@ class ProcessingPipelineService:
         sped_file_bytes: Optional[bytes] = None,
         sped_filename: Optional[str] = "sped_fiscal.txt",
         planilha_entradas_bytes: Optional[bytes] = None,
-        planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx"
+        planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx",
+        decisoes_bonificacao: Optional[Dict[str, bool]] = None,
     ) -> Solicitacao:
         solicitacao = self.db.query(Solicitacao).filter(Solicitacao.id == solicitacao_id).first()
         if not solicitacao:
@@ -246,6 +342,7 @@ class ProcessingPipelineService:
                 resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoAliquota]] = {}
                 resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoCfop]] = {}
                 info_a_ori: Dict[Tuple[str, Decimal, Decimal, str, str], Dict[str, Any]] = {}
+                itens_bonificacao_desconsiderados: List[Any] = []
 
                 for item in nf_data.itens:
                     resolucao_cfop = self.cfop_resolver.reclassificar_cfop(
@@ -255,10 +352,28 @@ class ProcessingPipelineService:
                         cfop_original=item.cfop,
                     )
                     destino_item = resolucao_cfop.destino
+
+                    # Avaliação de Remessa em Bonificação (6910/2910) e Amostra Grátis (6911/2911)
+                    sufixo_item = re.sub(r"\D", "", item.cfop or "")[-3:]
+                    if sufixo_item in SUFIXOS_BONIFICACAO_AMOSTRA and decisoes_bonificacao is not None:
+                        is_revenda = None
+                        if nf_data.chave_acesso and nf_data.chave_acesso in decisoes_bonificacao:
+                            is_revenda = decisoes_bonificacao[nf_data.chave_acesso]
+                        elif nf_data.numero_nota and str(nf_data.numero_nota) in decisoes_bonificacao:
+                            is_revenda = decisoes_bonificacao[str(nf_data.numero_nota)]
+
+                        if is_revenda is not None:
+                            if is_revenda:
+                                destino_item = ANTECIPACAO_PARCIAL
+                            else:
+                                destino_item = None
+                                itens_bonificacao_desconsiderados.append(item)
+
                     if destino_item is None:
-                        sufixo = re.sub(r"\D", "", item.cfop or "")
-                        sufixo = sufixo[-3:] if len(sufixo) >= 3 else (sufixo or "????")
-                        cfops_sem_regra[sufixo] += 1
+                        if sufixo_item not in SUFIXOS_BONIFICACAO_AMOSTRA or (decisoes_bonificacao is None):
+                            sufixo = re.sub(r"\D", "", item.cfop or "")
+                            sufixo = sufixo[-3:] if len(sufixo) >= 3 else (sufixo or "????")
+                            cfops_sem_regra[sufixo] += 1
                         continue
 
                     if resolucao_cfop.reclassificado:
@@ -444,7 +559,26 @@ class ProcessingPipelineService:
 
                 if not grupos:
                     # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
+                    if itens_bonificacao_desconsiderados:
+                        cfops_str = ", ".join(sorted(list({it.cfop for it in itens_bonificacao_desconsiderados if it.cfop})))
+                        notas_ignoradas.append(
+                            ignored_note(
+                                nf_data,
+                                filename,
+                                f"Operação em bonificação/amostra grátis (CFOP {cfops_str}) não destinada para revenda pelo usuário.",
+                            )
+                        )
                     continue
+
+                if itens_bonificacao_desconsiderados:
+                    for it_desc in itens_bonificacao_desconsiderados:
+                        avisos_avaliacao.append({
+                            "numero_nota": nf_data.numero_nota,
+                            "serie": nf_data.serie,
+                            "item_numero": it_desc.item_numero,
+                            "arquivo": filename,
+                            "aviso": f"Item {it_desc.item_numero} em bonificação/amostra grátis (CFOP {it_desc.cfop}) desconsiderado do cálculo por não ser destinado para revenda.",
+                        })
 
                 qtd_itens_originais = len(nf_data.itens)
                 qtd_itens_classificados = sum(len(v) for v in grupos.values())
@@ -657,6 +791,18 @@ class ProcessingPipelineService:
                     solicitacao.avisos_avaliacao = avisos_avaliacao
                     solicitacao.cfops_sem_regra = {}
                     solicitacao.mensagem_erro = "Nenhum item a recolher na Parcial"
+                    self.db.commit()
+                    self.db.refresh(solicitacao)
+                    return solicitacao
+
+                if any("não destinada para revenda pelo usuário" in str(n.get("motivo", "")) for n in notas_ignoradas):
+                    solicitacao.status = STATUS_CONCLUIDO
+                    solicitacao.total_notas_processadas = 0
+                    solicitacao.notas_ignoradas = notas_ignoradas
+                    solicitacao.itens_excluidos = itens_excluidos
+                    solicitacao.avisos_avaliacao = avisos_avaliacao
+                    solicitacao.cfops_sem_regra = {}
+                    solicitacao.mensagem_erro = "Nenhum item a recolher na Parcial (mercadoria em bonificação/amostra grátis não destinada para revenda)"
                     self.db.commit()
                     self.db.refresh(solicitacao)
                     return solicitacao
