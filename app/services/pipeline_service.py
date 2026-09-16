@@ -13,6 +13,7 @@ from app.core.exceptions import (
     ValidationException, NotFoundException, RuleResolutionException, PlanilhaATException,
 )
 from app.services.extraction.nfe_xml_extractor import NFeXMLExtractor
+from app.services.extraction.base import ExtractedNFData
 from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
 from app.services.extraction.data_entrada_matcher import (
     DataEntradaMatcher,

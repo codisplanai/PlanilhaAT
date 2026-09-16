@@ -196,3 +196,75 @@ def test_sped_sem_c170_adota_itens_e_ncm_do_xml(
     assert nota_901.data_entrada == date(2026, 1, 20)
 
 
+def test_sped_com_itens_agrupados_adota_detalhamento_do_xml():
+    """
+    Quando o SPED possui C170 agrupado em menos linhas que o XML, as regras fiscais
+    precisam ser avaliadas item a item pelo XML. A data de entrada continua no SPED.
+    """
+    from datetime import date, datetime
+    from decimal import Decimal
+    from app.services.extraction.base import ExtractedItemNF, ExtractedNFData
+    from app.services.pipeline_helpers import enrich_sped_with_xml
+
+    nf_sped = ExtractedNFData(
+        chave_acesso="28260808369748000178550050006864111452556219",
+        numero_nota="686411",
+        serie="5",
+        cnpj_emitente="08369748000178",
+        uf_emitente="SE",
+        cnpj_destinatario="05159012000187",
+        uf_destinatario="BA",
+        data_emissao=datetime(2026, 8, 12),
+        data_entrada=date(2026, 8, 14),
+        v_total_nota=Decimal("38679.60"),
+        v_bc_nota=Decimal("38679.60"),
+        itens=[
+            ExtractedItemNF(item_numero=1, ncm="11042300", cfop="2102", descricao="GRUPO 1",
+                            v_item=Decimal("3447.60"), v_total=Decimal("3447.60"),
+                            base_calculo=Decimal("3447.60"), ipi_despesas=Decimal("0.00"),
+                            a_ori=Decimal("0.00")),
+            ExtractedItemNF(item_numero=2, ncm="21039021", cfop="2102", descricao="GRUPO 2",
+                            v_item=Decimal("24704.00"), v_total=Decimal("24704.00"),
+                            base_calculo=Decimal("24704.00"), ipi_despesas=Decimal("0.00"),
+                            a_ori=Decimal("0.12")),
+            ExtractedItemNF(item_numero=3, ncm="10059010", cfop="2102", descricao="GRUPO 3",
+                            v_item=Decimal("10528.00"), v_total=Decimal("10528.00"),
+                            base_calculo=Decimal("10528.00"), ipi_despesas=Decimal("0.00"),
+                            a_ori=Decimal("0.07")),
+        ],
+        origem_extracao="sped",
+    )
+
+    nf_xml = nf_sped.copy(deep=True)
+    nf_xml.data_entrada = None
+    nf_xml.origem_extracao = "xml"
+    nf_xml.itens = [
+        ExtractedItemNF(item_numero=1, ncm="11042300", cfop="6101", descricao="CANJICA",
+                        v_item=Decimal("2986.40"), v_total=Decimal("2986.40"),
+                        base_calculo=Decimal("2986.40"), ipi_despesas=Decimal("0.00"),
+                        a_ori=Decimal("0.12")),
+        ExtractedItemNF(item_numero=2, ncm="21039021", cfop="6101", descricao="COLORIFICO",
+                        v_item=Decimal("7245.00"), v_total=Decimal("7245.00"),
+                        base_calculo=Decimal("7245.00"), ipi_despesas=Decimal("0.00"),
+                        a_ori=Decimal("0.12")),
+        ExtractedItemNF(item_numero=3, ncm="19011020", cfop="6101", descricao="FARINHA LACTEA",
+                        v_item=Decimal("1997.60"), v_total=Decimal("1997.60"),
+                        base_calculo=Decimal("1997.60"), ipi_despesas=Decimal("0.00"),
+                        a_ori=Decimal("0.12")),
+        ExtractedItemNF(item_numero=4, ncm="11022000", cfop="6101", descricao="FARINHA MILHO",
+                        v_item=Decimal("1266.00"), v_total=Decimal("1266.00"),
+                        base_calculo=Decimal("1266.00"), ipi_despesas=Decimal("0.00"),
+                        a_ori=Decimal("0.12")),
+    ]
+
+    enrich_sped_with_xml(nf_sped, nf_xml)
+
+    assert nf_sped.data_entrada == date(2026, 8, 14)
+    assert [item.v_total for item in nf_sped.itens] == [
+        Decimal("2986.40"),
+        Decimal("7245.00"),
+        Decimal("1997.60"),
+        Decimal("1266.00"),
+    ]
+    assert all(item.descricao_confiavel for item in nf_sped.itens)
+

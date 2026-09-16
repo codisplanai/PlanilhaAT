@@ -53,6 +53,13 @@ REGRAS_PADRAO_BAHIA = [
         "motivo": "isencao",
     },
     {
+        "chave_origem": "padrao_ba_milho_pipoca",
+        "mercadoria": "Milho de pipoca",
+        "ncm": "10059010",
+        "termos": ["MILHO", "PIPOCA"],
+        "motivo": "isencao",
+    },
+    {
         "chave_origem": "padrao_ba_feijao",
         "mercadoria": "Feijão",
         "ncm": "07133399",

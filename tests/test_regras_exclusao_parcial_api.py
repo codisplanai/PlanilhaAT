@@ -86,22 +86,23 @@ def test_carga_padrao_bahia_idempotente(client, db_session):
     db_session.commit()
     db_session.refresh(perfil)
 
-    # 1. Primeira carga: 7 regras inseridas
+    # 1. Primeira carga: 8 regras inseridas
     res_carga1 = client.post(
         "/api/v1/regras-exclusao-parcial/carregar-padrao-ba",
         json={"perfil_regras_id": perfil.id},
     )
     assert res_carga1.status_code == 200, res_carga1.text
     dados1 = res_carga1.json()
-    assert dados1["inseridas"] == 7
+    assert dados1["inseridas"] == 8
     assert dados1["existentes"] == 0
-    assert dados1["total"] == 7
+    assert dados1["total"] == 8
 
     ncms_esperados = {
         "02102000",  # Charque
         "19012090",  # Mistura para bolo
         "11041900",  # Flocão de milho
         "11022000",  # Farinha de milho
+        "10059010",  # Milho de pipoca
         "07133399",  # Feijão
         "25010020",  # Sal
         "17019900",  # Açúcar
@@ -109,7 +110,7 @@ def test_carga_padrao_bahia_idempotente(client, db_session):
     ncms_retornados = {r["ncm"] for r in dados1["regras"]}
     assert ncms_retornados == ncms_esperados
 
-    # 2. Segunda carga imediata: 0 inseridas, 7 existentes
+    # 2. Segunda carga imediata: 0 inseridas, 8 existentes
     res_carga2 = client.post(
         "/api/v1/regras-exclusao-parcial/carregar-padrao-ba",
         json={"perfil_regras_id": perfil.id},
@@ -117,8 +118,8 @@ def test_carga_padrao_bahia_idempotente(client, db_session):
     assert res_carga2.status_code == 200
     dados2 = res_carga2.json()
     assert dados2["inseridas"] == 0
-    assert dados2["existentes"] == 7
-    assert dados2["total"] == 7
+    assert dados2["existentes"] == 8
+    assert dados2["total"] == 8
 
 
 def test_reload_seed_preserves_edited_term_scope(client, db_session):
@@ -134,7 +135,7 @@ def test_reload_seed_preserves_edited_term_scope(client, db_session):
     reload = client.post(endpoint + "/carregar-padrao-ba", json={"perfil_regras_id": perfil.id})
     assert reload.status_code == 200
     assert reload.json()["inseridas"] == 0, reload.json()
-    assert reload.json()["total"] == 7
+    assert reload.json()["total"] == 8
 
 
 def test_policy_rejects_non_boolean_values(client, db_session):

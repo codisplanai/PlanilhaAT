@@ -59,14 +59,15 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
             nf_sped.v_bc_nota = nf_xml.v_bc_nota
 
     # Se o SPED não possui itens detalhados (ex: SPED sem C170, apenas resumo analítico C190 ou capa C100),
-    # mas o XML possui os itens detalhados da SEFAZ, adota a lista completa de itens do XML,
-    # preservando a comprovação de entrada (data_entrada) e dados de capa do SPED.
+    # ou possui uma quantidade diferente de itens, mas o XML possui os itens detalhados da SEFAZ,
+    # adota a lista completa de itens do XML. O SPED continua sendo a fonte da data de entrada na capa
+    # da nota, mas agrupamentos contábeis do SPED não podem misturar mercadorias excluídas e tributadas.
     sped_tem_itens_sinteticos = (
         not all(it.descricao_confiavel for it in nf_sped.itens)
         or all(it.ncm in ("", "00000000") for it in nf_sped.itens)
         or any(it.descricao.startswith("NF-e ") or it.descricao.startswith("Item Analítico") for it in nf_sped.itens)
     )
-    if sped_tem_itens_sinteticos and nf_xml.itens:
+    if nf_xml.itens and (sped_tem_itens_sinteticos or len(nf_sped.itens) != len(nf_xml.itens)):
         nf_sped.itens = [it.copy(deep=True) for it in nf_xml.itens]
         return
 
