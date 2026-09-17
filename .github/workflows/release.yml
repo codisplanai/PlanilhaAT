@@ -88,11 +88,6 @@ jobs:
           echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
           echo "Release calculada: v$VERSION ($BUMP)"
 
-  base-images:
-    name: Publish/refresh owned GHCR dependencies
-    needs: version
-    uses: ./.github/workflows/container-bases.yml
-
   tests:
     name: Full release validation
     needs: version
@@ -152,11 +147,12 @@ jobs:
       - name: PWA assets validation
         run: |
           node --check frontend/public/sw.js
+          node --check frontend/public/runtime-config.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
 
   publish:
     name: Build release image and publish GHCR
-    needs: [version, base-images, tests]
+    needs: [version, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -271,7 +267,7 @@ jobs:
           done
 
           if (( failed != 0 )); then
-            echo "::error::After the first package publication, set every PlanilhaAT container package to Public in GitHub Packages, then re-run failed jobs. GHCR packages are private on first publication by default."
+            echo "::error::Set every PlanAut container package to Public in GitHub Packages, then re-run failed jobs."
             exit 1
           fi
 
@@ -376,7 +372,8 @@ jobs:
           - Node base: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-base-node:22-alpine\`
           - Python base: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-base-python:3.12-slim\`
           - PostgreSQL image: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-postgres:16-alpine\`
-          - Production deployment: completed before this release was created.
+          - Production Docker deployment: completed before this release was created.
+          - Vercel production deployment: triggered after this release workflow succeeds when enabled.
 
           ## Release PR
 
