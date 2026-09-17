@@ -155,9 +155,15 @@ if dist_dir.exists():
 
         requested_file = (dist_dir / full_path).resolve()
         if full_path and requested_file.is_relative_to(dist_dir) and requested_file.is_file():
-            return FileResponse(str(requested_file))
+            headers = {}
+            if full_path in {"sw.js", "manifest.webmanifest"}:
+                headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return FileResponse(str(requested_file), headers=headers)
 
         index_file = dist_dir / "index.html"
         if index_file.exists():
-            return FileResponse(str(index_file))
+            return FileResponse(
+                str(index_file),
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
         return {"status": "online", "app": settings.APP_NAME}
