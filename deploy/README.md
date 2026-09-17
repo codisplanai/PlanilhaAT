@@ -1,44 +1,107 @@
-# PlanilhaAT deployment architecture
+# PlanAut deployment architecture
 
-## Official release flow
+## Arquitetura oficial
 
 ```text
 feature/* | fix/* | refactor/* | ci/* | ...
                     |
-                    | PR -> static validation only
+                    | PR -> validação estática (SEM Docker build/release)
                     v
                  develop
                     |
-                    | full tests + production frontend build
-                    | GHCR development image (no GitHub Release)
+                    +--> testes completos
+                    +--> build frontend/PWA
+                    +--> GHCR :develop
+                    +--> GitHub Actions -> Vercel Preview
+                    |                     planaut.dev.codisplan.com.br
+                    |
                     v
           PR release(patch|minor|major)
                     |
                     v
                   main
                     |
-                    +--> refresh owned GHCR base/service images
-                    +--> full tests + PWA validation
-                    +--> release image + SBOM + provenance
-                    +--> anonymous/public GHCR pull check
-                    +--> immutable digest deploy
-                    +--> healthcheck / automatic rollback on failure
-                    +--> Git tag + GitHub Release + release notes/assets
+                    +--> SemVer
+                    +--> testes completos + PWA
+                    +--> imagem release GHCR + SBOM + provenance
+                    +--> validação de pull público GHCR
+                    +--> Docker deploy por digest + healthcheck/rollback
+                    +--> Git tag + GitHub Release
+                    +--> workflow_run bem-sucedido
+                              |
+                              v
+                      GitHub Actions -> Vercel Production
+                                        planaut.codisplan.com.br
 ```
 
-PR validation deliberately does **not** run a Docker build or `npm run build`. Build work happens only after changes reach `develop` and during an actual release.
+A Vercel **não controla o fluxo de release**. GitHub Actions é o orquestrador. O workflow usa Vercel CLI autenticado por secrets do GitHub para executar `vercel pull`, `vercel build` e `vercel deploy --prebuilt`.
+
+## Frontend Vercel + backend Docker
+
+A Vercel hospeda somente o frontend/PWA. O FastAPI permanece em Docker porque a aplicação suporta uploads maiores do que o limite de payload de funções serverless da Vercel.
+
+Domínios planejados:
+
+```text
+Frontend production:  https://planaut.codisplan.com.br
+Frontend development: https://planaut.dev.codisplan.com.br
+Backend production:   https://api.planaut.codisplan.com.br
+Backend development:  https://api.planaut.dev.codisplan.com.br
+```
+
+O frontend recebe `VITE_API_URL` por ambiente Vercel. Não exponha `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET` ou senhas no Vite.
+
+## Variáveis GitHub para Vercel
+
+Secrets usados pelo workflow:
+
+```text
+VERCEL_TOKEN
+VERCEL_ORG_ID
+VERCEL_PROJECT_ID
+```
+
+Repository/Environment variables:
+
+```text
+VERCEL_DEPLOY_ENABLED=true
+VERCEL_PRODUCTION_DOMAIN=planaut.codisplan.com.br
+VERCEL_DEVELOPMENT_DOMAIN=planaut.dev.codisplan.com.br
+```
+
+Enquanto `VERCEL_DEPLOY_ENABLED` não for `true`, os jobs Vercel ficam deliberadamente desabilitados.
+
+## Variáveis no projeto Vercel
+
+Production:
+
+```env
+VITE_API_URL=https://api.planaut.codisplan.com.br
+VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
+```
+
+Preview com filtro para branch `develop`:
+
+```env
+VITE_API_URL=https://api.planaut.dev.codisplan.com.br
+VITE_SUPABASE_URL=https://YOUR_DEV_PROJECT.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_DEV_ANON_PUBLIC_KEY
+```
+
+`vercel pull --environment=preview --git-branch=develop` baixa exatamente as variáveis específicas da branch antes do build de desenvolvimento. Production usa `vercel pull --environment=production`.
 
 ## Semantic versioning
 
-The release PR must be `develop -> main` and use exactly one of:
+O PR de release deve ser `develop -> main`:
 
 ```text
-release(patch): description
-release(minor): description
-release(major): description
+release(patch): descrição
+release(minor): descrição
+release(major): descrição
 ```
 
-If no `vX.Y.Z` tag exists, the first release is always `1.0.0`.
+Se ainda não existir `vX.Y.Z`, a primeira release é `1.0.0`.
 
 ```text
 1.0.0 --patch--> 1.0.1
@@ -47,110 +110,142 @@ If no `vX.Y.Z` tag exists, the first release is always `1.0.0`.
 1.1.1 --major--> 2.0.0
 ```
 
-Git tags are the stable-version source of truth. `develop` publishes prerelease-style application versions such as `1.0.0-develop.245.1` but never increments the stable version.
+`develop` nunca incrementa a versão estável. Exemplo de versão de desenvolvimento:
 
-## GHCR image ownership policy
+```text
+1.1.1-develop.248.1
+```
 
-Release builds use only project-owned container images:
+## Política GHCR para imagens-base
+
+A aplicação usa apenas bases controladas no namespace GHCR do projeto:
 
 ```text
 ghcr.io/codisplanai/planilhaat-base-node:22-alpine
 ghcr.io/codisplanai/planilhaat-base-python:3.12-slim
 ghcr.io/codisplanai/planilhaat-postgres:16-alpine
-ghcr.io/codisplanai/planilhaat:<semver>
+ghcr.io/codisplanai/planilhaat:<semver|develop>
 ```
 
-Only `.github/workflows/container-bases.yml` imports upstream Docker images. If Redis/MySQL/RabbitMQ/MinIO or another container service becomes a real dependency, add its wrapper/package to that workflow before using it anywhere else.
+As imagens-base **não são reconstruídas em todo push de `develop` nem em toda release**.
 
-Supabase remains a runtime SaaS dependency and is configured with environment variables; it is not a single external image that can be mirrored without replacing the service architecture.
-
-## First-publication GHCR visibility
-
-GitHub Container Registry packages are private when first published. The release workflow creates/checks all packages and deliberately blocks deployment unless anonymous pulls work for:
-
-- `planilhaat`
-- `planilhaat-base-node`
-- `planilhaat-base-python`
-- `planilhaat-postgres`
-
-One-time action after their first publication: open each package's **Package settings -> Change visibility -> Public**, then re-run the failed jobs. The VPS then needs no GHCR login.
-
-## Release tags
-
-For release `1.1.1`:
+`.github/workflows/container-bases.yml` calcula um fingerprint usando:
 
 ```text
-ghcr.io/codisplanai/planilhaat:latest
-ghcr.io/codisplanai/planilhaat:1.1.1
-ghcr.io/codisplanai/planilhaat:1.1
-ghcr.io/codisplanai/planilhaat:1
-ghcr.io/codisplanai/planilhaat:release-sha-<merge-sha>
+package/tag + digest da imagem upstream + SHA256 do Dockerfile wrapper
 ```
 
-Production deploys by immutable digest (`ghcr.io/...@sha256:...`), not by mutable tag.
+O build/push ocorre somente quando:
 
-## GitHub Environment `production`
+- a imagem local ainda não existe;
+- o Dockerfile/base/tag mudou;
+- o digest da upstream mudou;
+- o workflow foi executado manualmente com `force=true`.
 
-Secrets:
+Existe uma verificação semanal de upstream. Se não houver mudança de digest, o build é ignorado.
 
-- `DEPLOY_HOST`
-- `DEPLOY_USER`
-- `DEPLOY_PORT` (optional, defaults to `22`)
-- `DEPLOY_SSH_KEY`
-- `DEPLOY_KNOWN_HOSTS`
+Mudanças em `requirements.txt` ou `frontend/package-lock.json` recompõem **a imagem da aplicação**, não as imagens-base Python/Node, porque essas dependências pertencem à camada da aplicação. Se futuramente uma dependência for promovida para uma imagem-base própria, sua definição deve entrar no mesmo mecanismo de fingerprint.
 
-Variable:
+Se Redis, MySQL, RabbitMQ, MinIO ou outro serviço virar dependência real, primeiro crie uma imagem wrapper no GHCR `codisplanai`; somente depois referencie-a no `compose.yaml`.
 
-- `DEPLOY_PATH=/opt/planilhaat`
+## Compose: uma única porta publicada
 
-## Docker CLI / VPS
+`compose.yaml` publica somente:
 
-Bootstrap Ubuntu/Debian:
-
-```bash
-sudo bash deploy/bootstrap-vps.sh
+```text
+127.0.0.1:${PLANAUT_PORT}:8000
 ```
 
-Prepare `/opt/planilhaat/.env` from `.env.example`. Real secrets stay only in the host/stack manager.
+PostgreSQL, migrations e demais serviços permanecem exclusivamente na rede Docker interna.
 
-Manual stable deployment:
-
-```bash
-PLANAUT_IMAGE=ghcr.io/codisplanai/planilhaat:1.0.0 docker compose pull app
-PLANAUT_IMAGE=ghcr.io/codisplanai/planilhaat:1.0.0 docker compose --profile tools run --rm migrate
-PLANAUT_IMAGE=ghcr.io/codisplanai/planilhaat:1.0.0 docker compose up -d app
-```
-
-Normal production releases are deployed by GitHub Actions using an immutable image digest and healthcheck/rollback.
-
-## Portainer / Dockge / CloudPanel
-
-- Portainer: see `deploy/portainer/README.md`.
-- Dockge: see `deploy/dockge/README.md`.
-- CloudPanel: use `deploy/cloudpanel/vhost.conf.example` for reverse proxy/TLS to `http://127.0.0.1:8000`.
-
-The PWA requires HTTPS outside localhost, so CloudPanel TLS should be active before production validation.
-
-## Optional local PostgreSQL
-
-With profile `local-db`:
+Produção padrão:
 
 ```env
-DATABASE_URL=postgresql://planilhaat:CHANGE_ME@postgres:5432/planilhaat
-POSTGRES_PASSWORD=CHANGE_ME
+PLANAUT_PORT=8000
+PLANAUT_BIND_ADDRESS=127.0.0.1
 ```
+
+Se production e development estiverem em servidores diferentes, ambos podem usar `8000`. Se estiverem simultaneamente no mesmo host, o kernel não permite dois processos escutando o mesmo `IP:porta`; nesse caso cada stack continua expondo apenas **uma** porta, mas uma delas precisa usar outro loopback port (por exemplo `8001`).
+
+## Docker CLI
+
+```bash
+cp .env.example .env
+# preencher secrets reais
+
+docker compose pull app
+docker compose up -d app
+```
+
+Com PostgreSQL local opcional:
 
 ```bash
 docker compose --profile local-db up -d
 ```
 
-## Cleanup policy
+O PostgreSQL local não publica `5432` no host.
 
-Every hour `maintenance.yml`:
+## CloudPanel
 
-- deletes caches associated with closed PRs;
-- deletes ephemeral Actions caches older than 2 hours outside `main`/`develop`;
-- deletes stale develop/untagged application package versions older than 2 hours while retaining the newest development image;
-- deletes stale untagged Node/Python/PostgreSQL GHCR versions older than 2 hours.
+CloudPanel permanece responsável por DNS/virtual host/Let's Encrypt e reverse proxy.
 
-Stable SemVer releases are preserved for audit and rollback. After a healthy VPS deploy, dangling local Docker images older than `PRUNE_AFTER_HOURS` (default 2) are pruned.
+Produção do backend:
+
+```text
+api.planaut.codisplan.com.br -> http://127.0.0.1:8000
+```
+
+Development, se estiver no mesmo servidor e usar `PLANAUT_PORT=8001`:
+
+```text
+api.planaut.dev.codisplan.com.br -> http://127.0.0.1:8001
+```
+
+Use `deploy/cloudpanel/vhost.conf.example` como bloco-base.
+
+## Portainer
+
+Crie uma Stack usando o `compose.yaml` do repositório e cole as variáveis de `.env.example` no Environment da Stack. Não adicione portas ao PostgreSQL. Para produção use `PLANAUT_IMAGE=ghcr.io/codisplanai/planilhaat:<versão>` ou o digest imutável fornecido pela release.
+
+## Dockge
+
+Crie a stack a partir do mesmo `compose.yaml`, copie o `.env.example` para o `.env` gerenciado pelo Dockge e preencha os secrets. O Compose não contém configuração específica de plataforma, portanto a mesma definição é usada por Docker CLI, Dockge e Portainer.
+
+## Deploy Docker via GitHub Actions
+
+Environment `production` no GitHub:
+
+Secrets:
+
+```text
+DEPLOY_HOST
+DEPLOY_USER
+DEPLOY_PORT
+DEPLOY_SSH_KEY
+DEPLOY_KNOWN_HOSTS
+```
+
+Variable:
+
+```text
+DEPLOY_PATH=/opt/planaut
+```
+
+A release usa imagem por digest (`ghcr.io/...@sha256:...`), envia apenas `compose.yaml`, `.env.example` e `deploy/deploy.sh`, executa Alembic e aguarda healthcheck. Em falha após troca do container, tenta rollback para a imagem anterior.
+
+## Primeira configuração necessária
+
+Antes do primeiro deployment automático completo:
+
+1. GHCR: os pacotes já devem estar públicos para pull anônimo.
+2. VPS/CloudPanel: criar o `.env` real em `DEPLOY_PATH` e configurar os secrets SSH do GitHub.
+3. DNS backend: apontar `api.planaut.codisplan.com.br` e, se usado, `api.planaut.dev.codisplan.com.br` para o servidor CloudPanel.
+4. Vercel: criar/vincular o projeto do frontend e adicionar os dois domínios frontend.
+5. Vercel: configurar as variáveis Production e Preview/`develop`.
+6. GitHub: cadastrar `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` e depois definir `VERCEL_DEPLOY_ENABLED=true`.
+
+O arquivo `vercel.env.example` documenta os nomes exatos.
+
+## Cleanup
+
+`maintenance.yml` remove caches efêmeros e imagens development/untagged antigas conforme a política definida. Tags SemVer permanecem para auditoria e rollback. Imagens-base atuais não são apagadas/rebuildadas por pushes normais da aplicação.
