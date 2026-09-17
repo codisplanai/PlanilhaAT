@@ -32,6 +32,8 @@ services:
     profiles: ["tools"]
     restart: "no"
     read_only: true
+    environment:
+      RUN_MIGRATIONS_ON_START: "false"
     command: ["alembic", "upgrade", "head"]
     tmpfs:
       - /tmp:size=64m,mode=1777
