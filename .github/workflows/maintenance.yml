@@ -1,0 +1,123 @@
+name: CI and GHCR Maintenance
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+
+jobs:
+  pr-cache-cleanup:
+    name: Remove cache from closed PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete caches scoped to PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gh cache list --ref "$PR_REF" --limit 100 --json id --jq '.[].id' | while read -r CACHE_ID; do
+            [[ -n "$CACHE_ID" ]] && gh cache delete "$CACHE_ID" || true
+          done
+
+  stale-cache-cleanup:
+    name: Remove ephemeral Actions cache older than 2h
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete stale non-main/non-develop caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          CUTOFF="$(date -u -d '2 hours ago' +%s)"
+
+          gh api --paginate "repos/$GH_REPO/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | [.id, .ref, .last_accessed_at] | @tsv' |
+          while IFS=$'\t' read -r CACHE_ID CACHE_REF LAST_ACCESSED; do
+            [[ -z "$CACHE_ID" ]] && continue
+            [[ "$CACHE_REF" == "refs/heads/main" ]] && continue
+            [[ "$CACHE_REF" == "refs/heads/develop" ]] && continue
+
+            LAST_TS="$(date -u -d "$LAST_ACCESSED" +%s)"
+            if (( LAST_TS < CUTOFF )); then
+              echo "Deleting cache $CACHE_ID from $CACHE_REF last used $LAST_ACCESSED"
+              gh api --method DELETE "repos/$GH_REPO/actions/caches/$CACHE_ID" || true
+            fi
+          done
+
+  ghcr-cleanup:
+    name: Remove old development GHCR images
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Delete develop and untagged versions older than 2h
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          PACKAGE="${REPOSITORY#*/}"
+          PACKAGE="${PACKAGE,,}"
+          OWNER_TYPE="$(gh api "repos/$REPOSITORY" --jq '.owner.type')"
+
+          if [[ "$OWNER_TYPE" == "Organization" ]]; then
+            ENDPOINT="orgs/$OWNER/packages/container/$PACKAGE/versions"
+          else
+            ENDPOINT="users/$OWNER/packages/container/$PACKAGE/versions"
+          fi
+
+          CUTOFF="$(date -u -d '2 hours ago' +%s)"
+          NEWEST_DEV_KEPT=0
+
+          gh api --paginate "$ENDPOINT?per_page=100" \
+            --jq '.[] | [.id, .created_at, (.metadata.container.tags | join(","))] | @tsv' |
+          while IFS=$'\t' read -r VERSION_ID CREATED_AT TAGS; do
+            [[ -z "$VERSION_ID" ]] && continue
+
+            # Nunca remova releases SemVer nem aliases stable/latest.
+            if grep -Eq '(^|,)(latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+|release-sha-[0-9a-f]+)(,|$)' <<< "$TAGS"; then
+              continue
+            fi
+
+            IS_DEV=0
+            if [[ -n "$TAGS" ]] && grep -Eq '(^|,)(develop|develop-[^,]+|dev-sha-[^,]+)(,|$)' <<< "$TAGS"; then
+              IS_DEV=1
+            fi
+
+            # Preserve sempre a imagem develop mais recente, mesmo se tiver mais de 2h.
+            if (( IS_DEV == 1 && NEWEST_DEV_KEPT == 0 )); then
+              NEWEST_DEV_KEPT=1
+              continue
+            fi
+
+            CREATED_TS="$(date -u -d "$CREATED_AT" +%s)"
+            if (( CREATED_TS >= CUTOFF )); then
+              continue
+            fi
+
+            if (( IS_DEV == 1 )) || [[ -z "$TAGS" ]]; then
+              echo "Deleting GHCR version id=$VERSION_ID tags=${TAGS:-<untagged>} created=$CREATED_AT"
+              gh api --method DELETE "$ENDPOINT/$VERSION_ID" || true
+            fi
+          done

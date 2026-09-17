@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 72" fill="none" width="100%" height="100%">
+  <defs>
+    <!-- Lightning Bolt Gradient -->
+    <linearGradient id="planaut-bolt-grad" x1="26" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="50%" stop-color="#0891B2"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+
+    <!-- 'Aut' Text Gradient -->
+    <linearGradient id="planaut-text-aut-grad" x1="0" y1="0" x2="100" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ================= LOGOMARK (ICON) ================= -->
+  <g transform="translate(4, 4)">
+    <rect x="0" y="0" width="64" height="64" rx="18" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+    <rect x="14" y="14" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.15"/>
+    <rect x="14" y="27" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.25"/>
+    <rect x="14" y="40" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.35"/>
+    <rect x="27" y="14" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.15"/>
+    <path d="M37 13L24 33H34L28 51L44 29H34L40 13H37Z" fill="url(#planaut-bolt-grad)" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round"/>
+  </g>
+
+  <!-- ================= LOGOTYPE (TYPOGRAPHY) ================= -->
+  <g transform="translate(84, 0)">
+    <text x="0" y="45" font-family="-apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Inter', 'Segoe UI', sans-serif" font-size="34" font-weight="800" letter-spacing="-0.5" fill="#0F172A">Plan</text>
+    <text x="77" y="45" font-family="-apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Inter', 'Segoe UI', sans-serif" font-size="34" font-weight="800" letter-spacing="-0.5" fill="url(#planaut-text-aut-grad)">Aut</text>
+    <text x="1" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Inter', sans-serif" font-size="7.5" font-weight="700" letter-spacing="1.2" fill="#64748B">AUTOMAÇÃO FISCAL INTELIGENTE</text>
+  </g>
+</svg>

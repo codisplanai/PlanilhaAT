@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient for Light Squircle -->
+    <linearGradient id="planaut-icon-bg-lt" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
+    </linearGradient>
+
+    <!-- Border Gradient -->
+    <linearGradient id="planaut-icon-border-lt" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0.5"/>
+      <stop offset="50%" stop-color="#0891B2" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#059669" stop-opacity="0.5"/>
+    </linearGradient>
+
+    <!-- Lightning Bolt Gradient -->
+    <linearGradient id="planaut-icon-bolt-lt" x1="24" y1="12" x2="50" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="50%" stop-color="#0891B2"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+
+    <!-- Drop Shadow Filter for Clean Floating Effect -->
+    <filter id="planaut-icon-shadow-lt" x="-20%" y="-20%" width="140%" height="140%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Container with Shadow -->
+  <g filter="url(#planaut-icon-shadow-lt)">
+    <rect x="1" y="1" width="62" height="62" rx="16" fill="url(#planaut-icon-bg-lt)"/>
+    <rect x="1" y="1" width="62" height="62" rx="16" stroke="url(#planaut-icon-border-lt)" stroke-width="1.5"/>
+  </g>
+
+  <!-- Spreadsheet Matrix Cells ('Plan') -->
+  <rect x="14" y="14" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.15"/>
+  <rect x="14" y="27" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.25"/>
+  <rect x="14" y="40" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.35"/>
+  <rect x="27" y="14" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.15"/>
+
+  <!-- Dynamic Automation Lightning Bolt ('Aut') -->
+  <path d="M37 13L24 33H34L28 51L44 29H34L40 13H37Z" fill="url(#planaut-icon-bolt-lt)" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- Micro Data Spark Dots -->
+  <circle cx="43.5" cy="18.5" r="1.75" fill="#0891B2"/>
+  <circle cx="21" cy="45" r="1.25" fill="#059669"/>
+</svg>

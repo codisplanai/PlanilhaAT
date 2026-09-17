@@ -1,0 +1,137 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    name: PR title, description and branch
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR model
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${PR_BODY//[[:space:]]/}" ]]; then
+            echo "::error::A descrição do PR é obrigatória."
+            exit 1
+          fi
+
+          if ! grep -Fq "## Descrição" <<< "$PR_BODY"; then
+            echo "::error::A descrição deve conter a seção '## Descrição'."
+            exit 1
+          fi
+
+          if ! grep -Fq "## Branch" <<< "$PR_BODY"; then
+            echo "::error::A descrição deve conter a seção '## Branch'."
+            exit 1
+          fi
+
+          if [[ "$BASE_REF" == "develop" ]]; then
+            if [[ ! "$HEAD_REF" =~ ^(feature|fix|refactor|chore|docs|test|ci|perf)/[a-z0-9][a-z0-9._/-]*$ ]]; then
+              echo "::error::PR para develop deve vir de feature/*, fix/*, refactor/*, chore/*, docs/*, test/*, ci/* ou perf/*."
+              exit 1
+            fi
+
+            if [[ ! "$PR_TITLE" =~ ^(feat|fix|perf|refactor|chore|docs|test|ci|build)(\([a-zA-Z0-9._/-]+\))?(!)?:\ .+ ]]; then
+              echo "::error::Título inválido. Exemplo: feat(auth): adicionar login ou fix(api): corrigir timeout"
+              exit 1
+            fi
+          elif [[ "$BASE_REF" == "main" ]]; then
+            if [[ "$HEAD_REF" != "develop" ]]; then
+              echo "::error::A branch main aceita release somente a partir de develop."
+              exit 1
+            fi
+
+            if [[ ! "$PR_TITLE" =~ ^release\((patch|minor|major)\):\ .+ ]]; then
+              echo "::error::PR develop -> main deve usar release(patch|minor|major): descrição"
+              exit 1
+            fi
+          fi
+
+  backend-static:
+    name: Backend syntax and indentation
+    if: github.event.pull_request.draft == false
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Compile Python sources
+        run: python -m compileall -q app alembic tests
+
+      - name: Check Python indentation
+        run: python -m tabnanny app alembic tests
+
+  frontend-static:
+    name: Frontend lint and typecheck - no build
+    if: github.event.pull_request.draft == false
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: TypeScript typecheck without emit
+        working-directory: frontend
+        run: |
+          npx tsc --noEmit -p tsconfig.app.json --pretty false
+          npx tsc --noEmit -p tsconfig.node.json --pretty false
+
+  deployment-static:
+    name: Deployment syntax - no image build
+    if: github.event.pull_request.draft == false
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Bash syntax
+        run: bash -n deploy/*.sh
+
+      - name: Docker Compose syntax
+        shell: bash
+        run: |
+          cp .env.example .env
+          trap 'rm -f .env' EXIT
+          docker compose -f compose.yaml config --quiet

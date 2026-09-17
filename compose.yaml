@@ -1,0 +1,59 @@
+name: planaut
+
+x-planaut-common: &planaut-common
+  image: ${PLANAUT_IMAGE:-ghcr.io/SEU_USUARIO_OU_ORG/planaut:latest}
+  env_file:
+    - .env
+  environment:
+    APP_ENV: production
+    DEBUG: "false"
+    ENABLE_LOCAL_AUTH: "false"
+    AUTO_CREATE_SCHEMA: "false"
+    BUNDLED_TEMPLATES_DIR: /app/bundled_templates
+  networks:
+    - planaut
+
+services:
+  app:
+    <<: *planaut-common
+    container_name: planaut-app
+    restart: unless-stopped
+    init: true
+    read_only: true
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    volumes:
+      - planaut_templates:/app/storage/templates
+      - planaut_outputs:/app/storage/outputs
+      - planaut_uploads:/app/storage/uploads
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  migrate:
+    <<: *planaut-common
+    profiles: ["tools"]
+    restart: "no"
+    read_only: true
+    command: ["alembic", "upgrade", "head"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  planaut:
+    driver: bridge
+
+volumes:
+  planaut_templates:
+  planaut_outputs:
+  planaut_uploads:
