@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="${APP_DIR:-/opt/planilhaat}"
+APP_DIR="${APP_DIR:-/opt/planaut}"
 IMAGE="${1:-${PLANAUT_IMAGE:-}}"
 PRUNE_AFTER_HOURS="${PRUNE_AFTER_HOURS:-2}"
 
