@@ -11,6 +11,7 @@ DEFAULT_CFOP_RULES = [
     ("403", "antecipacao_tributaria", "Mercadoria sujeita a ST — conferir com o contador"),
     ("404", "antecipacao_tributaria", "ST com imposto retido anteriormente — conferir com o contador"),
     ("405", "antecipacao_tributaria", "Compra para comercialização — produto antecipado (substituído)"),
+    ("407", "difal", "Compra de mercadoria para uso ou consumo com ST"),
     ("551", "difal", "Aquisição de bem para o ativo imobilizado"),
     ("556", "difal", "Aquisição de material para uso/consumo"),
 ]

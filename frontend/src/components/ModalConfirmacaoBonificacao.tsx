@@ -74,8 +74,8 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Destinação de Bonificação e Amostra Grátis"
-      subtitle="Defina se as mercadorias recebidas serão destinadas à revenda para apuração do imposto parcial."
+      title="Destinação de Mercadorias (CFOP 6910, 6911, 6949)"
+      subtitle="Defina se as mercadorias recebidas serão destinadas à revenda (Antecipação Parcial) ou uso/consumo (DIFAL)."
       maxWidth="4xl"
     >
       <div className="space-y-4 text-slate-800">
@@ -87,10 +87,11 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
               Por que esta confirmação é necessária?
             </p>
             <p className="text-blue-800/90">
-              Mercadorias em <strong>remessa em bonificação (CFOP 6910 / 2910)</strong> ou{' '}
-              <strong>amostra grátis (CFOP 6911 / 2911)</strong> destinadas para comercialização/revenda
-              devem ser incluídas na <strong>Planilha de Antecipação Parcial</strong>. Caso não sejam destinadas
-              à revenda, não devem ser tributadas e serão listadas no relatório de notas desconsideradas.
+              Mercadorias em <strong>bonificação (CFOP 6910 / 2910)</strong>,{' '}
+              <strong>amostra grátis (CFOP 6911 / 2911)</strong> ou{' '}
+              <strong>outras saídas (CFOP 6949 / 2949)</strong> destinadas para comercialização/revenda
+              serão incluídas na <strong>Planilha de Antecipação Parcial</strong>. Caso sejam destinadas
+              ao uso ou consumo do estabelecimento, serão direcionadas para a <strong>Planilha de DIFAL</strong>.
             </p>
           </div>
         </div>
@@ -107,14 +108,14 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                 onClick={() => handleSetAll(true)}
                 className="text-xs text-emerald-700 hover:text-emerald-800 font-medium px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 transition-colors"
               >
-                Marcar todas como Revenda
+                Marcar todas como Revenda (Parcial)
               </button>
               <button
                 type="button"
                 onClick={() => handleSetAll(false)}
-                className="text-xs text-slate-600 hover:text-slate-800 font-medium px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200/80 border border-slate-200 transition-colors"
+                className="text-xs text-amber-700 hover:text-amber-800 font-medium px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100/80 border border-amber-200 transition-colors"
               >
-                Marcar todas como Não
+                Marcar todas como Uso/Consumo (DIFAL)
               </button>
             </div>
           </div>
@@ -132,7 +133,7 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                 className={`p-3.5 rounded-xl border transition-all duration-150 ${
                   isRevenda
                     ? 'bg-emerald-50/30 border-emerald-300/80 shadow-2xs'
-                    : 'bg-white border-slate-200/90'
+                    : 'bg-amber-50/20 border-amber-200/80'
                 }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -202,14 +203,14 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                   <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                     <div className="text-right">
                       <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block">
-                        Valor Bonificado
+                        Valor dos Itens
                       </span>
                       <span className="font-bold text-slate-900 text-sm sm:text-base">
                         {formatCurrency(nota.valor_total)}
                       </span>
                     </div>
 
-                    {/* Alternância Sim / Não */}
+                    {/* Alternância Revenda vs Uso/Consumo */}
                     <div className="inline-flex rounded-lg p-0.5 bg-slate-100/90 border border-slate-200">
                       <button
                         type="button"
@@ -221,19 +222,19 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                         }`}
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        Sim (Revenda)
+                        Revenda (Parcial)
                       </button>
                       <button
                         type="button"
                         onClick={() => handleToggle(key, false)}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all select-none ${
                           !isRevenda
-                            ? 'bg-slate-700 text-white shadow-xs'
+                            ? 'bg-amber-600 text-white shadow-xs'
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
                         <XCircle className="w-3.5 h-3.5" />
-                        Não
+                        Uso/Consumo (DIFAL)
                       </button>
                     </div>
                   </div>
@@ -246,9 +247,9 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
         {/* Resumo e Botões de Rodapé */}
         <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-slate-600">
-            <span className="font-semibold text-emerald-700">{totalParaRevenda}</span> para revenda (incluídas na Parcial)
+            <span className="font-semibold text-emerald-700">{totalParaRevenda}</span> para revenda (Parcial)
             {' • '}
-            <span className="font-semibold text-slate-700">{totalNaoRevenda}</span> desconsiderada(s)
+            <span className="font-semibold text-amber-700">{totalNaoRevenda}</span> para uso/consumo (DIFAL)
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">

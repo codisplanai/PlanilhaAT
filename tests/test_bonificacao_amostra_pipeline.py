@@ -106,10 +106,10 @@ def test_processamento_bonificacao_revenda_sim(db_session, cenario_janeiro):
 
 
 def test_processamento_bonificacao_revenda_nao(db_session, cenario_janeiro):
-    sol = cenario_janeiro()
+    sol = cenario_janeiro(tipos=("antecipacao_parcial", "difal"))
     service = ProcessingPipelineService(db_session)
 
-    # Decisão explícita: Não (Não é para Revenda)
+    # Decisão explícita: Não (Não é para Revenda -> Vai para DIFAL)
     res = service.process_solicitacao(
         solicitacao_id=sol.id,
         sped_file_bytes=SPED_BONIFICACAO_COM_CREDITO,
@@ -117,12 +117,12 @@ def test_processamento_bonificacao_revenda_nao(db_session, cenario_janeiro):
     )
     db_session.refresh(res)
 
-    assert res.total_notas_processadas == 0
-    assert len(res.notas_processadas) == 0
-    assert len(res.notas_ignoradas) == 1
-    ign = res.notas_ignoradas[0]
-    assert ign["numero_nota"] == "901"
-    assert "não destinada para revenda pelo usuário" in ign["motivo"]
+    assert res.total_notas_processadas == 1
+    assert len(res.notas_processadas) == 1
+    nota = res.notas_processadas[0]
+    assert nota.numero_nota == "901"
+    assert nota.destino_planilha == "difal"
+    assert len(res.notas_ignoradas) == 0
 
 
 def test_processamento_simples_nacional_bonificacao(db_session, cenario_janeiro):

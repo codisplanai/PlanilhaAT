@@ -46,11 +46,13 @@ from app.services.pipeline_helpers import (
     crossing_keys,
     enrich_sped_with_xml,
     ignored_note,
+    is_cfop_uso_consumo_ativo,
     nfe_sort_key,
 )
 
 
-SUFIXOS_BONIFICACAO_AMOSTRA = {"910", "911"}
+SUFIXOS_CONFIRMACAO_DESTINACAO = {"910", "911", "949"}
+SUFIXOS_BONIFICACAO_AMOSTRA = SUFIXOS_CONFIRMACAO_DESTINACAO
 
 
 class ProcessingPipelineService:
@@ -95,7 +97,7 @@ class ProcessingPipelineService:
         for filename, nf_data in notes:
             bonif_items = [
                 it for it in nf_data.itens
-                if re.sub(r"\D", "", it.cfop or "")[-3:] in SUFIXOS_BONIFICACAO_AMOSTRA
+                if re.sub(r"\D", "", it.cfop or "")[-3:] in SUFIXOS_CONFIRMACAO_DESTINACAO
             ]
             if not bonif_items:
                 continue
@@ -336,9 +338,17 @@ class ProcessingPipelineService:
                 )
 
                 # 6. Roteamento por CFOP: cada item é classificado em qual planilha (destino) se aplica.
-                # Itens cujo CFOP não tem regra cadastrada são descartados em silêncio (apenas contabilizados
-                # no resumo agregado da solicitação). No modo legado (tipo único), itens de outro destino
-                # também são descartados aqui, restringindo a apuração ao tipo solicitado.
+                # Na falta do SPED, verifica se a Planilha Auxiliar definiu CFOP 2556, 2407 ou 2551 para esta nota
+                cfop_auxiliar = None
+                if planilha_records and (sped_file_bytes is None or nf_data.origem_extracao != "sped"):
+                    cfop_auxiliar = DataEntradaMatcher.match_cfop(
+                        nf_chave=nf_data.chave_acesso,
+                        nf_cnpj_emitente=nf_data.cnpj_emitente,
+                        nf_serie=nf_data.serie,
+                        nf_numero=nf_data.numero_nota,
+                        planilha_records=planilha_records,
+                    )
+
                 grupos: Dict[Tuple[str, Decimal, Decimal, str, str], List[Any]] = {}
                 resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoAliquota]] = {}
                 resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoCfop]] = {}
@@ -346,6 +356,9 @@ class ProcessingPipelineService:
                 itens_bonificacao_desconsiderados: List[Any] = []
 
                 for item in nf_data.itens:
+                    if cfop_auxiliar and is_cfop_uso_consumo_ativo(cfop_auxiliar):
+                        item.cfop = cfop_auxiliar
+
                     resolucao_cfop = self.cfop_resolver.reclassificar_cfop(
                         perfil_regras_id=empresa.perfil_regras_id,
                         ncm=item.ncm,
@@ -354,9 +367,13 @@ class ProcessingPipelineService:
                     )
                     destino_item = resolucao_cfop.destino
 
-                    # Avaliação de Remessa em Bonificação (6910/2910) e Amostra Grátis (6911/2911)
+                    # Avaliação de CFOP 2556, 2407 e 2551 (uso/consumo e ativo imobilizado)
+                    if is_cfop_uso_consumo_ativo(item.cfop):
+                        destino_item = DIFAL
+
+                    # Avaliação de Remessa em Bonificação (6910/2910), Amostra Grátis (6911/2911) e Outras Saídas (6949/2949)
                     sufixo_item = re.sub(r"\D", "", item.cfop or "")[-3:]
-                    if sufixo_item in SUFIXOS_BONIFICACAO_AMOSTRA and decisoes_bonificacao is not None:
+                    if sufixo_item in SUFIXOS_CONFIRMACAO_DESTINACAO and decisoes_bonificacao is not None:
                         is_revenda = None
                         if nf_data.chave_acesso and nf_data.chave_acesso in decisoes_bonificacao:
                             is_revenda = decisoes_bonificacao[nf_data.chave_acesso]
@@ -367,11 +384,10 @@ class ProcessingPipelineService:
                             if is_revenda:
                                 destino_item = ANTECIPACAO_PARCIAL
                             else:
-                                destino_item = None
-                                itens_bonificacao_desconsiderados.append(item)
+                                destino_item = DIFAL
 
                     if destino_item is None:
-                        if sufixo_item not in SUFIXOS_BONIFICACAO_AMOSTRA or (decisoes_bonificacao is None):
+                        if sufixo_item not in SUFIXOS_CONFIRMACAO_DESTINACAO or (decisoes_bonificacao is None):
                             sufixo = re.sub(r"\D", "", item.cfop or "")
                             sufixo = sufixo[-3:] if len(sufixo) >= 3 else (sufixo or "????")
                             cfops_sem_regra[sufixo] += 1
@@ -743,8 +759,13 @@ class ProcessingPipelineService:
                     notas_criadas.append(nf_proc)
 
                     # Dados estruturados para escrita no Excel
+                    numero_nota_planilha = (
+                        f"{nf_data.numero_nota}*"
+                        if split_index > 1
+                        else nf_data.numero_nota
+                    )
                     rows_por_destino[destino_grupo].append({
-                        "numero_nota": nf_data.numero_nota,
+                        "numero_nota": numero_nota_planilha,
                         "serie": nf_data.serie,
                         "chave_acesso": nf_data.chave_acesso,
                         "cnpj_emitente": nf_data.cnpj_emitente,

@@ -17,6 +17,7 @@ class PlanilhaEntradaRecord:
     cnpj_emitente_normalizado: str
     chave_acesso_normalizada: str
     data_entrada: Optional[datetime.date]
+    cfop_normalizado: str = ""
 
 class DataEntradaNormalizer:
     """
@@ -54,6 +55,13 @@ class DataEntradaNormalizer:
             return ""
         clean = re.sub(r"\D", "", DataEntradaNormalizer._numeric_text(chave))
         return clean if len(clean) == 44 else ""
+
+    @staticmethod
+    def normalize_cfop(cfop: Optional[str]) -> str:
+        """Mantém apenas dígitos do CFOP"""
+        if not cfop:
+            return ""
+        return re.sub(r"\D", "", DataEntradaNormalizer._numeric_text(cfop))
 
     @staticmethod
     def _numeric_text(value: object) -> str:
@@ -133,6 +141,11 @@ class PlanilhaEntradaParser:
         col_serie_idx = cls._find_column_index(header_names, ["Série", "Serie", "Ser"])
         col_cnpj_idx = cls._find_column_index(header_names, ["Terceiro", "CNPJ do Emitente", "CNPJ Emitente", "CNPJ/CPF", "CNPJ", "CPF/CNPJ"])
         col_chave_idx = cls._find_column_index(header_names, ["Chave da Nota Fiscal Eletrônica", "Chave NFe", "Chave de Acesso", "Chave Eletrônica", "Chave"])
+        col_cfop_idx = cls._find_column_index(
+            header_names,
+            ["CFOP", "C.F.O.P.", "Cód. Fiscal", "Cod. Fiscal", "Código Fiscal", "Natureza da Operação", "Natureza"],
+            partial_names=["cfop"]
+        )
 
         if col_num_idx is None or col_dt_idx is None:
             wb.close()
@@ -152,6 +165,7 @@ class PlanilhaEntradaParser:
             serie_raw = ws.cell(r, col_serie_idx + 1).value if col_serie_idx is not None else ""
             cnpj_raw = ws.cell(r, col_cnpj_idx + 1).value if col_cnpj_idx is not None else ""
             chave_raw = ws.cell(r, col_chave_idx + 1).value if col_chave_idx is not None else ""
+            cfop_raw = ws.cell(r, col_cfop_idx + 1).value if col_cfop_idx is not None else ""
 
             # Parse de data
             parsed_date: Optional[datetime.date] = None
@@ -174,7 +188,8 @@ class PlanilhaEntradaParser:
                 serie_normalizada=DataEntradaNormalizer.normalize_serie(serie_raw),
                 cnpj_emitente_normalizado=DataEntradaNormalizer.normalize_cnpj(cnpj_raw),
                 chave_acesso_normalizada=DataEntradaNormalizer.normalize_chave(chave_raw),
-                data_entrada=parsed_date
+                data_entrada=parsed_date,
+                cfop_normalizado=DataEntradaNormalizer.normalize_cfop(cfop_raw)
             )
             records.append(rec)
 
@@ -205,6 +220,11 @@ class PlanilhaEntradaParser:
         col_serie_idx = cls._find_column_index(header_names, ["Série", "Serie", "Ser"])
         col_cnpj_idx = cls._find_column_index(header_names, ["Terceiro", "CNPJ do Emitente", "CNPJ Emitente", "CNPJ/CPF", "CNPJ"])
         col_chave_idx = cls._find_column_index(header_names, ["Chave da Nota Fiscal Eletrônica", "Chave NFe", "Chave de Acesso", "Chave"])
+        col_cfop_idx = cls._find_column_index(
+            header_names,
+            ["CFOP", "C.F.O.P.", "Cód. Fiscal", "Cod. Fiscal", "Código Fiscal", "Natureza da Operação", "Natureza"],
+            partial_names=["cfop"]
+        )
 
         if col_num_idx is None or col_dt_idx is None:
             raise ValidationException(
@@ -227,6 +247,7 @@ class PlanilhaEntradaParser:
             serie_raw = sheet.cell_value(r, col_serie_idx) if col_serie_idx is not None else ""
             cnpj_raw = sheet.cell_value(r, col_cnpj_idx) if col_cnpj_idx is not None else ""
             chave_raw = sheet.cell_value(r, col_chave_idx) if col_chave_idx is not None else ""
+            cfop_raw = sheet.cell_value(r, col_cfop_idx) if col_cfop_idx is not None else ""
 
             parsed_date: Optional[datetime.date] = None
             if dt_cell is not None:
@@ -247,7 +268,8 @@ class PlanilhaEntradaParser:
                 serie_normalizada=DataEntradaNormalizer.normalize_serie(serie_raw),
                 cnpj_emitente_normalizado=DataEntradaNormalizer.normalize_cnpj(cnpj_raw),
                 chave_acesso_normalizada=DataEntradaNormalizer.normalize_chave(chave_raw),
-                data_entrada=parsed_date
+                data_entrada=parsed_date,
+                cfop_normalizado=DataEntradaNormalizer.normalize_cfop(cfop_raw)
             )
             records.append(rec)
 
@@ -256,7 +278,7 @@ class PlanilhaEntradaParser:
 
 class DataEntradaMatcher:
     """
-    Motor determinístico de correspondência de Data de Entrada:
+    Motor determinístico de correspondência de Data de Entrada e CFOP Contábil:
     - Prioridade 1: Chave de Acesso (44 dígitos) presente em ambos os lados.
     - Prioridade 2: CNPJ Emitente + Série + Número da Nota (todos normalizados).
     
@@ -266,32 +288,23 @@ class DataEntradaMatcher:
     """
 
     @classmethod
-    def match_data_entrada(
+    def match_records(
         cls,
         nf_chave: Optional[str],
         nf_cnpj_emitente: Optional[str],
         nf_serie: Optional[str],
         nf_numero: Optional[str],
         planilha_records: List[PlanilhaEntradaRecord]
-    ) -> Tuple[Optional[datetime.date], Optional[str]]:
+    ) -> List[PlanilhaEntradaRecord]:
         if not planilha_records:
-            return None, None
+            return []
 
         # 1. Tentativa por Chave de Acesso (Prioridade 1)
         norm_chave = DataEntradaNormalizer.normalize_chave(nf_chave)
         if norm_chave and len(norm_chave) == 44:
             matched_by_chave = [r for r in planilha_records if r.chave_acesso_normalizada == norm_chave]
             if matched_by_chave:
-                dates_set: Set[datetime.date] = {r.data_entrada for r in matched_by_chave if r.data_entrada is not None}
-                if len(dates_set) == 1:
-                    # Correspondência inequívoca pela chave de acesso
-                    return dates_set.pop(), "planilha_sistema_contabil"
-                elif len(dates_set) > 1:
-                    # Ambiguidade / conflito de datas para a mesma chave -> Deixar em branco
-                    return None, None
-                else:
-                    # Nenhuma data válida encontrada
-                    return None, None
+                return matched_by_chave
 
         # 2. Tentativa por CNPJ Emitente + Série + Número (Prioridade 2)
         norm_cnpj = DataEntradaNormalizer.normalize_cnpj(nf_cnpj_emitente)
@@ -299,9 +312,7 @@ class DataEntradaMatcher:
         norm_num = DataEntradaNormalizer.normalize_numero(nf_numero)
 
         if norm_cnpj and norm_num:
-            # Tenta comparar com série exata ou série normalizada (removendo zeros à esquerda se numérico)
             serie_variantes = {norm_serie, norm_serie.lstrip("0")} if norm_serie else {"", "0", "001", "1"}
-            
             matched_by_tuple = [
                 r for r in planilha_records
                 if r.cnpj_emitente_normalizado == norm_cnpj
@@ -313,17 +324,44 @@ class DataEntradaMatcher:
                     or r.serie_normalizada.lstrip("0") == norm_serie.lstrip("0")
                 )
             ]
-
             if matched_by_tuple:
-                dates_set = {r.data_entrada for r in matched_by_tuple if r.data_entrada is not None}
-                if len(dates_set) == 1:
-                    # Correspondência inequívoca por CNPJ + Série + Número
-                    return dates_set.pop(), "planilha_sistema_contabil"
-                elif len(dates_set) > 1:
-                    # Ambiguidade: mais de uma data diferente encontrada -> Deixar em branco
-                    return None, None
-                else:
-                    return None, None
+                return matched_by_tuple
 
-        # Zero correspondências
+        return []
+
+    @classmethod
+    def match_data_entrada(
+        cls,
+        nf_chave: Optional[str],
+        nf_cnpj_emitente: Optional[str],
+        nf_serie: Optional[str],
+        nf_numero: Optional[str],
+        planilha_records: List[PlanilhaEntradaRecord]
+    ) -> Tuple[Optional[datetime.date], Optional[str]]:
+        matched = cls.match_records(nf_chave, nf_cnpj_emitente, nf_serie, nf_numero, planilha_records)
+        if not matched:
+            return None, None
+
+        dates_set: Set[datetime.date] = {r.data_entrada for r in matched if r.data_entrada is not None}
+        if len(dates_set) == 1:
+            return dates_set.pop(), "planilha_sistema_contabil"
         return None, None
+
+    @classmethod
+    def match_cfop(
+        cls,
+        nf_chave: Optional[str],
+        nf_cnpj_emitente: Optional[str],
+        nf_serie: Optional[str],
+        nf_numero: Optional[str],
+        planilha_records: List[PlanilhaEntradaRecord]
+    ) -> Optional[str]:
+        """Retorna o CFOP atribuído à nota na planilha contábil se houver valor único e não ambíguo."""
+        matched = cls.match_records(nf_chave, nf_cnpj_emitente, nf_serie, nf_numero, planilha_records)
+        if not matched:
+            return None
+
+        cfops_set = {r.cfop_normalizado for r in matched if r.cfop_normalizado}
+        if len(cfops_set) == 1:
+            return cfops_set.pop()
+        return None

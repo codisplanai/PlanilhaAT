@@ -64,8 +64,12 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
         entry_date = None
     else:
         entry_date = note.data_entrada
+
+    subitem_index = int(metadata.get("subitem_index") or note.item_numero or 1)
+    numero_nota_formatado = f"{note.numero_nota}*" if subitem_index > 1 else note.numero_nota
+
     return {
-        "numero_nota": note.numero_nota,
+        "numero_nota": numero_nota_formatado,
         "serie": note.serie,
         "chave_acesso": note.chave_acesso,
         "cnpj_emitente": note.cnpj_emitente,

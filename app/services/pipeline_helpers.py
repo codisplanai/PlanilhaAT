@@ -37,6 +37,19 @@ def crossing_keys(nf: ExtractedNFData) -> list[str]:
     return keys
 
 
+CFOPS_USO_CONSUMO_ATIVO = {"2556", "2407", "2551", "1556", "1407", "1551"}
+SUFIXOS_USO_CONSUMO_ATIVO = {"556", "407", "551"}
+
+
+def is_cfop_uso_consumo_ativo(cfop: Optional[str]) -> bool:
+    clean = re.sub(r"\D", "", cfop or "")
+    if clean in CFOPS_USO_CONSUMO_ATIVO:
+        return True
+    if len(clean) >= 3 and clean[-3:] in SUFIXOS_USO_CONSUMO_ATIVO:
+        return True
+    return False
+
+
 def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> None:
     """Complementa a nota do SPED com detalhes fiscais presentes no XML."""
     if not nf_sped or not nf_xml:
@@ -63,10 +76,32 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
     # interestadual de ICMS e valores comerciais reais).
     # O SPED Fiscal é a fonte contábil que comprova a entrada física no estabelecimento
     # (data_entrada extraída do campo DT_E_S do Registro C100).
-    # Portanto, havendo itens no XML da SEFAZ, adota-se a lista completa e oficial de itens do XML,
-    # preservando a data de entrada e os metadados de escrituração do SPED.
+    # Exceção de Precedência Fiscal: CFOPs 2556, 2407 e 2551 (uso/consumo e ativo imobilizado)
+    # somente existem na escrituração do destinatário no SPED (o emitente no XML fatura como 6101/6102/6403).
+    # Nesses casos específicos, o CFOP do SPED tem precedência sobre o XML e direciona para DIFAL.
     if nf_xml.itens:
-        nf_sped.itens = [it.copy(deep=True) for it in nf_xml.itens]
+        sped_cfop_by_item = {
+            it.item_numero: it.cfop
+            for it in nf_sped.itens
+            if it.cfop and is_cfop_uso_consumo_ativo(it.cfop)
+        }
+        sped_valid_cfops = [it.cfop for it in nf_sped.itens if it.cfop]
+        all_sped_uso = (
+            len(sped_valid_cfops) > 0
+            and all(is_cfop_uso_consumo_ativo(c) for c in sped_valid_cfops)
+        )
+        predominant_sped_cfop = sped_valid_cfops[0] if sped_valid_cfops else "2556"
+
+        new_itens = []
+        for it in nf_xml.itens:
+            it_copy = it.copy(deep=True)
+            if all_sped_uso:
+                it_copy.cfop = predominant_sped_cfop
+            elif it.item_numero in sped_cfop_by_item:
+                it_copy.cfop = sped_cfop_by_item[it.item_numero]
+            new_itens.append(it_copy)
+
+        nf_sped.itens = new_itens
         if nf_xml.v_total_nota > Decimal("0.00"):
             nf_sped.v_total_nota = nf_xml.v_total_nota
         if nf_xml.v_bc_nota > Decimal("0.00"):
