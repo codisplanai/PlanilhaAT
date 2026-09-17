@@ -24,6 +24,7 @@ import type {
   MotivoExclusaoParcial,
   RegraExclusaoParcial,
 } from '../../types/regraExclusaoParcial';
+import { parseCommaSeparatedTerms } from '../../lib/terms';
 
 const AJUDA_TERMOS =
   'Separe por vírgula. Todas as palavras listadas precisam constar na descrição do item (regra E). ' +
@@ -38,12 +39,6 @@ const MOTIVO_BADGE_VARIANTS: Record<MotivoExclusaoParcial, 'info' | 'warning' | 
   isencao: 'info',
   imposto_pago_entrada: 'warning',
 };
-
-const listaDeTermos = (texto: string): string[] =>
-  texto
-    .split(',')
-    .map((t) => t.trim().toUpperCase())
-    .filter(Boolean);
 
 interface Props {
   perfilId: number;
@@ -108,7 +103,7 @@ export const ExclusaoParcialSection: React.FC<Props> = ({ perfilId }) => {
     e.preventDefault();
     setErro(null);
 
-    const termos = listaDeTermos(termosTexto);
+    const termos = parseCommaSeparatedTerms(termosTexto, true);
     if (termos.length === 0) {
       setErro('Informe ao menos uma palavra/termo obrigatório.');
       return;

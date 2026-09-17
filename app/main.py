@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401 - registra os modelos no metadata do SQLAlchemy
 from app.api.router import api_router, include_registered_routers
-from app.core.config import settings
+from app.core.config import ensure_storage_directories, settings
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.exceptions import PlanilhaATException
 from app.core.seeds import seed_default_cfop_rules, seed_default_templates
@@ -23,6 +23,7 @@ logger = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    ensure_storage_directories()
     # Em produção, o esquema pertence ao Alembic. Mutá-lo no boot causava
     # corridas entre instâncias serverless e escondia migrações incompletas.
     if settings.AUTO_CREATE_SCHEMA:

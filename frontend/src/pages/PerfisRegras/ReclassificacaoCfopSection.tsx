@@ -9,9 +9,7 @@ import { Select } from '../../components/ui/Select';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { useReclassificacaoCfopSection } from './useReclassificacaoCfopSection';
 import type { RegraReclassificacaoCfop } from '../../types/regraReclassificacaoCfop';
-
-const listaDeTermos = (texto: string): string[] =>
-  texto.split(',').map((t) => t.trim()).filter(Boolean);
+import { parseCommaSeparatedTerms } from '../../lib/terms';
 
 interface Props {
   perfilId: number;
@@ -66,8 +64,8 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
         ncm,
         cfop_origem_sufixo: cfopOrigem.trim() || null,
         cfop_destino_sufixo: cfopDestino.trim(),
-        termos_inclusao: listaDeTermos(inclusao),
-        termos_exclusao: listaDeTermos(exclusao),
+        termos_inclusao: parseCommaSeparatedTerms(inclusao),
+        termos_exclusao: parseCommaSeparatedTerms(exclusao),
         descricao: descricao.trim() || null,
       },
       {

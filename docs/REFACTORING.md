@@ -1,5 +1,30 @@
 # Relatório da refatoração estrutural
 
+## Rodada integral de 17/09/2026
+
+O inventário atual cobriu os 220 arquivos Python/TypeScript de aplicação, migrações e
+testes (30.239 linhas), configuração, dependências, integrações, rotas e artefatos. O
+baseline foi confirmado com **275 testes aprovados e 1 ignorado**, lint sem erros e build
+TypeScript/Vite aprovado.
+
+Principais problemas remanescentes e tratamento aplicado:
+
+- o pipeline ainda misturava pré-análise, transições transacionais e serialização de
+  exclusões; essas responsabilidades foram isoladas em `pipeline_analysis.py`,
+  `pipeline_lifecycle.py` e em um serializer puro de domínio;
+- a configuração criava diretórios silenciosamente durante o import; a preparação do
+  armazenamento agora ocorre explicitamente no lifespan e falha de forma observável;
+- o cliente de Storage repetia construção e sanitização de URLs; essa fronteira foi
+  centralizada em um único método;
+- a tela de nova solicitação concentrava 1.059 linhas; stepper, seleção de empresa e
+  período viraram componentes privados da feature, reduzindo a rota para cerca de 800 linhas;
+- persistência da sessão, montagem de `FormData`, intervalos mensais e parsing de termos
+  estavam duplicados ou misturados a hooks/componentes; agora são funções reutilizáveis;
+- `Tabs` aceitava `any`; o componente agora preserva por generics o tipo real do identificador.
+
+Nenhuma rota, payload, regra fiscal, fórmula, classe visual ou sequência de interação foi
+alterada intencionalmente. A validação final repetiu toda a suíte, lint e build.
+
 ## Rodada integral de 02/09/2026
 
 A base inteira foi inventariada antes da primeira alteração: configuração, migrations,

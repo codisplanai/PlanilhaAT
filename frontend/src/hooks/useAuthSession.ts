@@ -1,22 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { authApi } from '../api/auth';
+import {
+  clearStoredSession,
+  readAccessToken,
+  readStoredUser,
+  storeSession,
+  storeUser,
+} from '../lib/sessionStorage';
 import type { User } from '../types/auth';
-
-const TOKEN_KEY = 'token';
-const USER_KEY = 'user';
-
-function readStoredUser(): User | null {
-  const serialized = localStorage.getItem(USER_KEY);
-  if (!serialized) return null;
-
-  try {
-    return JSON.parse(serialized) as User;
-  } catch {
-    localStorage.removeItem(USER_KEY);
-    return null;
-  }
-}
 
 export function useAuthSession() {
   const [user, setUser] = useState<User | null>(readStoredUser);
@@ -25,7 +17,7 @@ export function useAuthSession() {
   useEffect(() => {
     let active = true;
     const validateSession = async () => {
-      const token = localStorage.getItem(TOKEN_KEY);
+      const token = readAccessToken();
       if (!token) {
         if (active) setIsInitializing(false);
         return;
@@ -33,7 +25,7 @@ export function useAuthSession() {
 
       try {
         const currentUser = await authApi.getMe();
-        localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
+        storeUser(currentUser);
         if (active) setUser(currentUser);
       } catch {
         clearStoredSession();
@@ -60,8 +52,7 @@ export function useAuthSession() {
 
   const startSession = useCallback((nextUser: User, token: string) => {
     clearStoredSession();
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+    storeSession(nextUser, token);
     setUser(nextUser);
   }, []);
 
@@ -77,9 +68,4 @@ export function useAuthSession() {
   }, []);
 
   return { user, isInitializing, startSession, endSession };
-}
-
-function clearStoredSession() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
 }

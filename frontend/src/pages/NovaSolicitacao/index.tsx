@@ -2,7 +2,6 @@ import React from 'react';
 import {
   FileSpreadsheet,
   CheckCircle2,
-  Calendar,
   UploadCloud,
   FileCode,
   FileArchive,
@@ -10,7 +9,6 @@ import {
   Download,
   ArrowRight,
   ArrowLeft,
-  Search,
   Sparkles,
   FileCheck2,
   CalendarDays,
@@ -24,7 +22,6 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
-import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PlanilhaBadge } from '../../components/domain/PlanilhaBadge';
 import { ItensExcluidosSection } from '../../components/domain/ItensExcluidosSection';
@@ -33,7 +30,10 @@ import { getEntryOriginLabel } from '../../constants/domain';
 import { TemplateUpdateBanner } from '../../components/feedback/TemplateUpdateBanner';
 import { ModalConfirmacaoBonificacao } from '../../components/ModalConfirmacaoBonificacao';
 import { formatCNPJ, formatDate, formatCurrency, formatPercent } from '../../lib/formatters';
-import { REQUEST_STEPS, useNovaSolicitacaoPage } from './useNovaSolicitacaoPage';
+import { CompanySelectionStep } from './CompanySelectionStep';
+import { PeriodSelectionStep } from './PeriodSelectionStep';
+import { RequestStepper } from './RequestStepper';
+import { useNovaSolicitacaoPage } from './useNovaSolicitacaoPage';
 
 export const NovaSolicitacaoPage: React.FC = () => {
   const {
@@ -79,23 +79,6 @@ export const NovaSolicitacaoPage: React.FC = () => {
     cancelarModalBonificacao,
   } = useNovaSolicitacaoPage();
 
-  // Helper presets for quick period selection
-  const handleSetCurrentMonth = () => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
-    setPeriodoInicio(start);
-    setPeriodoFim(end);
-  };
-
-  const handleSetPreviousMonth = () => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
-    const end = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().split('T')[0];
-    setPeriodoInicio(start);
-    setPeriodoFim(end);
-  };
-
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <PageHeader
@@ -108,271 +91,35 @@ export const NovaSolicitacaoPage: React.FC = () => {
       {empresasError && <ErrorAlert message={getErrorMessage(empresasError)} />}
       {fileError && <ErrorAlert title="Arquivo não aceito" message={fileError} onDismiss={clearFileError} />}
 
-      {/* Modern Stepper Bar */}
-      <nav aria-label="Etapas da solicitação" className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs">
-        <ol className="flex items-center justify-between">
-          {REQUEST_STEPS.map((s, idx) => {
-            const isDone = currentStep > s.num || (currentStep === 4 && resultadoSolicitacao?.status === 'concluido');
-            const isCurrent = currentStep === s.num;
-            return (
-              <li key={s.num} className="flex-1 flex items-center" aria-current={isCurrent ? 'step' : undefined}>
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold transition-all duration-200 select-none ${
-                      isDone
-                        ? 'bg-emerald-600 text-white shadow-xs shadow-emerald-600/20'
-                        : isCurrent
-                        ? 'bg-blue-700 text-white shadow-xs shadow-blue-600/25 ring-4 ring-blue-500/15'
-                        : 'bg-slate-100 text-slate-400'
-                    }`}
-                  >
-                    {isDone ? <CheckCircle2 className="w-4 h-4" /> : s.num}
-                  </div>
-                  <div className="hidden sm:block">
-                    <p
-                      className={`text-xs font-bold leading-tight ${
-                        isCurrent ? 'text-blue-950' : isDone ? 'text-slate-800' : 'text-slate-400'
-                      }`}
-                    >
-                      {s.label}
-                    </p>
-                    <p className="text-[10px] text-slate-400 font-medium">Etapa {s.num}</p>
-                  </div>
-                </div>
-                {idx < REQUEST_STEPS.length - 1 && (
-                  <div
-                    className={`flex-1 h-0.5 mx-2 sm:mx-4 transition-colors duration-200 rounded-full ${
-                      currentStep > s.num ? 'bg-emerald-500' : 'bg-slate-200'
-                    }`}
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ol>
-        <div className="sm:hidden text-center text-xs font-bold text-blue-900 mt-2.5 pt-2 border-t border-slate-100">
-          Etapa {currentStep} de 4: {REQUEST_STEPS[currentStep - 1]?.label}
-        </div>
-      </nav>
+      <RequestStepper
+        currentStep={currentStep}
+        completed={resultadoSolicitacao?.status === 'concluido'}
+      />
 
       {/* Main Content by Step */}
       <Card className="p-6 sm:p-7">
-        {/* ETAPA 1: SELEÇÃO DA EMPRESA */}
         {currentStep === 1 && (
-          <div className="space-y-5 animate-fade-in">
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                Etapa 1: Selecionar Empresa Cliente
-              </h2>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Escolha a empresa para a qual a planilha será gerada. <strong>Regra fundamental:</strong> Apenas notas fiscais emitidas por fornecedores de UF diferente da empresa cliente (operações interestaduais) são consideradas no cálculo de Antecipação e DIFAL.
-              </p>
-            </div>
-
-            {/* Busca */}
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Filtrar por Razão Social, CNPJ ou Estado..."
-                value={empresaSearch}
-                onChange={(e) => setEmpresaSearch(e.target.value)}
-                className="w-full pl-9 pr-8 py-2.5 text-base sm:text-sm min-h-[40px] bg-slate-50/70 border border-slate-200/90 rounded-xl focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 transition-all text-slate-900 placeholder:text-slate-400"
-              />
-              {empresaSearch && (
-                <button
-                  type="button"
-                  onClick={() => setEmpresaSearch('')}
-                  aria-label="Limpar filtro de empresa"
-                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-
-            {isLoadingEmpresas ? (
-              <LoadingSpinner message="Carregando empresas cadastradas..." />
-            ) : filteredEmpresas.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 space-y-2">
-                <p>
-                  {empresaSearch
-                    ? 'Nenhuma empresa encontrada com o termo pesquisado.'
-                    : 'Nenhuma empresa ativa cadastrada no sistema.'}
-                </p>
-                {empresaSearch && (
-                  <Button size="sm" variant="outline" onClick={() => setEmpresaSearch('')}>
-                    Limpar pesquisa
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <div
-                role="radiogroup"
-                aria-label="Lista de empresas para seleção"
-                className="max-h-80 overflow-y-auto space-y-2 pr-1"
-              >
-                {filteredEmpresas.map((empresa) => {
-                  const isSelected = selectedEmpresa?.id === empresa.id;
-                  return (
-                    <div
-                      key={empresa.id}
-                      role="radio"
-                      aria-checked={isSelected}
-                      tabIndex={0}
-                      onClick={() => setSelectedEmpresa(empresa)}
-                      onKeyDown={(e) => {
-                        if (e.key === ' ' || e.key === 'Enter') {
-                          e.preventDefault();
-                          setSelectedEmpresa(empresa);
-                        }
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none focus:outline-none focus:ring-2 focus:ring-blue-600 ${
-                        isSelected
-                          ? 'bg-blue-50/80 border-blue-600 ring-2 ring-blue-600/20 shadow-xs'
-                          : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/60'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                            isSelected
-                              ? 'border-blue-600 bg-blue-600 text-white'
-                              : 'border-slate-300 bg-white'
-                          }`}
-                        >
-                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                        </div>
-                        <div className="space-y-1">
-                          <div className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
-                            <span>{empresa.razao_social}</span>
-                            <span className="font-bold text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
-                              {empresa.uf}
-                            </span>
-                            {empresa.optante_simples_nacional && (
-                              <span className="font-bold text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
-                                Simples Nacional
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center gap-3">
-                            <span>CNPJ: {formatCNPJ(empresa.cnpj)}</span>
-                            {empresa.inscricao_estadual && (
-                              <span className="text-slate-600 font-semibold">• I.E.: {empresa.inscricao_estadual}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="shrink-0">
-                        {isSelected ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Selecionada
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-medium text-slate-400">
-                            Selecionar
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="pt-4 border-t border-slate-100 flex justify-end">
-              <Button
-                onClick={() => setCurrentStep(2)}
-                disabled={!selectedEmpresa}
-                rightIcon={<ArrowRight className="w-4 h-4" />}
-              >
-                Avançar: Período
-              </Button>
-            </div>
-          </div>
+          <CompanySelectionStep
+            companies={filteredEmpresas}
+            isLoading={isLoadingEmpresas}
+            search={empresaSearch}
+            selectedCompany={selectedEmpresa}
+            onSearchChange={setEmpresaSearch}
+            onSelect={setSelectedEmpresa}
+            onAdvance={() => setCurrentStep(2)}
+          />
         )}
 
-        {/* ETAPA 2: SELEÇÃO DO PERÍODO */}
         {currentStep === 2 && (
-          <div className="space-y-5 animate-fade-in">
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                Etapa 2: Período de Competência
-              </h2>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Defina o intervalo de datas das notas fiscais a serem processadas para a empresa <strong>{selectedEmpresa?.razao_social}</strong>.
-              </p>
-            </div>
-
-            {/* Quick Period Presets */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
-                Atalhos Rápidos:
-              </span>
-              <button
-                type="button"
-                onClick={handleSetCurrentMonth}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-              >
-                Mês Atual
-              </button>
-              <button
-                type="button"
-                onClick={handleSetPreviousMonth}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-              >
-                Mês Anterior
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Data Inicial do Período
-                </label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={periodoInicio}
-                    onChange={(e) => setPeriodoInicio(e.target.value)}
-                    className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Data Final do Período
-                </label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={periodoFim}
-                    onChange={(e) => setPeriodoFim(e.target.value)}
-                    min={periodoInicio}
-                    className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3.5 text-xs text-blue-950 flex items-center gap-2.5">
-              <Calendar className="w-4 h-4 text-blue-700 shrink-0" />
-              <span>
-                Notas fiscais com data de emissão fora deste intervalo são desconsideradas na apuração contábil.
-              </span>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100 flex justify-between">
-              <Button variant="outline" onClick={() => setCurrentStep(1)} leftIcon={<ArrowLeft className="w-4 h-4" />}>
-                Voltar
-              </Button>
-              <Button onClick={advanceFromPeriod} rightIcon={<ArrowRight className="w-4 h-4" />}>
-                Avançar: Upload de Arquivos
-              </Button>
-            </div>
-          </div>
+          <PeriodSelectionStep
+            companyName={selectedEmpresa?.razao_social}
+            start={periodoInicio}
+            end={periodoFim}
+            onStartChange={setPeriodoInicio}
+            onEndChange={setPeriodoFim}
+            onBack={() => setCurrentStep(1)}
+            onAdvance={advanceFromPeriod}
+          />
         )}
 
         {/* ETAPA 3: UPLOAD DE ARQUIVOS */}

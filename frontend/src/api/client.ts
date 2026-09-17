@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { readAccessToken } from '../lib/sessionStorage';
 
 const rawApiUrl = import.meta.env.VITE_API_URL || '';
 const baseApiUrl = String(rawApiUrl).trim().replace(/\/+$/, '');
@@ -21,7 +22,7 @@ apiClient.interceptors.response.use(
 
 // Interceptor para injetar token JWT/Bearer e gerenciar headers dinâmicos
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = readAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

@@ -1,7 +1,7 @@
 import logging
 from urllib.parse import quote
 import httpx
-from typing import Optional
+from typing import Dict, Optional
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -12,12 +12,22 @@ class SupabaseStorageService:
         return bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY)
 
     @classmethod
-    def _get_headers(cls) -> dict:
+    def _get_headers(cls) -> Dict[str, str]:
         key = settings.SUPABASE_SERVICE_ROLE_KEY
         return {
             "apikey": key,
             "Authorization": f"Bearer {key}"
         }
+
+    @classmethod
+    def _object_url(cls, bucket: str, path: str, *, authenticated: bool = False) -> str:
+        safe_bucket = quote(bucket, safe="")
+        safe_path = quote(path.replace("\\", "/").lstrip("/"), safe="/")
+        access_segment = "/authenticated" if authenticated else ""
+        return (
+            f"{settings.SUPABASE_URL.rstrip('/')}"
+            f"/storage/v1/object{access_segment}/{safe_bucket}/{safe_path}"
+        )
 
     @classmethod
     def upload_file(
@@ -32,9 +42,7 @@ class SupabaseStorageService:
             return False
 
         try:
-            safe_bucket = quote(bucket, safe="")
-            safe_path = quote(path.replace("\\", "/").lstrip("/"), safe="/")
-            url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/{safe_bucket}/{safe_path}"
+            url = cls._object_url(bucket, path)
             headers = cls._get_headers()
             headers["Content-Type"] = content_type
             headers["x-upsert"] = "true"
@@ -56,9 +64,7 @@ class SupabaseStorageService:
             return None
 
         try:
-            safe_bucket = quote(bucket, safe="")
-            safe_path = quote(path.replace("\\", "/").lstrip("/"), safe="/")
-            url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/authenticated/{safe_bucket}/{safe_path}"
+            url = cls._object_url(bucket, path, authenticated=True)
             headers = cls._get_headers()
             with httpx.Client(timeout=15.0) as client:
                 res = client.get(url, headers=headers)
@@ -73,9 +79,7 @@ class SupabaseStorageService:
     def delete_file(cls, bucket: str, path: str) -> bool:
         if not cls.is_configured():
             return False
-        safe_bucket = quote(bucket, safe="")
-        safe_path = quote(path.replace("\\", "/").lstrip("/"), safe="/")
-        url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/{safe_bucket}/{safe_path}"
+        url = cls._object_url(bucket, path)
         try:
             with httpx.Client(timeout=15.0) as client:
                 response = client.delete(url, headers=cls._get_headers())

@@ -28,6 +28,8 @@ app/
 │   ├── validation/      # Validações de domínio
 │   ├── local_files.py    # Escrita atômica e resolução segura de artefatos
 │   ├── pipeline_helpers.py
+│   ├── pipeline_analysis.py # Pré-análise e decisões de destinação
+│   ├── pipeline_lifecycle.py # Transações e estados da solicitação
 │   ├── pipeline_sources.py  # Extração, reconciliação e deduplicação das fontes
 │   ├── pipeline_outputs.py  # Geração, Storage e rollback de saídas
 │   ├── pipeline_service.py  # Orquestração do caso de uso fiscal
@@ -39,7 +41,8 @@ app/
 As rotas coordenam HTTP e persistência e são registradas uma única vez em `api/router.py`,
 inclusive para o alias legado `/v1`. O pipeline principal mantém a transação e a sequência
 fiscal; carregamento de fontes, geração/recuperação de arquivos, cálculo, validação e Excel
-permanecem em serviços especializados. Constantes de domínio não devem ser repetidas em
+permanecem em serviços especializados. A pré-análise e as transições transacionais
+do processamento ficam isoladas do orquestrador principal. Constantes de domínio não devem ser repetidas em
 schemas, rotas ou estratégias.
 
 ## Frontend
@@ -63,7 +66,9 @@ As páginas são carregadas sob demanda. Dados remotos passam pelos hooks de Rea
 pelas chaves centralizadas de cache. Páginas com formulários ou fluxos complexos possuem
 um hook ao lado da própria rota (`use*Page.ts`), que concentra schemas, estado, queries,
 mutações e efeitos. Estado de arquivos fiscais e autenticação ficam em hooks próprios;
-os componentes de página concentram a composição e a apresentação.
+os componentes de página concentram a composição e a apresentação. Etapas extensas de
+assistentes devem ser componentes da própria feature; sessão persistida, montagem multipart,
+períodos e parsing de entradas textuais ficam em utilitários puros compartilhados.
 
 ## Regras de evolução
 

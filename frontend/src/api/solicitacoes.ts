@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { createFiscalInputFormData } from './multipart';
 import type {
   Solicitacao,
   SolicitacaoCreate,
@@ -25,18 +26,11 @@ export const solicitacoesApi = {
     planilhaEntradas?: File | null,
     spedFile?: File | null
   ): Promise<PreAnaliseSolicitacao> => {
-    const formData = new FormData();
-    if (files && files.length > 0) {
-      files.forEach((file) => {
-        formData.append('files', file);
-      });
-    }
-    if (spedFile) {
-      formData.append('sped_file', spedFile);
-    }
-    if (planilhaEntradas) {
-      formData.append('planilha_entradas', planilhaEntradas);
-    }
+    const formData = createFiscalInputFormData({
+      xmlFiles: files,
+      spedFile,
+      entrySheet: planilhaEntradas,
+    });
     const { data } = await apiClient.post<PreAnaliseSolicitacao>(`/solicitacoes/${id}/pre-analisar`, formData, {
       timeout: 120_000,
     });
@@ -49,21 +43,10 @@ export const solicitacoesApi = {
     spedFile?: File | null,
     decisoesBonificacao?: Record<string, boolean>
   ): Promise<Solicitacao> => {
-    const formData = new FormData();
-    if (files && files.length > 0) {
-      files.forEach((file) => {
-        formData.append('files', file);
-      });
-    }
-    if (spedFile) {
-      formData.append('sped_file', spedFile);
-    }
-    if (planilhaEntradas) {
-      formData.append('planilha_entradas', planilhaEntradas);
-    }
-    if (decisoesBonificacao && Object.keys(decisoesBonificacao).length > 0) {
-      formData.append('decisoes_bonificacao', JSON.stringify(decisoesBonificacao));
-    }
+    const formData = createFiscalInputFormData(
+      { xmlFiles: files, spedFile, entrySheet: planilhaEntradas },
+      decisoesBonificacao,
+    );
     const { data } = await apiClient.post<Solicitacao>(`/solicitacoes/${id}/processar`, formData, {
       timeout: 300_000,
     });

@@ -10,13 +10,11 @@ import { Select } from '../../components/ui/Select';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { useReducaoProdutoSection } from './useReducaoProdutoSection';
 import type { RegraReducao } from '../../types/regraReducao';
+import { parseCommaSeparatedTerms } from '../../lib/terms';
 
 const AJUDA_TERMOS =
   'Separe por vírgula. Use * no fim para casar prefixo: vergalh* pega VERGALHAO e ' +
   'VERGALHOES. O termo casa palavras inteiras — ferro não casa FERROVIARIO.';
-
-const listaDeTermos = (texto: string): string[] =>
-  texto.split(',').map((t) => t.trim()).filter(Boolean);
 
 const percentual = (aliquota: number): string => `${(aliquota * 100).toFixed(2)}%`;
 
@@ -58,8 +56,8 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
       {
         perfil_regras_id: perfilId,
         ncm,
-        termos_inclusao: listaDeTermos(inclusao),
-        termos_exclusao: listaDeTermos(exclusao),
+        termos_inclusao: parseCommaSeparatedTerms(inclusao),
+        termos_exclusao: parseCommaSeparatedTerms(exclusao),
         aliquota: Number(aliquota.replace(',', '.')),
         descricao: descricao || null,
       },

@@ -7,34 +7,15 @@ import { solicitacoesApi } from '../../api/solicitacoes';
 import { useEmpresasQuery } from '../../hooks/useApiQueries';
 import type { Empresa } from '../../types/empresa';
 import type { Solicitacao, TipoPlanilha, NotaBonificacaoPendencia } from '../../types/solicitacao';
+import { getMonthPeriod } from '../../lib/periods';
 import { useFiscalInputFiles } from './useFiscalInputFiles';
-
-export interface RequestStep {
-  num: number;
-  label: string;
-}
-
-export const REQUEST_STEPS: RequestStep[] = [
-  { num: 1, label: 'Empresa' },
-  { num: 2, label: 'Período' },
-  { num: 3, label: 'Arquivos' },
-  { num: 4, label: 'Download' },
-];
-
-function currentMonthPeriod() {
-  const today = new Date();
-  return {
-    start: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0],
-    end: new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0],
-  };
-}
 
 export function useNovaSolicitacaoPage() {
   const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedEmpresa, setSelectedEmpresa] = useState<Empresa | null>(null);
   const [empresaSearch, setEmpresaSearch] = useState('');
-  const [initialPeriod] = useState(currentMonthPeriod);
+  const [initialPeriod] = useState(getMonthPeriod);
   const [periodoInicio, setPeriodoInicio] = useState(initialPeriod.start);
   const [periodoFim, setPeriodoFim] = useState(initialPeriod.end);
   const files = useFiscalInputFiles();

@@ -127,6 +127,47 @@ def ignored_note(
     }
 
 
+def serialize_excluded_item(
+    nf: ExtractedNFData,
+    item: Any,
+    filename: str,
+    destination: str,
+    decision: Any,
+) -> dict[str, Any]:
+    """Converte uma decisão de exclusão no contrato persistido da solicitação."""
+    optional_numeric_fields = (
+        "v_total",
+        "base_calculo",
+        "ipi_despesas",
+        "a_ori",
+        "a_dst",
+        "debito",
+        "credito",
+        "valor_devido",
+    )
+    serialized = {
+        "chave_acesso": nf.chave_acesso,
+        "numero_nota": nf.numero_nota,
+        "serie": nf.serie,
+        "item_numero": item.item_numero,
+        "arquivo": filename,
+        "destino": destination,
+        "ncm": item.ncm,
+        "descricao": item.descricao,
+        "descricao_confiavel": item.descricao_confiavel,
+        "motivo": decision.motivo,
+        "tipo_exclusao": decision.tipo_exclusao,
+        "regras_aplicadas": decision.regras_aplicadas,
+    }
+    serialized.update(
+        {
+            field: float(value) if (value := getattr(decision, field, None)) is not None else None
+            for field in optional_numeric_fields
+        }
+    )
+    return serialized
+
+
 def normalize_datetime(value: Any) -> Optional[datetime]:
     if isinstance(value, datetime):
         return value

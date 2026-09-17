@@ -1,5 +1,6 @@
 import os
-from typing import Optional
+from pathlib import Path
+from typing import Iterable, Optional
 from pydantic import BaseSettings
 
 is_vercel = bool(os.environ.get("VERCEL"))
@@ -55,9 +56,18 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Ensure local storage directories exist safely
-try:
-    for d in [settings.STORAGE_DIR, settings.TEMPLATES_DIR, settings.OUTPUTS_DIR, settings.UPLOADS_DIR]:
-        os.makedirs(d, exist_ok=True)
-except Exception:
-    pass
+
+def storage_directories(config: Settings = settings) -> Iterable[Path]:
+    """Retorna as pastas mutáveis usadas pelos adaptadores de arquivo."""
+    return (
+        Path(config.STORAGE_DIR),
+        Path(config.TEMPLATES_DIR),
+        Path(config.OUTPUTS_DIR),
+        Path(config.UPLOADS_DIR),
+    )
+
+
+def ensure_storage_directories(config: Settings = settings) -> None:
+    """Prepara o armazenamento local explicitamente durante o startup."""
+    for directory in storage_directories(config):
+        directory.mkdir(parents=True, exist_ok=True)

@@ -2,30 +2,32 @@ import React, { useId, useRef } from 'react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-export interface TabItem {
-  id: string | number;
+type TabId = string | number;
+
+export interface TabItem<T extends TabId = TabId> {
+  id: T;
   label: string;
   count?: number;
   badge?: React.ReactNode;
 }
 
-export interface TabsProps {
-  tabs: TabItem[];
-  activeTab: string | number;
-  onChange: (tabId: any) => void;
+export interface TabsProps<T extends TabId = TabId> {
+  tabs: TabItem<T>[];
+  activeTab: T;
+  onChange: (tabId: T) => void;
   className?: string;
   variant?: 'underline' | 'pills';
   ariaLabel?: string;
 }
 
-export const Tabs: React.FC<TabsProps> = ({
+export function Tabs<T extends TabId>({
   tabs,
   activeTab,
   onChange,
   className,
   variant = 'underline',
   ariaLabel = 'Navegação por abas',
-}) => {
+}: TabsProps<T>) {
   const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const tablistId = useId();
 
@@ -114,4 +116,4 @@ export const Tabs: React.FC<TabsProps> = ({
       })}
     </div>
   );
-};
+}

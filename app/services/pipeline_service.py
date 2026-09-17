@@ -1,5 +1,4 @@
 import re
-from datetime import datetime
 from collections import defaultdict
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
@@ -10,10 +9,9 @@ from app.models.solicitacao import Solicitacao
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.template_xlsx import TemplateXlsx
 from app.core.exceptions import (
-    ValidationException, NotFoundException, RuleResolutionException, PlanilhaATException,
+    ValidationException, RuleResolutionException,
 )
 from app.services.extraction.nfe_xml_extractor import NFeXMLExtractor
-from app.services.extraction.base import ExtractedNFData
 from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
 from app.services.extraction.data_entrada_matcher import (
     DataEntradaMatcher,
@@ -27,6 +25,11 @@ from app.services.calculation.factory import CalculatorFactory
 from app.services.validation.sanity_checker import SanityChecker
 from app.services.templates_admin.template_manager import TemplateManager
 from app.services.pipeline_outputs import GeneratedArtifacts, PipelineOutputService
+from app.services.pipeline_lifecycle import PipelineLifecycle
+from app.services.pipeline_analysis import (
+    CFOP_SUFFIXES_REQUIRING_DESTINATION,
+    PipelinePreAnalyzer,
+)
 from app.services.pipeline_sources import PipelineSourceLoader
 from app.constants import (
     ANTECIPACAO_PARCIAL,
@@ -35,10 +38,6 @@ from app.constants import (
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA,
     DIFAL,
-    STATUS_CONCLUIDO,
-    STATUS_ERRO,
-    STATUS_PENDENTE,
-    STATUS_PROCESSANDO,
     TIPOS_PLANILHA_LEGADO,
 )
 from app.services.pipeline_helpers import (
@@ -48,11 +47,8 @@ from app.services.pipeline_helpers import (
     ignored_note,
     is_cfop_uso_consumo_ativo,
     nfe_sort_key,
+    serialize_excluded_item,
 )
-
-
-SUFIXOS_CONFIRMACAO_DESTINACAO = {"910", "911", "949"}
-SUFIXOS_BONIFICACAO_AMOSTRA = SUFIXOS_CONFIRMACAO_DESTINACAO
 
 
 class ProcessingPipelineService:
@@ -79,6 +75,7 @@ class ProcessingPipelineService:
         self.parcial_exclusion = ParcialExclusionService(db)
         self.output_service = PipelineOutputService(db)
         self.source_loader = PipelineSourceLoader(self.extractor, self.sped_extractor)
+        self.lifecycle = PipelineLifecycle(db)
 
     @staticmethod
     def _chaves_cruzamento(nf: Any) -> List[str]:
@@ -91,55 +88,6 @@ class ProcessingPipelineService:
     def regenerate_outputs(self, solicitacao: Solicitacao) -> None:
         self.output_service.regenerate(solicitacao)
 
-    @staticmethod
-    def detect_bonificacoes(notes: List[Tuple[str, ExtractedNFData]]) -> List[Dict[str, Any]]:
-        pendencias = []
-        for filename, nf_data in notes:
-            bonif_items = [
-                it for it in nf_data.itens
-                if re.sub(r"\D", "", it.cfop or "")[-3:] in SUFIXOS_CONFIRMACAO_DESTINACAO
-            ]
-            if not bonif_items:
-                continue
-
-            cfops = sorted(list({it.cfop for it in bonif_items if it.cfop}))
-            valor_total = sum((it.v_total for it in bonif_items), Decimal("0.00"))
-
-            is_sped = (nf_data.origem_extracao == "sped")
-            has_credit = (
-                nf_data.v_icms_nota > Decimal("0.00")
-                or any(it.v_icms > Decimal("0.00") or (it.base_calculo > Decimal("0.00") and it.a_ori > Decimal("0.00")) for it in bonif_items)
-            )
-
-            if is_sped:
-                motivo = (
-                    f"Crédito de ICMS de R$ {nf_data.v_icms_nota:.2f} identificado no SPED Fiscal"
-                    if has_credit and nf_data.v_icms_nota > 0
-                    else ("Destaque de crédito de ICMS identificado no item do SPED Fiscal" if has_credit else "Sem destaque de crédito no SPED Fiscal")
-                )
-            else:
-                motivo = (
-                    f"Destaque de ICMS próprio de R$ {nf_data.v_icms_nota:.2f} no XML da NF-e"
-                    if has_credit and nf_data.v_icms_nota > 0
-                    else ("Destaque de ICMS próprio identificado no item do XML da NF-e" if has_credit else "Sem destaque de ICMS próprio no XML da NF-e")
-                )
-
-            nome_emitente = nf_data.raw_metadata.get("emit_nome") or ""
-
-            pendencias.append({
-                "chave_acesso": nf_data.chave_acesso,
-                "numero_nota": nf_data.numero_nota,
-                "serie": nf_data.serie or "",
-                "cnpj_emitente": nf_data.cnpj_emitente or "",
-                "nome_emitente": nome_emitente,
-                "cfops": cfops,
-                "valor_total": valor_total,
-                "tem_credito": has_credit,
-                "sugestao_revenda": has_credit,
-                "motivo_sugestao": motivo,
-            })
-        return pendencias
-
     def pre_analisar(
         self,
         solicitacao_id: str,
@@ -149,13 +97,8 @@ class ProcessingPipelineService:
         planilha_entradas_bytes: Optional[bytes] = None,
         planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx",
     ) -> Dict[str, Any]:
-        solicitacao = self.db.query(Solicitacao).filter(Solicitacao.id == solicitacao_id).first()
-        if not solicitacao:
-            raise NotFoundException(f"Solicitação ID '{solicitacao_id}' não encontrada.")
-
-        empresa = self.db.query(Empresa).filter(Empresa.id == solicitacao.empresa_id).first()
-        if not empresa:
-            raise NotFoundException(f"Empresa ID '{solicitacao.empresa_id}' não encontrada.")
+        solicitacao = self.lifecycle.get_solicitacao(solicitacao_id)
+        empresa = self.lifecycle.get_empresa(solicitacao.empresa_id)
 
         sources = self.source_loader.load(
             solicitacao=solicitacao,
@@ -167,21 +110,7 @@ class ProcessingPipelineService:
             entry_sheet_filename=planilha_entradas_filename,
         )
 
-        notas_filtradas = []
-        for filename, nf_data in sources.notes:
-            uf_fornecedor = (nf_data.uf_emitente or "").strip().upper()
-            uf_empresa_dest = (empresa.uf or "").strip().upper()
-            if uf_fornecedor and uf_empresa_dest and uf_fornecedor == uf_empresa_dest:
-                continue
-            if not SanityChecker.is_within_period(nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim):
-                continue
-            notas_filtradas.append((filename, nf_data))
-
-        pendencias = self.detect_bonificacoes(notas_filtradas)
-        return {
-            "requer_decisao": len(pendencias) > 0,
-            "notas_bonificacao": pendencias,
-        }
+        return PipelinePreAnalyzer.analyze(sources.notes, empresa, solicitacao)
 
     def process_solicitacao(
         self,
@@ -193,26 +122,9 @@ class ProcessingPipelineService:
         planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx",
         decisoes_bonificacao: Optional[Dict[str, bool]] = None,
     ) -> Solicitacao:
-        solicitacao = self.db.query(Solicitacao).filter(Solicitacao.id == solicitacao_id).first()
-        if not solicitacao:
-            raise NotFoundException(f"Solicitação ID '{solicitacao_id}' não encontrada.")
-
-        claimed = (
-            self.db.query(Solicitacao)
-            .filter(
-                Solicitacao.id == solicitacao_id,
-                Solicitacao.status.in_([STATUS_PENDENTE, STATUS_ERRO]),
-            )
-            .update({Solicitacao.status: STATUS_PROCESSANDO}, synchronize_session=False)
-        )
-        if claimed != 1:
-            raise ValidationException("Esta solicitação já está sendo processada ou foi concluída.")
-        self.db.commit()
-        self.db.refresh(solicitacao)
-
-        empresa = self.db.query(Empresa).filter(Empresa.id == solicitacao.empresa_id).first()
-        if not empresa:
-            raise NotFoundException(f"Empresa ID '{solicitacao.empresa_id}' não encontrada.")
+        solicitacao = self.lifecycle.get_solicitacao(solicitacao_id)
+        self.lifecycle.claim(solicitacao)
+        empresa = self.lifecycle.get_empresa(solicitacao.empresa_id)
 
         # Validação de sanidade do CNPJ da Empresa
         SanityChecker.validate_cnpj(empresa.cnpj, "CNPJ da Empresa Solicitante")
@@ -373,7 +285,7 @@ class ProcessingPipelineService:
 
                     # Avaliação de Remessa em Bonificação (6910/2910), Amostra Grátis (6911/2911) e Outras Saídas (6949/2949)
                     sufixo_item = re.sub(r"\D", "", item.cfop or "")[-3:]
-                    if sufixo_item in SUFIXOS_CONFIRMACAO_DESTINACAO and decisoes_bonificacao is not None:
+                    if sufixo_item in CFOP_SUFFIXES_REQUIRING_DESTINATION and decisoes_bonificacao is not None:
                         is_revenda = None
                         if nf_data.chave_acesso and nf_data.chave_acesso in decisoes_bonificacao:
                             is_revenda = decisoes_bonificacao[nf_data.chave_acesso]
@@ -387,7 +299,7 @@ class ProcessingPipelineService:
                                 destino_item = DIFAL
 
                     if destino_item is None:
-                        if sufixo_item not in SUFIXOS_CONFIRMACAO_DESTINACAO or (decisoes_bonificacao is None):
+                        if sufixo_item not in CFOP_SUFFIXES_REQUIRING_DESTINATION or (decisoes_bonificacao is None):
                             sufixo = re.sub(r"\D", "", item.cfop or "")
                             sufixo = sufixo[-3:] if len(sufixo) >= 3 else (sufixo or "????")
                             cfops_sem_regra[sufixo] += 1
@@ -454,28 +366,15 @@ class ProcessingPipelineService:
                             a_ori=item.a_ori,
                         )
                         if decisao_mercadoria.excluido:
-                            itens_excluidos.append({
-                                "chave_acesso": nf_data.chave_acesso,
-                                "numero_nota": nf_data.numero_nota,
-                                "serie": nf_data.serie,
-                                "item_numero": item.item_numero,
-                                "arquivo": filename,
-                                "destino": destino_item,
-                                "ncm": item.ncm,
-                                "descricao": item.descricao,
-                                "descricao_confiavel": item.descricao_confiavel,
-                                "motivo": decisao_mercadoria.motivo,
-                                "tipo_exclusao": decisao_mercadoria.tipo_exclusao,
-                                "regras_aplicadas": decisao_mercadoria.regras_aplicadas,
-                                "v_total": float(decisao_mercadoria.v_total) if decisao_mercadoria.v_total is not None else None,
-                                "base_calculo": float(decisao_mercadoria.base_calculo) if decisao_mercadoria.base_calculo is not None else None,
-                                "ipi_despesas": float(decisao_mercadoria.ipi_despesas) if decisao_mercadoria.ipi_despesas is not None else None,
-                                "a_ori": float(decisao_mercadoria.a_ori) if decisao_mercadoria.a_ori is not None else None,
-                                "a_dst": None,
-                                "debito": None,
-                                "credito": None,
-                                "valor_devido": None,
-                            })
+                            itens_excluidos.append(
+                                serialize_excluded_item(
+                                    nf_data,
+                                    item,
+                                    filename,
+                                    destino_item,
+                                    decisao_mercadoria,
+                                )
+                            )
                             continue
 
                     # Camada 5: Resolução determinística de A.DST em três níveis
@@ -531,28 +430,15 @@ class ProcessingPipelineService:
                             is_simples=empresa.optante_simples_nacional,
                         )
                         if decisao_numerica.excluido:
-                            itens_excluidos.append({
-                                "chave_acesso": nf_data.chave_acesso,
-                                "numero_nota": nf_data.numero_nota,
-                                "serie": nf_data.serie,
-                                "item_numero": item.item_numero,
-                                "arquivo": filename,
-                                "destino": destino_item,
-                                "ncm": item.ncm,
-                                "descricao": item.descricao,
-                                "descricao_confiavel": item.descricao_confiavel,
-                                "motivo": decisao_numerica.motivo,
-                                "tipo_exclusao": decisao_numerica.tipo_exclusao,
-                                "regras_aplicadas": decisao_numerica.regras_aplicadas,
-                                "v_total": float(decisao_numerica.v_total) if decisao_numerica.v_total is not None else None,
-                                "base_calculo": float(decisao_numerica.base_calculo) if decisao_numerica.base_calculo is not None else None,
-                                "ipi_despesas": float(decisao_numerica.ipi_despesas) if decisao_numerica.ipi_despesas is not None else None,
-                                "a_ori": float(decisao_numerica.a_ori) if decisao_numerica.a_ori is not None else None,
-                                "a_dst": float(decisao_numerica.a_dst) if decisao_numerica.a_dst is not None else None,
-                                "debito": float(decisao_numerica.debito) if decisao_numerica.debito is not None else None,
-                                "credito": float(decisao_numerica.credito) if decisao_numerica.credito is not None else None,
-                                "valor_devido": float(decisao_numerica.valor_devido) if decisao_numerica.valor_devido is not None else None,
-                            })
+                            itens_excluidos.append(
+                                serialize_excluded_item(
+                                    nf_data,
+                                    item,
+                                    filename,
+                                    destino_item,
+                                    decisao_numerica,
+                                )
+                            )
                             continue
 
                     key = (
@@ -806,28 +692,22 @@ class ProcessingPipelineService:
                     raise ValidationException(erros_validacao[0])
 
                 if itens_excluidos:
-                    solicitacao.status = STATUS_CONCLUIDO
-                    solicitacao.total_notas_processadas = 0
-                    solicitacao.notas_ignoradas = notas_ignoradas
-                    solicitacao.itens_excluidos = itens_excluidos
-                    solicitacao.avisos_avaliacao = avisos_avaliacao
-                    solicitacao.cfops_sem_regra = {}
-                    solicitacao.mensagem_erro = "Nenhum item a recolher na Parcial"
-                    self.db.commit()
-                    self.db.refresh(solicitacao)
-                    return solicitacao
+                    return self.lifecycle.complete_without_output(
+                        solicitacao,
+                        ignored_notes=notas_ignoradas,
+                        excluded_items=itens_excluidos,
+                        evaluation_warnings=avisos_avaliacao,
+                        message="Nenhum item a recolher na Parcial",
+                    )
 
                 if any("não destinada para revenda pelo usuário" in str(n.get("motivo", "")) for n in notas_ignoradas):
-                    solicitacao.status = STATUS_CONCLUIDO
-                    solicitacao.total_notas_processadas = 0
-                    solicitacao.notas_ignoradas = notas_ignoradas
-                    solicitacao.itens_excluidos = itens_excluidos
-                    solicitacao.avisos_avaliacao = avisos_avaliacao
-                    solicitacao.cfops_sem_regra = {}
-                    solicitacao.mensagem_erro = "Nenhum item a recolher na Parcial (mercadoria em bonificação/amostra grátis não destinada para revenda)"
-                    self.db.commit()
-                    self.db.refresh(solicitacao)
-                    return solicitacao
+                    return self.lifecycle.complete_without_output(
+                        solicitacao,
+                        ignored_notes=notas_ignoradas,
+                        excluded_items=itens_excluidos,
+                        evaluation_warnings=avisos_avaliacao,
+                        message="Nenhum item a recolher na Parcial (mercadoria em bonificação/amostra grátis não destinada para revenda)",
+                    )
 
                 total_ign = len(notas_ignoradas)
                 p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
@@ -867,28 +747,15 @@ class ProcessingPipelineService:
             )
 
             # Atualizar status e resultado da solicitação
-            solicitacao.status = STATUS_CONCLUIDO
-            solicitacao.total_notas_processadas = len(notas_criadas)
-            solicitacao.notas_ignoradas = notas_ignoradas
-            solicitacao.itens_excluidos = itens_excluidos
-            solicitacao.avisos_avaliacao = avisos_avaliacao
-            solicitacao.cfops_sem_regra = dict(cfops_sem_regra)
-            solicitacao.mensagem_erro = None
-            self.db.commit()
-            self.db.refresh(solicitacao)
-
-            return solicitacao
+            return self.lifecycle.complete(
+                solicitacao,
+                processed_notes=notas_criadas,
+                ignored_notes=notas_ignoradas,
+                excluded_items=itens_excluidos,
+                evaluation_warnings=avisos_avaliacao,
+                missing_cfops=cfops_sem_regra,
+            )
 
         except Exception as exc:
-            self.db.rollback()
-            generated_artifacts.cleanup()
-            solicitacao.status = STATUS_ERRO
-            # RuleResolutionException herda de PlanilhaATException, não de
-            # ValidationException: sem isto, toda mensagem de regra chegava ao
-            # usuário como "Falha interna".
-            solicitacao.mensagem_erro = (
-                str(exc) if isinstance(exc, PlanilhaATException)
-                else "Falha interna ao processar os arquivos."
-            )
-            self.db.commit()
+            self.lifecycle.fail(solicitacao, generated_artifacts, exc)
             raise
