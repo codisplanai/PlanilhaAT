@@ -1,6 +1,10 @@
 name: CI and GHCR Maintenance
 
 on:
+  push:
+    branches:
+      - develop
+      - main
   schedule:
     - cron: "17 * * * *"
   pull_request:
@@ -61,14 +65,19 @@ jobs:
           done
 
   ghcr-cleanup:
-    name: Remove stale GHCR development and base versions
+    name: Repair release state and clean GHCR
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - name: Clean GHCR packages older than 2h
+      - name: Checkout Git tags
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Remove invalid stable aliases and stale package versions
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
@@ -81,6 +90,7 @@ jobs:
           APP_PACKAGE="${APP_PACKAGE,,}"
           OWNER_TYPE="$(gh api "repos/$REPOSITORY" --jq '.owner.type')"
           CUTOFF="$(date -u -d '2 hours ago' +%s)"
+          git fetch --tags --force
 
           package_endpoint() {
             local package="$1"
@@ -89,6 +99,11 @@ jobs:
             else
               printf 'users/%s/packages/container/%s/versions' "$OWNER" "$package"
             fi
+          }
+
+          is_real_release() {
+            local version="$1"
+            git rev-parse "v${version}" >/dev/null 2>&1
           }
 
           clean_app_package() {
@@ -102,7 +117,19 @@ jobs:
             while IFS=$'\t' read -r VERSION_ID CREATED_AT TAGS; do
               [[ -z "$VERSION_ID" ]] && continue
 
-              if grep -Eq '(^|,)(latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+|release-sha-[0-9a-f]+)(,|$)' <<< "$TAGS"; then
+              EXACT_VERSION="$(tr ',' '\n' <<< "$TAGS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+              HAS_STABLE_ALIAS=0
+              if [[ -n "$TAGS" ]] && grep -Eq '(^|,)(production|latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+)(,|$)' <<< "$TAGS"; then
+                HAS_STABLE_ALIAS=1
+              fi
+
+              if (( HAS_STABLE_ALIAS == 1 )); then
+                if [[ -n "$EXACT_VERSION" ]] && is_real_release "$EXACT_VERSION"; then
+                  continue
+                fi
+
+                echo "Deleting invalid stable GHCR version id=$VERSION_ID tags=${TAGS:-<untagged>}: no matching Git release tag exists."
+                gh api --method DELETE "$endpoint/$VERSION_ID" || true
                 continue
               fi
 
@@ -116,9 +143,14 @@ jobs:
                 continue
               fi
 
+              is_candidate=0
+              if [[ -n "$TAGS" ]] && grep -Eq '(^|,)release-candidate-[^,]+(,|$)' <<< "$TAGS"; then
+                is_candidate=1
+              fi
+
               CREATED_TS="$(date -u -d "$CREATED_AT" +%s)"
-              if (( CREATED_TS < CUTOFF )) && { (( is_dev == 1 )) || [[ -z "$TAGS" ]]; }; then
-                echo "Deleting app package version id=$VERSION_ID tags=${TAGS:-<untagged>}"
+              if (( CREATED_TS < CUTOFF )) && { (( is_dev == 1 )) || (( is_candidate == 1 )) || [[ -z "$TAGS" ]]; }; then
+                echo "Deleting stale app package version id=$VERSION_ID tags=${TAGS:-<untagged>}"
                 gh api --method DELETE "$endpoint/$VERSION_ID" || true
               fi
             done
