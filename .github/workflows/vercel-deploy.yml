@@ -34,9 +34,8 @@ jobs:
   develop:
     name: Deploy develop frontend to Vercel
     if: >-
-      vars.VERCEL_DEPLOY_ENABLED == 'true' &&
-      (github.event_name == 'push' ||
-       (github.event_name == 'workflow_dispatch' && inputs.target == 'development'))
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'development')
     runs-on: ubuntu-latest
     environment: development
     concurrency:
@@ -61,7 +60,7 @@ jobs:
           set -Eeuo pipefail
           for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::$name is required when VERCEL_DEPLOY_ENABLED=true"
+              echo "::error::GitHub Environment development is missing Vercel secret: $name"
               exit 1
             fi
           done
@@ -138,9 +137,8 @@ jobs:
   production:
     name: Deploy released frontend to Vercel
     if: >-
-      vars.VERCEL_DEPLOY_ENABLED == 'true' &&
-      ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-       (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -165,7 +163,7 @@ jobs:
           set -Eeuo pipefail
           for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::$name is required when VERCEL_DEPLOY_ENABLED=true"
+              echo "::error::GitHub Environment production is missing Vercel secret: $name"
               exit 1
             fi
           done

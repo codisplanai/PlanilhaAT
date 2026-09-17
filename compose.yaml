@@ -31,7 +31,7 @@ x-app-environment: &app-environment
   DATABASE_WAIT_INTERVAL_SECONDS: ${DATABASE_WAIT_INTERVAL_SECONDS:-2}
 
 x-app-common: &app-common
-  image: ${PLANAUT_IMAGE:-ghcr.io/codisplanai/planilhaat:latest}
+  image: ${PLANAUT_IMAGE:-ghcr.io/codisplanai/planilhaat:production}
   restart: unless-stopped
   init: true
   environment: *app-environment
@@ -52,8 +52,6 @@ services:
     <<: *app-common
     container_name: ${APP_CONTAINER_NAME:-planaut-app}
     read_only: true
-    # ÚNICA porta publicada pelo stack. PostgreSQL e ferramentas permanecem
-    # somente na rede Docker interna. CloudPanel aponta o reverse proxy para ela.
     ports:
       - "${PLANAUT_BIND_ADDRESS:-127.0.0.1}:${PLANAUT_PORT:-8000}:8000"
     volumes:
@@ -63,8 +61,6 @@ services:
     tmpfs:
       - /tmp:size=128m,mode=1777
 
-  # Uso manual de migrations. O app principal pode executar Alembic no startup
-  # para stacks one-click do Portainer/Dockge.
   migrate:
     <<: *app-common
     profiles: ["tools"]
@@ -77,9 +73,6 @@ services:
     tmpfs:
       - /tmp:size=64m,mode=1777
 
-  # PostgreSQL local opcional. Não publica porta no host.
-  # Ative apenas quando não usar Supabase/DB gerenciado:
-  # docker compose --profile local-db up -d
   postgres:
     image: ${POSTGRES_IMAGE:-ghcr.io/codisplanai/planilhaat-postgres:16-alpine}
     profiles: ["local-db"]
