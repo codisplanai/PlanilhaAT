@@ -74,8 +74,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=base-${{ matrix.package }}
-          cache-to: type=gha,mode=max,scope=base-${{ matrix.package }}
 
       - name: Attest provenance
         uses: actions/attest-build-provenance@v3
