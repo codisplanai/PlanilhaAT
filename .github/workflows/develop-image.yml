@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  packages: write
+  attestations: write
+  id-token: write
 
 concurrency:
   group: develop-image
@@ -18,6 +21,10 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  base-images:
+    name: Refresh GHCR base images
+    uses: ./.github/workflows/container-bases.yml
+
   tests:
     name: Full tests before development image
     runs-on: ubuntu-latest
@@ -65,9 +72,18 @@ jobs:
           npx tsc --noEmit -p tsconfig.app.json --pretty false
           npx tsc --noEmit -p tsconfig.node.json --pretty false
 
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build
+
+      - name: PWA assets validation
+        run: |
+          node --check frontend/public/sw.js
+          node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
+
   publish:
     name: Publish develop image to GHCR
-    needs: tests
+    needs: [base-images, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -93,7 +109,7 @@ jobs:
             STABLE_VERSION="1.0.0"
           fi
           SHORT_SHA="${GITHUB_SHA:0:12}"
-          APP_VERSION="${STABLE_VERSION}+develop.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          APP_VERSION="${STABLE_VERSION}-develop.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           DEV_TAG="develop-${STABLE_VERSION}-r${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           echo "stable=$STABLE_VERSION" >> "$GITHUB_OUTPUT"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
@@ -110,10 +126,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Normalize image name
+      - name: Normalize image names
         id: image
         shell: bash
-        run: echo "name=${REGISTRY}/${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+        run: |
+          set -Eeuo pipefail
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          REPO="${REPO,,}"
+          echo "name=${REGISTRY}/${OWNER}/${REPO}" >> "$GITHUB_OUTPUT"
+          echo "node_base=${REGISTRY}/${OWNER}/planilhaat-base-node:22-alpine" >> "$GITHUB_OUTPUT"
+          echo "python_base=${REGISTRY}/${OWNER}/planilhaat-base-python:3.12-slim" >> "$GITHUB_OUTPUT"
 
       - name: Docker metadata
         id: meta
@@ -127,8 +150,9 @@ jobs:
             type=raw,value=dev-sha-${{ steps.version.outputs.short_sha }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.app_version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
-      - name: Build and push development image
+      - name: Build and push development image from local GHCR bases
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -138,6 +162,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.app_version }}
+            NODE_BASE_IMAGE=${{ steps.image.outputs.node_base }}
+            PYTHON_BASE_IMAGE=${{ steps.image.outputs.python_base }}
           cache-from: type=gha,scope=develop
           cache-to: type=gha,mode=max,scope=develop
           provenance: mode=max
