@@ -2,7 +2,27 @@ name: GHCR - Base and Service Images
 
 on:
   workflow_call:
+    inputs:
+      force:
+        description: Force rebuild of all managed base images
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      force:
+        description: Force rebuild of all managed base images
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - "containers/**"
+      - "deploy/cleanup-ghcr.sh"
+      - ".github/workflows/container-bases.yml"
   schedule:
     - cron: "31 4 * * 1"
 
@@ -12,7 +32,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish ${{ matrix.package }}:${{ matrix.tag }}
+    name: Check/publish ${{ matrix.package }}:${{ matrix.tag }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,9 +60,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -50,14 +67,95 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Normalize owner
-        id: image
+      - name: Resolve rebuild policy and human tags
+        id: policy
         shell: bash
+        env:
+          FORCE_REBUILD: ${{ inputs.force == true }}
         run: |
           set -Eeuo pipefail
-          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.package }}" >> "$GITHUB_OUTPUT"
 
-      - name: Build local GHCR wrapper image
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          IMAGE="ghcr.io/${OWNER}/${{ matrix.package }}"
+          LOCAL_IMAGE="${IMAGE}:${{ matrix.tag }}"
+          UPSTREAM_IMAGE="${{ matrix.upstream }}"
+
+          case "${{ matrix.package }}" in
+            planilhaat-base-node)
+              ALIASES=("22-alpine" "22" "latest")
+              ;;
+            planilhaat-base-python)
+              ALIASES=("3.12-slim" "3.12" "3" "latest")
+              ;;
+            planilhaat-postgres)
+              ALIASES=("16-alpine" "16" "latest")
+              ;;
+            *)
+              echo "::error::Unsupported managed package: ${{ matrix.package }}"
+              exit 1
+              ;;
+          esac
+
+          docker pull "$UPSTREAM_IMAGE" >/dev/null
+          UPSTREAM_DIGEST="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$UPSTREAM_IMAGE")"
+          DOCKERFILE_SHA="$(sha256sum '${{ matrix.dockerfile }}' | awk '{print $1}')"
+          ALIAS_SIGNATURE="$(IFS=,; echo "${ALIASES[*]}")"
+          FINGERPRINT="$(printf '%s\n%s\n%s\n%s\n%s\n' \
+            '${{ matrix.package }}' \
+            '${{ matrix.tag }}' \
+            "$UPSTREAM_DIGEST" \
+            "$DOCKERFILE_SHA" \
+            "$ALIAS_SIGNATURE" | sha256sum | awk '{print $1}')"
+
+          CURRENT_FINGERPRINT=""
+          if docker pull "$LOCAL_IMAGE" >/dev/null 2>&1; then
+            CURRENT_FINGERPRINT="$(docker image inspect \
+              --format '{{ index .Config.Labels "io.codisplan.planaut.base.fingerprint" }}' \
+              "$LOCAL_IMAGE" 2>/dev/null || true)"
+          fi
+
+          REBUILD=false
+          REASON="unchanged"
+          if [[ "$FORCE_REBUILD" == "true" ]]; then
+            REBUILD=true
+            REASON="forced"
+          elif [[ -z "$CURRENT_FINGERPRINT" || "$CURRENT_FINGERPRINT" == "<no value>" ]]; then
+            REBUILD=true
+            REASON="missing-or-unmanaged-image"
+          elif [[ "$CURRENT_FINGERPRINT" != "$FINGERPRINT" ]]; then
+            REBUILD=true
+            REASON="upstream-definition-or-tags-changed"
+          fi
+
+          {
+            echo "tags<<EOF"
+            for tag in "${ALIASES[@]}"; do
+              echo "${IMAGE}:${tag}"
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "local_image=$LOCAL_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "upstream_digest=$UPSTREAM_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+          echo "rebuild=$REBUILD" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+
+          echo "Image: $LOCAL_IMAGE"
+          echo "Tags: $ALIAS_SIGNATURE"
+          echo "Policy: $REASON"
+
+      - name: Skip unchanged image
+        if: steps.policy.outputs.rebuild != 'true'
+        run: echo "Base image unchanged; build/push skipped."
+
+      - name: Set up Docker Buildx
+        if: steps.policy.outputs.rebuild == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build changed base image with human tags
+        if: steps.policy.outputs.rebuild == 'true'
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -66,18 +164,27 @@ jobs:
           push: true
           pull: true
           platforms: linux/amd64
-          tags: ${{ steps.image.outputs.name }}:${{ matrix.tag }}
+          tags: ${{ steps.policy.outputs.tags }}
           build-args: |
             UPSTREAM_IMAGE=${{ matrix.upstream }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-          provenance: mode=max
-          sbom: true
+            io.codisplan.planaut.base.upstream=${{ matrix.upstream }}
+            io.codisplan.planaut.base.upstream.digest=${{ steps.policy.outputs.upstream_digest }}
+            io.codisplan.planaut.base.fingerprint=${{ steps.policy.outputs.fingerprint }}
+          provenance: false
+          sbom: false
 
-      - name: Attest provenance
+      - name: Attest provenance in GitHub
+        if: steps.policy.outputs.rebuild == 'true'
         uses: actions/attest-build-provenance@v3
         with:
-          subject-name: ${{ steps.image.outputs.name }}
+          subject-name: ${{ steps.policy.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+
+      - name: Remove untagged and legacy hash-only package versions
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash deploy/cleanup-ghcr.sh "${{ matrix.package }}"

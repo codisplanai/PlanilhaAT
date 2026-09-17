@@ -32,6 +32,7 @@ jobs:
       tag: ${{ steps.semver.outputs.tag }}
       major: ${{ steps.semver.outputs.major }}
       minor: ${{ steps.semver.outputs.minor }}
+      patch: ${{ steps.semver.outputs.patch }}
       bump: ${{ steps.semver.outputs.bump }}
     steps:
       - name: Checkout merge commit
@@ -85,13 +86,9 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
           echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
+          echo "patch=$PATCH" >> "$GITHUB_OUTPUT"
           echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
           echo "Release calculada: v$VERSION ($BUMP)"
-
-  base-images:
-    name: Publish/refresh owned GHCR dependencies
-    needs: version
-    uses: ./.github/workflows/container-bases.yml
 
   tests:
     name: Full release validation
@@ -152,11 +149,12 @@ jobs:
       - name: PWA assets validation
         run: |
           node --check frontend/public/sw.js
+          node --check frontend/public/runtime-config.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
 
   publish:
     name: Build release image and publish GHCR
-    needs: [version, base-images, tests]
+    needs: [version, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -195,23 +193,23 @@ jobs:
           echo "node_base=${REGISTRY}/${OWNER}/planilhaat-base-node:22-alpine" >> "$GITHUB_OUTPUT"
           echo "python_base=${REGISTRY}/${OWNER}/planilhaat-base-python:3.12-slim" >> "$GITHUB_OUTPUT"
 
-      - name: Docker metadata
+      - name: Docker metadata with production and SemVer tags
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
+            type=raw,value=production
             type=raw,value=latest
             type=raw,value=${{ needs.version.outputs.version }}
             type=raw,value=${{ needs.version.outputs.major }}.${{ needs.version.outputs.minor }}
             type=raw,value=${{ needs.version.outputs.major }}
-            type=raw,value=release-sha-${{ github.event.pull_request.merge_commit_sha }}
           labels: |
             org.opencontainers.image.version=${{ needs.version.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.event.pull_request.merge_commit_sha }}
 
-      - name: Build and push release image from owned GHCR bases
+      - name: Build and push production release image
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -223,119 +221,148 @@ jobs:
             APP_VERSION=${{ needs.version.outputs.version }}
             NODE_BASE_IMAGE=${{ steps.image.outputs.node_base }}
             PYTHON_BASE_IMAGE=${{ steps.image.outputs.python_base }}
-          provenance: mode=max
-          sbom: true
+          provenance: false
+          sbom: false
 
-      - name: Select immutable deploy reference
+      - name: Select readable immutable production reference
         id: output
         shell: bash
-        run: echo "deploy_ref=${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+        run: echo "deploy_ref=${{ steps.image.outputs.name }}:${{ needs.version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
-      - name: Attest image provenance
+      - name: Attest provenance in GitHub
         uses: actions/attest-build-provenance@v3
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+
+      - name: Remove untagged and legacy hash-only application versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          bash deploy/cleanup-ghcr.sh "${REPO,,}"
 
   public-images:
-    name: Require anonymous/public GHCR pulls
+    name: Require all human GHCR tags to be public
     needs: [version, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Verify application and dependency packages are Public
+      - name: Verify application and base tags by anonymous pull
         shell: bash
         env:
-          APP_IMAGE: ${{ needs.publish.outputs.deploy_ref }}
+          APP_IMAGE: ${{ needs.publish.outputs.image_name }}
         run: |
           set -Eeuo pipefail
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           images=(
-            "$APP_IMAGE"
+            "$APP_IMAGE:production"
+            "$APP_IMAGE:latest"
+            "$APP_IMAGE:${{ needs.version.outputs.version }}"
+            "$APP_IMAGE:${{ needs.version.outputs.major }}.${{ needs.version.outputs.minor }}"
+            "$APP_IMAGE:${{ needs.version.outputs.major }}"
             "ghcr.io/${OWNER}/planilhaat-base-node:22-alpine"
+            "ghcr.io/${OWNER}/planilhaat-base-node:22"
+            "ghcr.io/${OWNER}/planilhaat-base-node:latest"
             "ghcr.io/${OWNER}/planilhaat-base-python:3.12-slim"
+            "ghcr.io/${OWNER}/planilhaat-base-python:3.12"
+            "ghcr.io/${OWNER}/planilhaat-base-python:3"
+            "ghcr.io/${OWNER}/planilhaat-base-python:latest"
             "ghcr.io/${OWNER}/planilhaat-postgres:16-alpine"
+            "ghcr.io/${OWNER}/planilhaat-postgres:16"
+            "ghcr.io/${OWNER}/planilhaat-postgres:latest"
           )
 
           docker logout ghcr.io >/dev/null 2>&1 || true
-
           failed=0
           for image in "${images[@]}"; do
             echo "Anonymous pull check: $image"
             if ! docker pull "$image"; then
-              echo "::error::GHCR package is not publicly pullable: $image"
+              echo "::error::GHCR tag is missing or not publicly pullable: $image"
               failed=1
             fi
           done
-
-          if (( failed != 0 )); then
-            echo "::error::After the first package publication, set every PlanilhaAT container package to Public in GitHub Packages, then re-run failed jobs. GHCR packages are private on first publication by default."
-            exit 1
-          fi
+          (( failed == 0 ))
 
   deploy:
-    name: Deploy production by immutable image digest
+    name: Deploy production by SemVer image tag
     needs: [version, publish, public-images]
     runs-on: ubuntu-latest
     environment: production
     permissions:
       contents: read
     steps:
-      - name: Checkout deployment files
+      - name: Checkout production deployment files
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           sparse-checkout: |
-            compose.yaml
-            .env.example
-            deploy
+            deploy/cloudpanel
+            deploy/deploy.sh
           sparse-checkout-cone-mode: false
+
+      - name: Validate production SSH configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::GitHub Environment production is missing secret: $name"
+              exit 1
+            fi
+          done
 
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
-          set -Eeuo pipefail
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Upload deployment manifests
+      - name: Upload production manifests
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        shell: bash
         run: |
           set -Eeuo pipefail
           PORT="${DEPLOY_PORT:-22}"
-          TARGET="${DEPLOY_PATH:-/opt/planilhaat}"
+          TARGET="${DEPLOY_PATH:-/opt/planaut-production}"
           ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$TARGET/deploy'"
-          scp -P "$PORT" compose.yaml "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/compose.yaml"
-          scp -P "$PORT" .env.example "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/.env.example"
+          scp -P "$PORT" deploy/cloudpanel/compose.yaml "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/compose.yaml"
+          scp -P "$PORT" deploy/cloudpanel/.env.example "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/.env.example"
           scp -P "$PORT" deploy/deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/deploy/deploy.sh"
 
-      - name: Deploy immutable release image
+      - name: Deploy exact SemVer release
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           IMAGE: ${{ needs.publish.outputs.deploy_ref }}
+        shell: bash
         run: |
           set -Eeuo pipefail
           PORT="${DEPLOY_PORT:-22}"
-          TARGET="${DEPLOY_PATH:-/opt/planilhaat}"
+          TARGET="${DEPLOY_PATH:-/opt/planaut-production}"
           ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "chmod +x '$TARGET/deploy/deploy.sh' && APP_DIR='$TARGET' '$TARGET/deploy/deploy.sh' '$IMAGE'"
 
   release:
-    name: Tag and create GitHub Release with deployment assets
+    name: Tag and create GitHub Release after production deployment
     needs: [version, publish, deploy]
     runs-on: ubuntu-latest
     permissions:
@@ -371,12 +398,12 @@ jobs:
 
           - Version: \`$VERSION\`
           - SemVer change: \`$BUMP\`
-          - Application image: \`$APP_IMAGE:$VERSION\`
-          - Immutable digest: \`$APP_IMAGE@$APP_DIGEST\`
-          - Node base: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-base-node:22-alpine\`
-          - Python base: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-base-python:3.12-slim\`
-          - PostgreSQL image: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-postgres:16-alpine\`
-          - Production deployment: completed before this release was created.
+          - Production channel: \`$APP_IMAGE:production\`
+          - Latest channel: \`$APP_IMAGE:latest\`
+          - Exact deployment image: \`$APP_IMAGE:$VERSION\`
+          - Registry digest (audit only): \`$APP_DIGEST\`
+          - Production Docker deployment: completed before this release was created.
+          - Vercel production deployment: starts from GitHub Actions after this workflow succeeds.
 
           ## Release PR
 
@@ -389,7 +416,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
-          VERSION: ${{ needs.version.outputs.version }}
           TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         shell: bash
         run: |
@@ -408,5 +434,5 @@ jobs:
             --target "$TARGET_SHA" \
             --title "PlanilhaAT $TAG" \
             --notes-file release-notes.md \
-            compose.yaml \
-            .env.example
+            deploy/cloudpanel/compose.yaml \
+            deploy/cloudpanel/.env.example
