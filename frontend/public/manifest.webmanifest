@@ -1,0 +1,26 @@
+{
+  "name": "PlanAut — Automação Fiscal e Contábil Inteligente",
+  "short_name": "PlanAut",
+  "description": "Plataforma de automação fiscal e contábil para processamento de documentos, regras fiscais e geração de planilhas.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {"src":"/icons/pwa-192x192.svg","sizes":"192x192","type":"image/svg+xml","purpose":"any"},
+    {"src":"/icons/pwa-512x512.svg","sizes":"512x512","type":"image/svg+xml","purpose":"any"},
+    {"src":"/icons/pwa-192x192.svg","sizes":"192x192","type":"image/svg+xml","purpose":"maskable"},
+    {"src":"/icons/pwa-512x512.svg","sizes":"512x512","type":"image/svg+xml","purpose":"maskable"}
+  ],
+  "shortcuts": [
+    {"name":"Nova solicitação","short_name":"Nova solicitação","description":"Abrir diretamente a criação de uma nova solicitação.","url":"/nova-solicitacao","icons":[{"src":"/icons/pwa-192x192.svg","sizes":"192x192","type":"image/svg+xml"}]},
+    {"name":"Histórico","short_name":"Histórico","description":"Abrir o histórico de solicitações.","url":"/solicitacoes","icons":[{"src":"/icons/pwa-192x192.svg","sizes":"192x192","type":"image/svg+xml"}]}
+  ]
+}
