@@ -38,13 +38,13 @@ if [[ -n "$DEPLOY_USER" && "$DEPLOY_USER" != "root" ]]; then
   echo "Usuario '$DEPLOY_USER' adicionado ao grupo docker. Saia e entre novamente na sessao SSH para aplicar o grupo."
 fi
 
-mkdir -p /opt/planaut
+mkdir -p /opt/planilhaat
 if [[ -n "$DEPLOY_USER" && "$DEPLOY_USER" != "root" ]]; then
-  chown -R "$DEPLOY_USER":"$DEPLOY_USER" /opt/planaut
+  chown -R "$DEPLOY_USER":"$DEPLOY_USER" /opt/planilhaat
 else
-  chmod 755 /opt/planaut
+  chmod 755 /opt/planilhaat
 fi
 
-echo "Docker instalado. Copie compose.yaml e .env para /opt/planaut antes do primeiro deploy."
+echo "Docker instalado. Copie compose.yaml e .env para /opt/planilhaat antes do primeiro deploy."
 docker --version
 docker compose version

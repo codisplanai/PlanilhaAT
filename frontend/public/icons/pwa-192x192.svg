@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="icon-bolt-grad" x1="26" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="50%" stop-color="#0891B2"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="18" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <rect x="14" y="14" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.15"/>
+  <rect x="14" y="27" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.25"/>
+  <rect x="14" y="40" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.35"/>
+  <rect x="27" y="14" width="10" height="10" rx="3" fill="#0284C7" fill-opacity="0.15"/>
+  <path d="M37 13L24 33H34L28 51L44 29H34L40 13H37Z" fill="url(#icon-bolt-grad)" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>

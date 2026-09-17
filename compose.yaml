@@ -1,53 +1,108 @@
-name: planaut
+name: ${COMPOSE_PROJECT_NAME:-planilhaat}
 
-x-planaut-common: &planaut-common
-  image: ${PLANAUT_IMAGE:-ghcr.io/SEU_USUARIO_OU_ORG/planaut:latest}
-  env_file:
-    - .env
-  environment:
-    APP_ENV: production
-    DEBUG: "false"
-    ENABLE_LOCAL_AUTH: "false"
-    AUTO_CREATE_SCHEMA: "false"
-    BUNDLED_TEMPLATES_DIR: /app/bundled_templates
+x-app-environment: &app-environment
+  APP_NAME: ${APP_NAME:-PlanAut-Backend}
+  APP_ENV: ${APP_ENV:-production}
+  DEBUG: ${DEBUG:-false}
+  ENABLE_LOCAL_AUTH: ${ENABLE_LOCAL_AUTH:-false}
+  AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-false}
+  SEED_DEFAULTS: ${SEED_DEFAULTS:-false}
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be configured}
+  SUPABASE_URL: ${SUPABASE_URL:-}
+  SUPABASE_KEY: ${SUPABASE_KEY:-}
+  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+  SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+  SUPABASE_STORAGE_BUCKET_TEMPLATES: ${SUPABASE_STORAGE_BUCKET_TEMPLATES:-templates}
+  SUPABASE_STORAGE_BUCKET_OUTPUTS: ${SUPABASE_STORAGE_BUCKET_OUTPUTS:-outputs}
+  STORAGE_DIR: /app/storage
+  TEMPLATES_DIR: /app/storage/templates
+  OUTPUTS_DIR: /app/storage/outputs
+  UPLOADS_DIR: /app/storage/uploads
+  BUNDLED_TEMPLATES_DIR: /app/bundled_templates
+  CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS must be configured}
+  MAX_UPLOAD_FILE_BYTES: ${MAX_UPLOAD_FILE_BYTES:-20971520}
+  MAX_UPLOAD_TOTAL_BYTES: ${MAX_UPLOAD_TOTAL_BYTES:-104857600}
+  MAX_ZIP_ENTRIES: ${MAX_ZIP_ENTRIES:-1000}
+  MAX_ZIP_UNCOMPRESSED_BYTES: ${MAX_ZIP_UNCOMPRESSED_BYTES:-104857600}
+  MAX_ZIP_COMPRESSION_RATIO: ${MAX_ZIP_COMPRESSION_RATIO:-100}
+  RUN_MIGRATIONS_ON_START: ${RUN_MIGRATIONS_ON_START:-true}
+  WAIT_FOR_DATABASE: ${WAIT_FOR_DATABASE:-true}
+  DATABASE_WAIT_ATTEMPTS: ${DATABASE_WAIT_ATTEMPTS:-30}
+  DATABASE_WAIT_INTERVAL_SECONDS: ${DATABASE_WAIT_INTERVAL_SECONDS:-2}
+
+x-app-common: &app-common
+  image: ${PLANAUT_IMAGE:-ghcr.io/codisplanai/planilhaat:latest}
+  restart: unless-stopped
+  init: true
+  environment: *app-environment
   networks:
     - planaut
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: ${LOG_MAX_SIZE:-10m}
+      max-file: ${LOG_MAX_FILES:-3}
 
 services:
   app:
-    <<: *planaut-common
-    container_name: planaut-app
-    restart: unless-stopped
-    init: true
+    <<: *app-common
+    container_name: ${APP_CONTAINER_NAME:-planilhaat-app}
     read_only: true
     ports:
-      - "127.0.0.1:${APP_PORT:-8000}:8000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8000}:8000"
     volumes:
       - planaut_templates:/app/storage/templates
       - planaut_outputs:/app/storage/outputs
       - planaut_uploads:/app/storage/uploads
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
     tmpfs:
       - /tmp:size=128m,mode=1777
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
+  # Ferramenta manual para migrations. O container principal já executa Alembic
+  # no startup por padrão para permitir deploy one-click via Portainer/Dockge.
   migrate:
-    <<: *planaut-common
+    <<: *app-common
     profiles: ["tools"]
     restart: "no"
     read_only: true
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS_ON_START: "false"
     command: ["alembic", "upgrade", "head"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+  # Banco PostgreSQL local opcional. Produção com Supabase não precisa deste
+  # serviço. Ative com: docker compose --profile local-db up -d
+  postgres:
+    image: ${POSTGRES_IMAGE:-ghcr.io/codisplanai/planilhaat-postgres:16-alpine}
+    profiles: ["local-db"]
+    container_name: ${POSTGRES_CONTAINER_NAME:-planilhaat-postgres}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-planilhaat}
+      POSTGRES_USER: ${POSTGRES_USER:-planilhaat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - planaut_postgres:/var/lib/postgresql/data
+    networks:
+      - planaut
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-planilhaat} -d ${POSTGRES_DB:-planilhaat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     security_opt:
       - no-new-privileges:true
-    cap_drop:
-      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: ${LOG_MAX_FILES:-3}
 
 networks:
   planaut:
@@ -57,3 +112,4 @@ volumes:
   planaut_templates:
   planaut_outputs:
   planaut_uploads:
+  planaut_postgres:

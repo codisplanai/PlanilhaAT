@@ -1,96 +1,44 @@
-# Deploy Docker + GHCR
+# PlanilhaAT deployment architecture
 
-## Fluxo oficial
-
-O projeto usa duas branches permanentes:
+## Official release flow
 
 ```text
-feature/*, fix/*, refactor/*, chore/*, docs/*, test/*, ci/*, perf/*
-                         ↓ PR
-                      develop
-                         ↓ PR release(...)
-                       main
-                         ↓
-                GHCR release + VPS
+feature/* | fix/* | refactor/* | ci/* | ...
+                    |
+                    | PR -> static validation only
+                    v
+                 develop
+                    |
+                    | full tests + production frontend build
+                    | GHCR development image (no GitHub Release)
+                    v
+          PR release(patch|minor|major)
+                    |
+                    v
+                  main
+                    |
+                    +--> refresh owned GHCR base/service images
+                    +--> full tests + PWA validation
+                    +--> release image + SBOM + provenance
+                    +--> anonymous/public GHCR pull check
+                    +--> immutable digest deploy
+                    +--> healthcheck / automatic rollback on failure
+                    +--> Git tag + GitHub Release + release notes/assets
 ```
 
-### PR para develop
+PR validation deliberately does **not** run a Docker build or `npm run build`. Build work happens only after changes reach `develop` and during an actual release.
 
-**Branch**
+## Semantic versioning
+
+The release PR must be `develop -> main` and use exactly one of:
 
 ```text
-feature/nome-da-feature
-fix/nome-da-correcao
-refactor/nome-da-refatoracao
-chore/nome
-ci/nome
+release(patch): description
+release(minor): description
+release(major): description
 ```
 
-**Título**
-
-```text
-feat(auth): adicionar autenticação
-fix(api): corrigir timeout
-refactor(fiscal): separar regras de cálculo
-ci(ghcr): ajustar validação de imagens
-```
-
-**Descrição**
-
-Use `.github/PULL_REQUEST_TEMPLATE.md` e mantenha obrigatoriamente as seções `## Descrição` e `## Branch`.
-
-O workflow `pr-validation.yml` não gera imagem, não executa Vite build e não cria release. Ele valida:
-
-- título, descrição e origem/destino da branch;
-- sintaxe e indentação Python;
-- lint + typecheck TypeScript sem emissão de arquivos;
-- sintaxe Bash;
-- sintaxe do `compose.yaml`.
-
-### develop
-
-Depois do merge do PR em `develop`, `develop-image.yml` executa os testes completos e publica uma imagem de desenvolvimento no GHCR.
-
-Exemplo, considerando a última release estável `1.1.1`:
-
-```text
-ghcr.io/ORG/REPO:develop
-ghcr.io/ORG/REPO:develop-1.1.1
-ghcr.io/ORG/REPO:develop-1.1.1-r245.1
-ghcr.io/ORG/REPO:dev-sha-a1b2c3d4e5f6
-```
-
-A versão exposta pela aplicação fica no formato SemVer com build metadata, por exemplo:
-
-```text
-1.1.1+develop.245.1
-```
-
-`develop` nunca cria GitHub Release e nunca incrementa a versão estável.
-
-## PR develop -> main
-
-A `main` aceita release somente a partir de `develop`.
-
-Use um dos títulos:
-
-```text
-release(patch): correções da versão
-release(minor): nova funcionalidade compatível
-release(major): alteração incompatível
-```
-
-O merge dispara `release.yml`.
-
-### SemVer automático
-
-Se ainda não existir nenhuma tag SemVer, a primeira release será:
-
-```text
-1.0.0
-```
-
-Depois:
+If no `vX.Y.Z` tag exists, the first release is always `1.0.0`.
 
 ```text
 1.0.0 --patch--> 1.0.1
@@ -99,98 +47,110 @@ Depois:
 1.1.1 --major--> 2.0.0
 ```
 
-Um incremento `minor` zera o componente `patch`; um incremento `major` zera `minor` e `patch`.
+Git tags are the stable-version source of truth. `develop` publishes prerelease-style application versions such as `1.0.0-develop.245.1` but never increments the stable version.
 
-## Imagens de release
+## GHCR image ownership policy
 
-Para `1.1.1`, o GHCR recebe aliases:
-
-```text
-ghcr.io/ORG/REPO:latest
-ghcr.io/ORG/REPO:1.1.1
-ghcr.io/ORG/REPO:1.1
-ghcr.io/ORG/REPO:1
-ghcr.io/ORG/REPO:release-sha-<merge_commit_sha>
-```
-
-O deployment não usa uma tag mutável. O workflow envia para a VPS a referência imutável por digest:
+Release builds use only project-owned container images:
 
 ```text
-ghcr.io/ORG/REPO@sha256:...
+ghcr.io/codisplanai/planilhaat-base-node:22-alpine
+ghcr.io/codisplanai/planilhaat-base-python:3.12-slim
+ghcr.io/codisplanai/planilhaat-postgres:16-alpine
+ghcr.io/codisplanai/planilhaat:<semver>
 ```
 
-Depois do healthcheck positivo, o workflow cria a tag Git `v1.1.1` e a GitHub Release correspondente.
+Only `.github/workflows/container-bases.yml` imports upstream Docker images. If Redis/MySQL/RabbitMQ/MinIO or another container service becomes a real dependency, add its wrapper/package to that workflow before using it anywhere else.
 
-## GHCR público
+Supabase remains a runtime SaaS dependency and is configured with environment variables; it is not a single external image that can be mirrored without replacing the service architecture.
 
-O Container Registry permite pull anônimo quando o pacote é Public. Depois da primeira publicação, altere a visibilidade do pacote para **Public** nas configurações do GitHub Packages.
+## First-publication GHCR visibility
 
-A VPS não precisa guardar token do GHCR para fazer pull da imagem pública.
+GitHub Container Registry packages are private when first published. The release workflow creates/checks all packages and deliberately blocks deployment unless anonymous pulls work for:
 
-## Manutenção automática
+- `planilhaat`
+- `planilhaat-base-node`
+- `planilhaat-base-python`
+- `planilhaat-postgres`
 
-`maintenance.yml` roda a cada hora.
+One-time action after their first publication: open each package's **Package settings -> Change visibility -> Public**, then re-run the failed jobs. The VPS then needs no GHCR login.
 
-Ele executa três políticas:
+## Release tags
 
-1. quando um PR é fechado, remove o cache do GitHub Actions associado ao PR;
-2. remove caches efêmeros fora de `main`/`develop` que não são acessados há mais de 2 horas;
-3. remove versões GHCR `develop-*`, `dev-sha-*` e untagged com mais de 2 horas, preservando sempre a imagem de desenvolvimento mais recente.
+For release `1.1.1`:
 
-Versões de release SemVer (`1`, `1.1`, `1.1.1`, `latest`, `release-sha-*`) são preservadas e não entram nessa limpeza.
+```text
+ghcr.io/codisplanai/planilhaat:latest
+ghcr.io/codisplanai/planilhaat:1.1.1
+ghcr.io/codisplanai/planilhaat:1.1
+ghcr.io/codisplanai/planilhaat:1
+ghcr.io/codisplanai/planilhaat:release-sha-<merge-sha>
+```
 
-Na VPS, após um deploy saudável, `deploy.sh` remove imagens dangling não utilizadas com idade superior a `PRUNE_AFTER_HOURS` (padrão `2`) e tenta remover a referência da imagem anterior se ela não estiver mais em uso.
+Production deploys by immutable digest (`ghcr.io/...@sha256:...`), not by mutable tag.
 
-## Secrets e Variables do GitHub
+## GitHub Environment `production`
 
-No Environment `production`, configure:
+Secrets:
 
-- Secret `DEPLOY_HOST`: host/IP da VPS;
-- Secret `DEPLOY_USER`: usuário SSH com acesso ao Docker;
-- Secret `DEPLOY_PORT`: porta SSH, opcional, padrão `22`;
-- Secret `DEPLOY_SSH_KEY`: chave privada SSH exclusiva do deploy;
-- Secret `DEPLOY_KNOWN_HOSTS`: host key confiável da VPS;
-- Variable `DEPLOY_PATH`: opcional, padrão `/opt/planaut`.
+- `DEPLOY_HOST`
+- `DEPLOY_USER`
+- `DEPLOY_PORT` (optional, defaults to `22`)
+- `DEPLOY_SSH_KEY`
+- `DEPLOY_KNOWN_HOSTS`
 
-Os workflows usam `GITHUB_TOKEN` para publicar e manter o pacote GHCR associado ao repositório.
+Variable:
 
-## Preparar a VPS
+- `DEPLOY_PATH=/opt/planilhaat`
 
-Em Ubuntu/Debian:
+## Docker CLI / VPS
+
+Bootstrap Ubuntu/Debian:
 
 ```bash
 sudo bash deploy/bootstrap-vps.sh
 ```
 
-Depois:
+Prepare `/opt/planilhaat/.env` from `.env.example`. Real secrets stay only in the host/stack manager.
+
+Manual stable deployment:
 
 ```bash
-sudo mkdir -p /opt/planaut/deploy
-sudo chown -R "$USER":"$USER" /opt/planaut
-cd /opt/planaut
-cp .env.example .env
-nano .env
+PLANAUT_IMAGE=ghcr.io/codisplanai/planilhaat:1.0.0 docker compose pull app
+PLANAUT_IMAGE=ghcr.io/codisplanai/planilhaat:1.0.0 docker compose --profile tools run --rm migrate
+PLANAUT_IMAGE=ghcr.io/codisplanai/planilhaat:1.0.0 docker compose up -d app
 ```
 
-O `.env` real existe somente na VPS e nunca deve ser commitado.
+Normal production releases are deployed by GitHub Actions using an immutable image digest and healthcheck/rollback.
 
-## Primeiro deploy manual
+## Portainer / Dockge / CloudPanel
+
+- Portainer: see `deploy/portainer/README.md`.
+- Dockge: see `deploy/dockge/README.md`.
+- CloudPanel: use `deploy/cloudpanel/vhost.conf.example` for reverse proxy/TLS to `http://127.0.0.1:8000`.
+
+The PWA requires HTTPS outside localhost, so CloudPanel TLS should be active before production validation.
+
+## Optional local PostgreSQL
+
+With profile `local-db`:
+
+```env
+DATABASE_URL=postgresql://planilhaat:CHANGE_ME@postgres:5432/planilhaat
+POSTGRES_PASSWORD=CHANGE_ME
+```
 
 ```bash
-cd /opt/planaut
-PLANAUT_IMAGE=ghcr.io/ORG/REPO:latest docker compose pull app migrate
-PLANAUT_IMAGE=ghcr.io/ORG/REPO:latest docker compose --profile tools run --rm migrate
-PLANAUT_IMAGE=ghcr.io/ORG/REPO:latest docker compose up -d app
+docker compose --profile local-db up -d
 ```
 
-Depois da configuração inicial, produção é atualizada somente pelo merge do PR `develop -> main`.
+## Cleanup policy
 
-## Reverse proxy
+Every hour `maintenance.yml`:
 
-CloudPanel/Nginx deve apontar para:
+- deletes caches associated with closed PRs;
+- deletes ephemeral Actions caches older than 2 hours outside `main`/`develop`;
+- deletes stale develop/untagged application package versions older than 2 hours while retaining the newest development image;
+- deletes stale untagged Node/Python/PostgreSQL GHCR versions older than 2 hours.
 
-```text
-http://127.0.0.1:8000
-```
-
-Não exponha a porta `8000` diretamente na internet.
+Stable SemVer releases are preserved for audit and rollback. After a healthy VPS deploy, dangling local Docker images older than `PRUNE_AFTER_HOURS` (default 2) are pruned.

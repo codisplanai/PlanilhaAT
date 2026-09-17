@@ -61,14 +61,14 @@ jobs:
           done
 
   ghcr-cleanup:
-    name: Remove old development GHCR images
+    name: Remove stale GHCR development and base versions
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - name: Delete develop and untagged versions older than 2h
+      - name: Clean GHCR packages older than 2h
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
@@ -77,47 +77,72 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          PACKAGE="${REPOSITORY#*/}"
-          PACKAGE="${PACKAGE,,}"
+          APP_PACKAGE="${REPOSITORY#*/}"
+          APP_PACKAGE="${APP_PACKAGE,,}"
           OWNER_TYPE="$(gh api "repos/$REPOSITORY" --jq '.owner.type')"
-
-          if [[ "$OWNER_TYPE" == "Organization" ]]; then
-            ENDPOINT="orgs/$OWNER/packages/container/$PACKAGE/versions"
-          else
-            ENDPOINT="users/$OWNER/packages/container/$PACKAGE/versions"
-          fi
-
           CUTOFF="$(date -u -d '2 hours ago' +%s)"
-          NEWEST_DEV_KEPT=0
 
-          gh api --paginate "$ENDPOINT?per_page=100" \
-            --jq '.[] | [.id, .created_at, (.metadata.container.tags | join(","))] | @tsv' |
-          while IFS=$'\t' read -r VERSION_ID CREATED_AT TAGS; do
-            [[ -z "$VERSION_ID" ]] && continue
-
-            # Nunca remova releases SemVer nem aliases stable/latest.
-            if grep -Eq '(^|,)(latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+|release-sha-[0-9a-f]+)(,|$)' <<< "$TAGS"; then
-              continue
+          package_endpoint() {
+            local package="$1"
+            if [[ "$OWNER_TYPE" == "Organization" ]]; then
+              printf 'orgs/%s/packages/container/%s/versions' "$OWNER" "$package"
+            else
+              printf 'users/%s/packages/container/%s/versions' "$OWNER" "$package"
             fi
+          }
 
-            IS_DEV=0
-            if [[ -n "$TAGS" ]] && grep -Eq '(^|,)(develop|develop-[^,]+|dev-sha-[^,]+)(,|$)' <<< "$TAGS"; then
-              IS_DEV=1
-            fi
+          clean_app_package() {
+            local package="$1"
+            local endpoint
+            endpoint="$(package_endpoint "$package")"
+            local newest_dev_kept=0
 
-            # Preserve sempre a imagem develop mais recente, mesmo se tiver mais de 2h.
-            if (( IS_DEV == 1 && NEWEST_DEV_KEPT == 0 )); then
-              NEWEST_DEV_KEPT=1
-              continue
-            fi
+            gh api --paginate "$endpoint?per_page=100" \
+              --jq '.[] | [.id, .created_at, (.metadata.container.tags | join(","))] | @tsv' |
+            while IFS=$'\t' read -r VERSION_ID CREATED_AT TAGS; do
+              [[ -z "$VERSION_ID" ]] && continue
 
-            CREATED_TS="$(date -u -d "$CREATED_AT" +%s)"
-            if (( CREATED_TS >= CUTOFF )); then
-              continue
-            fi
+              if grep -Eq '(^|,)(latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+|release-sha-[0-9a-f]+)(,|$)' <<< "$TAGS"; then
+                continue
+              fi
 
-            if (( IS_DEV == 1 )) || [[ -z "$TAGS" ]]; then
-              echo "Deleting GHCR version id=$VERSION_ID tags=${TAGS:-<untagged>} created=$CREATED_AT"
-              gh api --method DELETE "$ENDPOINT/$VERSION_ID" || true
-            fi
-          done
+              is_dev=0
+              if [[ -n "$TAGS" ]] && grep -Eq '(^|,)(develop|develop-[^,]+|dev-sha-[^,]+)(,|$)' <<< "$TAGS"; then
+                is_dev=1
+              fi
+
+              if (( is_dev == 1 && newest_dev_kept == 0 )); then
+                newest_dev_kept=1
+                continue
+              fi
+
+              CREATED_TS="$(date -u -d "$CREATED_AT" +%s)"
+              if (( CREATED_TS < CUTOFF )) && { (( is_dev == 1 )) || [[ -z "$TAGS" ]]; }; then
+                echo "Deleting app package version id=$VERSION_ID tags=${TAGS:-<untagged>}"
+                gh api --method DELETE "$endpoint/$VERSION_ID" || true
+              fi
+            done
+          }
+
+          clean_base_package() {
+            local package="$1"
+            local endpoint
+            endpoint="$(package_endpoint "$package")"
+
+            gh api --paginate "$endpoint?per_page=100" \
+              --jq '.[] | [.id, .created_at, (.metadata.container.tags | join(","))] | @tsv' |
+            while IFS=$'\t' read -r VERSION_ID CREATED_AT TAGS; do
+              [[ -z "$VERSION_ID" ]] && continue
+              [[ -n "$TAGS" ]] && continue
+              CREATED_TS="$(date -u -d "$CREATED_AT" +%s)"
+              if (( CREATED_TS < CUTOFF )); then
+                echo "Deleting stale untagged $package version id=$VERSION_ID"
+                gh api --method DELETE "$endpoint/$VERSION_ID" || true
+              fi
+            done
+          }
+
+          clean_app_package "$APP_PACKAGE"
+          clean_base_package "planilhaat-base-node"
+          clean_base_package "planilhaat-base-python"
+          clean_base_package "planilhaat-postgres"
