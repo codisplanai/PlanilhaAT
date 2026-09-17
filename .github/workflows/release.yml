@@ -223,8 +223,6 @@ jobs:
             APP_VERSION=${{ needs.version.outputs.version }}
             NODE_BASE_IMAGE=${{ steps.image.outputs.node_base }}
             PYTHON_BASE_IMAGE=${{ steps.image.outputs.python_base }}
-          cache-from: type=gha,scope=release
-          cache-to: type=gha,mode=max,scope=release
           provenance: mode=max
           sbom: true
 
