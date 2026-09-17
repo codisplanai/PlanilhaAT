@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PACKAGE="${1:-}"
+RAW_PACKAGE="${1:-${GITHUB_REPOSITORY:-}}"
+PACKAGE="${RAW_PACKAGE#*/}"
+PACKAGE="${PACKAGE,,}"
 OWNER="${GHCR_OWNER:-${GITHUB_REPOSITORY_OWNER:-}}"
 
 if [[ -z "$PACKAGE" ]]; then
