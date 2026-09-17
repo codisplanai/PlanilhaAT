@@ -75,10 +75,16 @@ User=$USER_NAME
 Group=$USER_NAME
 WorkingDirectory=$APP_DIR
 Environment="PATH=$APP_DIR/venv/bin:/usr/local/bin:/usr/bin"
-ExecStart=$APP_DIR/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4
+ExecStart=$APP_DIR/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
+
+# Proteções para não sobrecarregar as outras aplicações da VPS:
+MemoryMax=1.5G
+MemoryHigh=1.2G
+CPUQuota=60%
+Nice=10
 
 [Install]
 WantedBy=multi-user.target
