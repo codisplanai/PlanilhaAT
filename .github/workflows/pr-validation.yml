@@ -117,10 +117,12 @@ jobs:
           npx tsc --noEmit -p tsconfig.app.json --pretty false
           npx tsc --noEmit -p tsconfig.node.json --pretty false
 
-      - name: PWA static validation - no build
+      - name: PWA and Vercel static validation - no build
         run: |
           node --check frontend/public/sw.js
+          node --check frontend/public/runtime-config.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('frontend/vercel.json','utf8'))"
 
   deployment-static:
     name: Deployment syntax - no image build
@@ -140,3 +142,14 @@ jobs:
           cp .env.example .env
           trap 'rm -f .env' EXIT
           docker compose -f compose.yaml config --quiet
+
+      - name: Deployment examples do not contain real secrets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -ERn --exclude='*.md' --exclude='*.example' \
+            '(SUPABASE_SERVICE_ROLE_KEY=eyJ|POSTGRES_PASSWORD=[^C]|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' \
+            deploy .env.example vercel.env.example 2>/dev/null; then
+            echo "::error::Potential real secret found in deployment files."
+            exit 1
+          fi
