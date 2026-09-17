@@ -1,0 +1,224 @@
+name: Vercel - Frontend Develop and Release
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "frontend/**"
+      - ".github/workflows/vercel-deploy.yml"
+      - "vercel.env.example"
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Vercel target environment
+        required: true
+        type: choice
+        options:
+          - development
+          - production
+        default: development
+
+permissions:
+  contents: read
+
+jobs:
+  develop:
+    name: Deploy develop frontend to Vercel
+    if: >-
+      vars.VERCEL_DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.target == 'development'))
+    runs-on: ubuntu-latest
+    environment: development
+    concurrency:
+      group: vercel-development
+      cancel-in-progress: true
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      DEVELOPMENT_DOMAIN: ${{ vars.VERCEL_DEVELOPMENT_DOMAIN || 'planaut.dev.codisplan.com.br' }}
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v6
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Validate Vercel credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is required when VERCEL_DEPLOY_ENABLED=true"
+              exit 1
+            fi
+          done
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Resolve develop version
+        id: version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git fetch --tags --force
+          LATEST_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+          STABLE_VERSION="${LATEST_TAG#v}"
+          if [[ -z "$STABLE_VERSION" ]]; then
+            STABLE_VERSION="1.0.0"
+          fi
+          APP_VERSION="${STABLE_VERSION}-develop.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Pull Vercel preview environment
+        run: >-
+          vercel pull --yes
+          --environment=preview
+          --git-branch=develop
+          --cwd=frontend
+          --token="$VERCEL_TOKEN"
+
+      - name: Build Vercel develop artifact
+        env:
+          VITE_APP_VERSION: ${{ steps.version.outputs.app_version }}
+          VITE_DEPLOYMENT_CHANNEL: development
+        run: vercel build --cwd=frontend --token="$VERCEL_TOKEN"
+
+      - name: Deploy Vercel develop artifact
+        id: deploy
+        shell: bash
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          set -Eeuo pipefail
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --cwd=frontend --token="$VERCEL_TOKEN")"
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          vercel alias set "$DEPLOYMENT_URL" "$DEVELOPMENT_DOMAIN" --cwd=frontend --token="$VERCEL_TOKEN"
+
+      - name: Publish develop deployment summary
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          {
+            echo "## Vercel development"
+            echo ""
+            echo "- Version: \`$APP_VERSION\`"
+            echo "- Deployment: $DEPLOYMENT_URL"
+            echo "- Stable domain: https://$DEVELOPMENT_DOMAIN"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  production:
+    name: Deploy released frontend to Vercel
+    if: >-
+      vars.VERCEL_DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: vercel-production
+      cancel-in-progress: false
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      PRODUCTION_DOMAIN: ${{ vars.VERCEL_PRODUCTION_DOMAIN || 'planaut.codisplan.com.br' }}
+
+    steps:
+      - name: Checkout released source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || 'main' }}
+          fetch-depth: 0
+
+      - name: Validate Vercel credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is required when VERCEL_DEPLOY_ENABLED=true"
+              exit 1
+            fi
+          done
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "${RELEASE_TAG:-}" ]]; then
+            APP_VERSION="${RELEASE_TAG#v}"
+          else
+            git fetch --tags --force
+            TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            if [[ -z "$TAG" ]]; then
+              echo "::error::No semantic release tag is available for manual production deployment."
+              exit 1
+            fi
+            APP_VERSION="${TAG#v}"
+          fi
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Pull Vercel production environment
+        run: >-
+          vercel pull --yes
+          --environment=production
+          --cwd=frontend
+          --token="$VERCEL_TOKEN"
+
+      - name: Build Vercel production artifact
+        env:
+          VITE_APP_VERSION: ${{ steps.version.outputs.app_version }}
+          VITE_DEPLOYMENT_CHANNEL: production
+        run: vercel build --prod --cwd=frontend --token="$VERCEL_TOKEN"
+
+      - name: Deploy Vercel production artifact
+        id: deploy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --cwd=frontend --token="$VERCEL_TOKEN")"
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          vercel alias set "$DEPLOYMENT_URL" "$PRODUCTION_DOMAIN" --cwd=frontend --token="$VERCEL_TOKEN"
+
+      - name: Publish production deployment summary
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          {
+            echo "## Vercel production"
+            echo ""
+            echo "- Version: \`$APP_VERSION\`"
+            echo "- Deployment: $DEPLOYMENT_URL"
+            echo "- Production domain: https://$PRODUCTION_DOMAIN"
+          } >> "$GITHUB_STEP_SUMMARY"
