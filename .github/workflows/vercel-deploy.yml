@@ -27,6 +27,9 @@ on:
 permissions:
   contents: read
 
+env:
+  VERCEL_CLI_VERSION: ${{ vars.VERCEL_CLI_VERSION || '59.19.1' }}
+
 jobs:
   develop:
     name: Deploy develop frontend to Vercel
@@ -70,8 +73,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+      - name: Install pinned Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Resolve develop version
         id: version
@@ -111,8 +114,6 @@ jobs:
           vercel alias set "$DEPLOYMENT_URL" "$DEVELOPMENT_DOMAIN" --cwd=frontend --token="$VERCEL_TOKEN"
 
       - name: Verify development deployment
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -128,6 +129,7 @@ jobs:
           {
             echo "## Vercel development"
             echo ""
+            echo "- CLI: \`vercel@$VERCEL_CLI_VERSION\`"
             echo "- Version: \`$APP_VERSION\`"
             echo "- Deployment: $DEPLOYMENT_URL"
             echo "- Stable domain: https://$DEVELOPMENT_DOMAIN"
@@ -190,8 +192,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+      - name: Install pinned Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Pull Vercel production settings and variables
         run: >-
@@ -216,8 +218,6 @@ jobs:
           vercel alias set "$DEPLOYMENT_URL" "$PRODUCTION_DOMAIN" --cwd=frontend --token="$VERCEL_TOKEN"
 
       - name: Verify production deployment
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -234,6 +234,7 @@ jobs:
           {
             echo "## Vercel production"
             echo ""
+            echo "- CLI: \`vercel@$VERCEL_CLI_VERSION\`"
             echo "- Release: \`$RELEASE_TAG\`"
             echo "- Version: \`$APP_VERSION\`"
             echo "- Deployment: $DEPLOYMENT_URL"
