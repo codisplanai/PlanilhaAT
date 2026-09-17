@@ -289,6 +289,26 @@ jobs:
             deploy
           sparse-checkout-cone-mode: false
 
+      - name: Validate production SSH configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::GitHub Environment production is missing secret: $name"
+              missing=1
+            fi
+          done
+          if (( missing != 0 )); then
+            exit 1
+          fi
+
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -310,7 +330,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           PORT="${DEPLOY_PORT:-22}"
-          TARGET="${DEPLOY_PATH:-/opt/planilhaat}"
+          TARGET="${DEPLOY_PATH:-/opt/planaut}"
           ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$TARGET/deploy'"
           scp -P "$PORT" compose.yaml "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/compose.yaml"
           scp -P "$PORT" .env.example "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/.env.example"
@@ -326,7 +346,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           PORT="${DEPLOY_PORT:-22}"
-          TARGET="${DEPLOY_PATH:-/opt/planilhaat}"
+          TARGET="${DEPLOY_PATH:-/opt/planaut}"
           ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "chmod +x '$TARGET/deploy/deploy.sh' && APP_DIR='$TARGET' '$TARGET/deploy/deploy.sh' '$IMAGE'"
 
@@ -373,7 +393,7 @@ jobs:
           - Python base: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-base-python:3.12-slim\`
           - PostgreSQL image: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/planilhaat-postgres:16-alpine\`
           - Production Docker deployment: completed before this release was created.
-          - Vercel production deployment: triggered after this release workflow succeeds when enabled.
+          - Vercel production deployment: GitHub Actions starts it after this workflow succeeds when enabled.
 
           ## Release PR
 
