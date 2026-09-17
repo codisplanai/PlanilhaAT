@@ -6,7 +6,7 @@ IMAGE="${1:-${PLANAUT_IMAGE:-}}"
 PRUNE_AFTER_HOURS="${PRUNE_AFTER_HOURS:-2}"
 
 if [[ -z "$IMAGE" ]]; then
-  echo "Usage: $0 ghcr.io/codisplanai/planilhaat@sha256:<digest>"
+  echo "Usage: $0 ghcr.io/codisplanai/planilhaat:<readable-tag>"
   exit 2
 fi
 
