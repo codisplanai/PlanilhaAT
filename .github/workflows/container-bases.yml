@@ -21,10 +21,9 @@ on:
       - main
     paths:
       - "containers/**"
+      - "deploy/cleanup-ghcr.sh"
       - ".github/workflows/container-bases.yml"
   schedule:
-    # Apenas verifica se a imagem upstream mudou. Sem mudança de digest/fingerprint,
-    # nenhum build/push é executado.
     - cron: "31 4 * * 1"
 
 concurrency:
@@ -68,7 +67,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve rebuild policy
+      - name: Resolve rebuild policy and human tags
         id: policy
         shell: bash
         env:
@@ -77,18 +76,36 @@ jobs:
           set -Eeuo pipefail
 
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-          LOCAL_IMAGE="ghcr.io/${OWNER}/${{ matrix.package }}:${{ matrix.tag }}"
+          IMAGE="ghcr.io/${OWNER}/${{ matrix.package }}"
+          LOCAL_IMAGE="${IMAGE}:${{ matrix.tag }}"
           UPSTREAM_IMAGE="${{ matrix.upstream }}"
 
-          # Pull da upstream é apenas uma verificação de digest; não gera imagem GHCR.
+          case "${{ matrix.package }}" in
+            planilhaat-base-node)
+              ALIASES=("22-alpine" "22" "latest")
+              ;;
+            planilhaat-base-python)
+              ALIASES=("3.12-slim" "3.12" "3" "latest")
+              ;;
+            planilhaat-postgres)
+              ALIASES=("16-alpine" "16" "latest")
+              ;;
+            *)
+              echo "::error::Unsupported managed package: ${{ matrix.package }}"
+              exit 1
+              ;;
+          esac
+
           docker pull "$UPSTREAM_IMAGE" >/dev/null
           UPSTREAM_DIGEST="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$UPSTREAM_IMAGE")"
           DOCKERFILE_SHA="$(sha256sum '${{ matrix.dockerfile }}' | awk '{print $1}')"
-          FINGERPRINT="$(printf '%s\n%s\n%s\n%s\n' \
+          ALIAS_SIGNATURE="$(IFS=,; echo "${ALIASES[*]}")"
+          FINGERPRINT="$(printf '%s\n%s\n%s\n%s\n%s\n' \
             '${{ matrix.package }}' \
             '${{ matrix.tag }}' \
             "$UPSTREAM_DIGEST" \
-            "$DOCKERFILE_SHA" | sha256sum | awk '{print $1}')"
+            "$DOCKERFILE_SHA" \
+            "$ALIAS_SIGNATURE" | sha256sum | awk '{print $1}')"
 
           CURRENT_FINGERPRINT=""
           if docker pull "$LOCAL_IMAGE" >/dev/null 2>&1; then
@@ -107,10 +124,18 @@ jobs:
             REASON="missing-or-unmanaged-image"
           elif [[ "$CURRENT_FINGERPRINT" != "$FINGERPRINT" ]]; then
             REBUILD=true
-            REASON="upstream-or-definition-changed"
+            REASON="upstream-definition-or-tags-changed"
           fi
 
-          echo "image=ghcr.io/${OWNER}/${{ matrix.package }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<EOF"
+            for tag in "${ALIASES[@]}"; do
+              echo "${IMAGE}:${tag}"
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "local_image=$LOCAL_IMAGE" >> "$GITHUB_OUTPUT"
           echo "upstream_digest=$UPSTREAM_DIGEST" >> "$GITHUB_OUTPUT"
           echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
@@ -118,7 +143,7 @@ jobs:
           echo "reason=$REASON" >> "$GITHUB_OUTPUT"
 
           echo "Image: $LOCAL_IMAGE"
-          echo "Upstream: $UPSTREAM_DIGEST"
+          echo "Tags: $ALIAS_SIGNATURE"
           echo "Policy: $REASON"
 
       - name: Skip unchanged image
@@ -129,7 +154,7 @@ jobs:
         if: steps.policy.outputs.rebuild == 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Build changed base image
+      - name: Build changed base image with human tags
         if: steps.policy.outputs.rebuild == 'true'
         id: build
         uses: docker/build-push-action@v6
@@ -139,7 +164,7 @@ jobs:
           push: true
           pull: true
           platforms: linux/amd64
-          tags: ${{ steps.policy.outputs.local_image }}
+          tags: ${{ steps.policy.outputs.tags }}
           build-args: |
             UPSTREAM_IMAGE=${{ matrix.upstream }}
           labels: |
@@ -148,13 +173,18 @@ jobs:
             io.codisplan.planaut.base.upstream=${{ matrix.upstream }}
             io.codisplan.planaut.base.upstream.digest=${{ steps.policy.outputs.upstream_digest }}
             io.codisplan.planaut.base.fingerprint=${{ steps.policy.outputs.fingerprint }}
-          provenance: mode=max
-          sbom: true
+          provenance: false
+          sbom: false
 
-      - name: Attest provenance
+      - name: Attest provenance in GitHub
         if: steps.policy.outputs.rebuild == 'true'
         uses: actions/attest-build-provenance@v3
         with:
           subject-name: ${{ steps.policy.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+
+      - name: Remove untagged and legacy hash-only package versions
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash deploy/cleanup-ghcr.sh "${{ matrix.package }}"
