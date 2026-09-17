@@ -21,10 +21,6 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  base-images:
-    name: Refresh GHCR base images
-    uses: ./.github/workflows/container-bases.yml
-
   tests:
     name: Full tests before development image
     runs-on: ubuntu-latest
@@ -79,11 +75,12 @@ jobs:
       - name: PWA assets validation
         run: |
           node --check frontend/public/sw.js
+          node --check frontend/public/runtime-config.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
 
   publish:
     name: Publish develop image to GHCR
-    needs: [base-images, tests]
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -152,7 +149,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.app_version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
-      - name: Build and push development image from local GHCR bases
+      - name: Build and push development image from owned GHCR bases
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -164,8 +161,6 @@ jobs:
             APP_VERSION=${{ steps.version.outputs.app_version }}
             NODE_BASE_IMAGE=${{ steps.image.outputs.node_base }}
             PYTHON_BASE_IMAGE=${{ steps.image.outputs.python_base }}
-          cache-from: type=gha,scope=develop
-          cache-to: type=gha,mode=max,scope=develop
           provenance: mode=max
           sbom: true
 
