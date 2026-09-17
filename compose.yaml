@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-planilhaat}
+name: ${COMPOSE_PROJECT_NAME:-planaut}
 
 x-app-environment: &app-environment
   APP_NAME: ${APP_NAME:-PlanAut-Backend}
@@ -19,7 +19,7 @@ x-app-environment: &app-environment
   OUTPUTS_DIR: /app/storage/outputs
   UPLOADS_DIR: /app/storage/uploads
   BUNDLED_TEMPLATES_DIR: /app/bundled_templates
-  CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS must be configured}
+  CORS_ORIGINS: ${CORS_ORIGINS:-https://planaut.codisplan.com.br,https://planaut.dev.codisplan.com.br}
   MAX_UPLOAD_FILE_BYTES: ${MAX_UPLOAD_FILE_BYTES:-20971520}
   MAX_UPLOAD_TOTAL_BYTES: ${MAX_UPLOAD_TOTAL_BYTES:-104857600}
   MAX_ZIP_ENTRIES: ${MAX_ZIP_ENTRIES:-1000}
@@ -50,10 +50,12 @@ x-app-common: &app-common
 services:
   app:
     <<: *app-common
-    container_name: ${APP_CONTAINER_NAME:-planilhaat-app}
+    container_name: ${APP_CONTAINER_NAME:-planaut-app}
     read_only: true
+    # ÚNICA porta publicada pelo stack. PostgreSQL e ferramentas permanecem
+    # somente na rede Docker interna. CloudPanel aponta o reverse proxy para ela.
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8000}:8000"
+      - "${PLANAUT_BIND_ADDRESS:-127.0.0.1}:${PLANAUT_PORT:-8000}:8000"
     volumes:
       - planaut_templates:/app/storage/templates
       - planaut_outputs:/app/storage/outputs
@@ -61,8 +63,8 @@ services:
     tmpfs:
       - /tmp:size=128m,mode=1777
 
-  # Ferramenta manual para migrations. O container principal já executa Alembic
-  # no startup por padrão para permitir deploy one-click via Portainer/Dockge.
+  # Uso manual de migrations. O app principal pode executar Alembic no startup
+  # para stacks one-click do Portainer/Dockge.
   migrate:
     <<: *app-common
     profiles: ["tools"]
@@ -75,23 +77,24 @@ services:
     tmpfs:
       - /tmp:size=64m,mode=1777
 
-  # Banco PostgreSQL local opcional. Produção com Supabase não precisa deste
-  # serviço. Ative com: docker compose --profile local-db up -d
+  # PostgreSQL local opcional. Não publica porta no host.
+  # Ative apenas quando não usar Supabase/DB gerenciado:
+  # docker compose --profile local-db up -d
   postgres:
     image: ${POSTGRES_IMAGE:-ghcr.io/codisplanai/planilhaat-postgres:16-alpine}
     profiles: ["local-db"]
-    container_name: ${POSTGRES_CONTAINER_NAME:-planilhaat-postgres}
+    container_name: ${POSTGRES_CONTAINER_NAME:-planaut-postgres}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-planilhaat}
-      POSTGRES_USER: ${POSTGRES_USER:-planilhaat}
+      POSTGRES_DB: ${POSTGRES_DB:-planaut}
+      POSTGRES_USER: ${POSTGRES_USER:-planaut}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - planaut_postgres:/var/lib/postgresql/data
     networks:
       - planaut
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-planilhaat} -d ${POSTGRES_DB:-planilhaat}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-planaut} -d ${POSTGRES_DB:-planaut}"]
       interval: 10s
       timeout: 5s
       retries: 10
