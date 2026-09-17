@@ -1,4 +1,4 @@
-name: Develop - Test and GHCR Image
+name: Develop - Test, GHCR and Deployment
 
 on:
   push:
@@ -18,7 +18,6 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   tests:
@@ -87,6 +86,10 @@ jobs:
       packages: write
       attestations: write
       id-token: write
+    outputs:
+      deploy_ref: ${{ steps.output.outputs.deploy_ref }}
+      image_name: ${{ steps.image.outputs.name }}
+      version: ${{ steps.version.outputs.app_version }}
 
     steps:
       - name: Checkout with tags
@@ -105,13 +108,14 @@ jobs:
           if [[ -z "$STABLE_VERSION" ]]; then
             STABLE_VERSION="1.0.0"
           fi
-          SHORT_SHA="${GITHUB_SHA:0:12}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$STABLE_VERSION"
           APP_VERSION="${STABLE_VERSION}-develop.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           DEV_TAG="develop-${STABLE_VERSION}-r${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           echo "stable=$STABLE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
           echo "dev_tag=$DEV_TAG" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -135,7 +139,7 @@ jobs:
           echo "node_base=${REGISTRY}/${OWNER}/planilhaat-base-node:22-alpine" >> "$GITHUB_OUTPUT"
           echo "python_base=${REGISTRY}/${OWNER}/planilhaat-base-python:3.12-slim" >> "$GITHUB_OUTPUT"
 
-      - name: Docker metadata
+      - name: Docker metadata with human development tags
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -143,13 +147,15 @@ jobs:
           tags: |
             type=raw,value=develop
             type=raw,value=develop-${{ steps.version.outputs.stable }}
+            type=raw,value=develop-${{ steps.version.outputs.major }}.${{ steps.version.outputs.minor }}
+            type=raw,value=develop-${{ steps.version.outputs.major }}
             type=raw,value=${{ steps.version.outputs.dev_tag }}
-            type=raw,value=dev-sha-${{ steps.version.outputs.short_sha }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.app_version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Build and push development image from owned GHCR bases
+      - name: Build and push development image
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -161,12 +167,95 @@ jobs:
             APP_VERSION=${{ steps.version.outputs.app_version }}
             NODE_BASE_IMAGE=${{ steps.image.outputs.node_base }}
             PYTHON_BASE_IMAGE=${{ steps.image.outputs.python_base }}
-          provenance: mode=max
-          sbom: true
+          provenance: false
+          sbom: false
 
-      - name: Attest image provenance
+      - name: Select readable immutable development reference
+        id: output
+        shell: bash
+        run: echo "deploy_ref=${{ steps.image.outputs.name }}:${{ steps.version.outputs.dev_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest provenance in GitHub
         uses: actions/attest-build-provenance@v3
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+
+      - name: Remove untagged and legacy hash-only application versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash deploy/cleanup-ghcr.sh "${GITHUB_REPOSITORY#*/,,}"
+
+  deploy-development:
+    name: Deploy development Docker stack
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: development
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            deploy/cloudpanel
+            deploy/deploy.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Validate development SSH configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::GitHub Environment development is missing secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload development manifests
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+          TARGET="${DEPLOY_PATH:-/opt/planaut-development}"
+          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$TARGET/deploy'"
+          scp -P "$PORT" deploy/cloudpanel/compose.yaml "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/compose.yaml"
+          scp -P "$PORT" deploy/cloudpanel/.env.example "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/.env.example"
+          scp -P "$PORT" deploy/deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/deploy/deploy.sh"
+
+      - name: Deploy readable development version
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          IMAGE: ${{ needs.publish.outputs.deploy_ref }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+          TARGET="${DEPLOY_PATH:-/opt/planaut-development}"
+          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "chmod +x '$TARGET/deploy/deploy.sh' && APP_DIR='$TARGET' '$TARGET/deploy/deploy.sh' '$IMAGE'"
