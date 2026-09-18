@@ -67,7 +67,7 @@ export function useHistoricoPage() {
       if (selectedSolicitacaoId) {
         await deleteLocalArtifacts(selectedSolicitacaoId).catch(() => undefined);
         setDownloadError(
-          'A data de entrada foi atualizada. As planilhas locais anteriores foram invalidadas para evitar uso de um arquivo desatualizado; reprocesse os arquivos originais para gerar novas planilhas.',
+          'A data de entrada foi atualizada. As planilhas anteriores foram invalidadas para evitar uso de um arquivo desatualizado; reprocesse os arquivos originais para gerar novas planilhas.',
         );
       }
       await queryClient.invalidateQueries({

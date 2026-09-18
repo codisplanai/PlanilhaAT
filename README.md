@@ -122,6 +122,16 @@ uvicorn app.main:app --reload --port 8000
 - **Documentação Swagger Interativa:** `http://localhost:8000/docs`
 - **Documentação Redoc:** `http://localhost:8000/redoc`
 
+## Diagnóstico de processamento
+
+A etapa de geração mantém um histórico temporário das tentativas na memória da página. A área **Acompanhamento da execução** informa etapa, contagens, avisos e erros e oferece exportação em `.txt` e `.json`, inclusive quando a geração falha.
+
+- O histórico recebe um identificador de sessão e um identificador por tentativa.
+- Arquivos fiscais e seu conteúdo não são incluídos; os metadados de entrada usam extensão, tamanho e uma impressão curta não reversível.
+- CNPJ, CPF, chaves de acesso e e-mails são mascarados nas mensagens técnicas.
+- Cada tentativa mantém até 500 eventos não críticos, com indicação explícita de truncamento. Eventos de erro são sempre preservados e textos técnicos têm tamanho limitado.
+- Os registros não usam banco, arquivos do servidor, `localStorage` ou `IndexedDB`. Fechar ou recarregar a página os descarta; o arquivo só é criado quando o usuário solicita o download.
+
 ---
 
 ## Deploy oficial: Docker + GHCR

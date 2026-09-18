@@ -70,6 +70,52 @@ def test_resultado_local_aceita_apenas_json_estruturado(client, cenario_janeiro)
     assert data["total_notas_processadas"] == 0
 
 
+def test_resultado_local_aceita_nome_do_arquivo_como_metadado(client, cenario_janeiro):
+    """Regressão: o nome diagnóstico não pode ser confundido com o conteúdo fiscal."""
+    sol = cenario_janeiro()
+
+    response = client.post(
+        f"/api/v1/processamento-local/solicitacoes/{sol.id}/resultado",
+        json={
+            "notas_processadas": [],
+            "saidas": [],
+            "notas_ignoradas": [{
+                "numero_nota": "Não identificado",
+                "motivo": "XML inválido.",
+                "arquivo": "nota_001.xml",
+            }],
+            "itens_excluidos": [],
+            "avisos_avaliacao": [],
+            "cfops_sem_regra": {},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["notas_ignoradas"][0]["arquivo"] == "nota_001.xml"
+
+
+def test_resultado_local_rejeita_conteudo_bruto_disfarcado_de_arquivo(client, cenario_janeiro):
+    sol = cenario_janeiro()
+
+    response = client.post(
+        f"/api/v1/processamento-local/solicitacoes/{sol.id}/resultado",
+        json={
+            "notas_processadas": [],
+            "saidas": [],
+            "notas_ignoradas": [{
+                "numero_nota": "Não identificado",
+                "motivo": "Entrada inválida.",
+                "arquivo": "<nfeProc>conteudo fiscal</nfeProc>",
+            }],
+            "itens_excluidos": [],
+            "avisos_avaliacao": [],
+            "cfops_sem_regra": {},
+        },
+    )
+
+    assert response.status_code == 422, response.text
+
+
 def test_contexto_local_nao_contem_arquivo_fiscal(client, cenario_janeiro):
     sol = cenario_janeiro()
 
