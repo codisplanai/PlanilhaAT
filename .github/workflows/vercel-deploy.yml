@@ -207,10 +207,6 @@ jobs:
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
-      - name: Pull Vercel production project settings
-        if: steps.preflight.outputs.configured == 'true'
-        run: vercel pull --yes --environment=production --cwd=frontend --token="$VERCEL_TOKEN"
-
       - name: Resolve production source
         if: steps.preflight.outputs.configured == 'true'
         id: version
@@ -273,6 +269,10 @@ jobs:
           vercel project inspect --non-interactive \
             --scope="$VERCEL_SCOPE" \
             --token="$VERCEL_TOKEN" >/dev/null
+
+      - name: Pull Vercel production project settings
+        if: steps.preflight.outputs.configured == 'true'
+        run: vercel pull --yes --environment=production --cwd=frontend --token="$VERCEL_TOKEN"
 
       - name: Build Vercel production artifact
         if: steps.preflight.outputs.configured == 'true'
