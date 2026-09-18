@@ -71,13 +71,13 @@ jobs:
           ref: develop
           fetch-depth: 0
 
-      - name: Detect Vercel fullstack readiness
+      - name: Detect Vercel build readiness
         id: preflight
         shell: bash
         run: |
           set -Eeuo pipefail
           missing=()
-          for name in VERCEL_TOKEN VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY DATABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+          for name in VERCEL_TOKEN VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
             fi
@@ -86,9 +86,8 @@ jobs:
           if (( ${#missing[@]} > 0 )); then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### Vercel development fullstack not provisioned"
+              echo "### Vercel development build not provisioned"
               echo
-              echo "No partial deployment was created."
               echo "Missing values: \`${missing[*]}\`."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -106,6 +105,21 @@ jobs:
       - name: Install pinned Vercel CLI
         if: steps.preflight.outputs.configured == 'true'
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Normalize Vercel project root
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          RESPONSE="$(curl --fail --silent --show-error             --request PATCH             --url "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}?slug=${VERCEL_SCOPE}"             --header "Authorization: Bearer ${VERCEL_TOKEN}"             --header "Content-Type: application/json"             --data '{"rootDirectory":null}')"
+          echo "$RESPONSE" | jq -e '.rootDirectory == null' >/dev/null
+
+      - name: Reset legacy frontend-only project settings
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          vercel project update "$VERCEL_PROJECT_NAME"             --framework other             --auto-detect build-command             --auto-detect dev-command             --auto-detect install-command             --auto-detect output-directory             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
 
       - name: Link or create Vercel project
         if: steps.preflight.outputs.configured == 'true'
@@ -143,8 +157,33 @@ jobs:
           set -Eeuo pipefail
           vercel build --token="$VERCEL_TOKEN"             --build-env "VITE_API_URL="             --build-env "VITE_SUPABASE_URL=$VITE_SUPABASE_URL"             --build-env "VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY"             --build-env "VITE_APP_VERSION=$VITE_APP_VERSION"             --build-env "VITE_DEPLOYMENT_CHANNEL=development"
 
-      - name: Deploy Vercel develop fullstack artifact
+      - name: Detect Vercel runtime readiness
         if: steps.preflight.outputs.configured == 'true'
+        id: runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          missing=()
+          for name in DATABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Vercel development runtime not provisioned"
+              echo
+              echo "The full-stack build was validated, but deployment was intentionally skipped."
+              echo "Missing runtime secrets: \`${missing[*]}\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Vercel develop fullstack artifact
+        if: steps.preflight.outputs.configured == 'true' && steps.runtime.outputs.configured == 'true'
         id: deploy
         shell: bash
         run: |
@@ -154,7 +193,7 @@ jobs:
           vercel alias set "$DEPLOYMENT_URL" "$DEVELOPMENT_DOMAIN" --token="$VERCEL_TOKEN"
 
       - name: Verify development fullstack
-        if: steps.preflight.outputs.configured == 'true'
+        if: steps.preflight.outputs.configured == 'true' && steps.runtime.outputs.configured == 'true'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -257,6 +296,19 @@ jobs:
 
       - name: Install pinned Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Normalize Vercel project root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          RESPONSE="$(curl --fail --silent --show-error             --request PATCH             --url "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}?slug=${VERCEL_SCOPE}"             --header "Authorization: Bearer ${VERCEL_TOKEN}"             --header "Content-Type: application/json"             --data '{"rootDirectory":null}')"
+          echo "$RESPONSE" | jq -e '.rootDirectory == null' >/dev/null
+
+      - name: Reset legacy frontend-only project settings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          vercel project update "$VERCEL_PROJECT_NAME"             --framework other             --auto-detect build-command             --auto-detect dev-command             --auto-detect install-command             --auto-detect output-directory             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
 
       - name: Link or create Vercel project
         shell: bash
