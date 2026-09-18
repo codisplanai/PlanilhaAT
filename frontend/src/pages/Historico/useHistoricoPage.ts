@@ -6,6 +6,10 @@ import { getErrorMessage } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { solicitacoesApi } from '../../api/solicitacoes';
 import { useEmpresasQuery, useSolicitacoesQuery } from '../../hooks/useApiQueries';
+import {
+  deleteLocalArtifacts,
+  downloadLocalArtifacts,
+} from '../../lib/localProcessing/artifactStore';
 import type { NotaFiscalProcessada, Solicitacao } from '../../types/solicitacao';
 
 type DetailTotals = {
@@ -60,6 +64,12 @@ export function useHistoricoPage() {
       dataEntrada: string;
     }) => solicitacoesApi.atualizarDataEntrada(solicitacaoId, notaId, dataEntrada),
     onSuccess: async () => {
+      if (selectedSolicitacaoId) {
+        await deleteLocalArtifacts(selectedSolicitacaoId).catch(() => undefined);
+        setDownloadError(
+          'A data de entrada foi atualizada. As planilhas locais anteriores foram invalidadas para evitar uso de um arquivo desatualizado; reprocesse os arquivos originais para gerar novas planilhas.',
+        );
+      }
       await queryClient.invalidateQueries({
         queryKey: queryKeys.solicitacao(selectedSolicitacaoId),
       });
@@ -73,7 +83,10 @@ export function useHistoricoPage() {
   });
 
   const deleteRequestMutation = useMutation({
-    mutationFn: (id: string) => solicitacoesApi.excluir(id),
+    mutationFn: async (id: string) => {
+      await solicitacoesApi.excluir(id);
+      await deleteLocalArtifacts(id).catch(() => undefined);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
       if (selectedSolicitacaoId === solicitacaoParaExcluir?.id) {
@@ -107,12 +120,7 @@ export function useHistoricoPage() {
   const downloadRequest = async (request: Solicitacao) => {
     try {
       setDownloadError(null);
-      const company = empresas.find((item) => item.id === request.empresa_id);
-      const companyName = company
-        ? company.razao_social.slice(0, 15).replace(/\s+/g, '_')
-        : 'Empresa';
-      const filename = `Planilha_${request.tipo_planilha}_${companyName}_${request.periodo_inicio.slice(0, 7)}.xlsx`;
-      await solicitacoesApi.downloadPlanilha(request.id, filename);
+      await downloadLocalArtifacts(request.id);
     } catch (error) {
       setDownloadError(getErrorMessage(error));
     }

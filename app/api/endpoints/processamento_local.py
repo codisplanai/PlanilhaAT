@@ -1,0 +1,317 @@
+import json
+from decimal import Decimal
+from typing import Any, Dict
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session, joinedload
+
+from app.core.database import get_db
+from app.core.security import get_current_user
+from app.models.empresa import Empresa
+from app.models.nota_fiscal import NotaFiscalProcessada
+from app.models.perfil_regras import PerfilRegras
+from app.models.profile import Profile
+from app.models.regra_aliquota import RegraAliquotaDestino
+from app.models.regra_cfop import RegraCfopDestino
+from app.models.regra_exclusao_parcial import RegraExclusaoParcial
+from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop
+from app.models.regra_reducao_produto import RegraReducaoProduto
+from app.models.solicitacao import Solicitacao
+from app.models.solicitacao_saida import SolicitacaoSaida
+from app.models.template_xlsx import TemplateXlsx
+from app.schemas.local_processing import LocalProcessingContextOut, LocalProcessingResultIn
+from app.schemas.solicitacao import SolicitacaoOut
+from app.services.rules_engine.mva_resolver import MvaResolver
+
+router = APIRouter(prefix="/processamento-local", tags=["Processamento Fiscal Local"])
+
+_FORBIDDEN_RAW_KEYS = {
+    "arquivo",
+    "arquivo_bytes",
+    "arquivo_conteudo",
+    "base64",
+    "bytes",
+    "content",
+    "conteudo",
+    "file",
+    "file_content",
+    "raw_file",
+    "sped",
+    "xml",
+    "xml_content",
+}
+
+
+def _serialize_decimal(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
+def _reject_raw_file_payload(value: Any, path: str = "payload") -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            normalized = str(key).strip().lower()
+            if normalized in _FORBIDDEN_RAW_KEYS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Campo bruto de arquivo não permitido em {path}.{key}. O processamento fiscal deve permanecer no navegador.",
+                )
+            _reject_raw_file_payload(nested, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            _reject_raw_file_payload(nested, f"{path}[{index}]")
+    elif isinstance(value, str) and len(value) > 65536:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Texto excessivamente grande em {path}. Conteúdo bruto de arquivo não é aceito.",
+        )
+
+
+def _authorize_request(solicitacao: Solicitacao, current_user: Profile) -> None:
+    if current_user.role != "admin" and str(solicitacao.usuario_id or "") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")
+
+
+@router.get("/contexto", response_model=LocalProcessingContextOut)
+def obter_contexto_processamento_local(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    empresa = (
+        db.query(Empresa)
+        .options(joinedload(Empresa.perfil_regras), joinedload(Empresa.regras_aliquotas_empresa))
+        .filter(Empresa.id == empresa_id)
+        .first()
+    )
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada.")
+    if not empresa.ativo:
+        raise HTTPException(status_code=409, detail="A empresa está inativa.")
+
+    perfil = empresa.perfil_regras
+    if perfil is None:
+        raise HTTPException(status_code=409, detail="A empresa não possui perfil de regras configurado.")
+
+    aliquotas = (
+        db.query(RegraAliquotaDestino)
+        .filter(RegraAliquotaDestino.perfil_regras_id == perfil.id)
+        .all()
+    )
+    regras_cfop = (
+        db.query(RegraCfopDestino)
+        .filter(
+            (RegraCfopDestino.perfil_regras_id == perfil.id)
+            | (RegraCfopDestino.perfil_regras_id.is_(None))
+        )
+        .all()
+    )
+    reducoes = (
+        db.query(RegraReducaoProduto)
+        .options(joinedload(RegraReducaoProduto.excecoes))
+        .filter(RegraReducaoProduto.perfil_regras_id == perfil.id)
+        .all()
+    )
+    reclassificacoes = (
+        db.query(RegraReclassificacaoCfop)
+        .options(joinedload(RegraReclassificacaoCfop.excecoes))
+        .filter(RegraReclassificacaoCfop.perfil_regras_id == perfil.id)
+        .all()
+    )
+    exclusoes = (
+        db.query(RegraExclusaoParcial)
+        .filter(
+            RegraExclusaoParcial.perfil_regras_id == perfil.id,
+            RegraExclusaoParcial.ativo.is_(True),
+        )
+        .all()
+    )
+    templates = (
+        db.query(TemplateXlsx)
+        .filter(TemplateXlsx.ativo.is_(True))
+        .order_by(TemplateXlsx.tipo)
+        .all()
+    )
+
+    termo = empresa.termo_acordo
+    return {
+        "empresa": {
+            "id": empresa.id,
+            "razao_social": empresa.razao_social,
+            "cnpj": empresa.cnpj,
+            "inscricao_estadual": empresa.inscricao_estadual,
+            "uf": empresa.uf,
+            "perfil_regras_id": empresa.perfil_regras_id,
+            "optante_simples_nacional": bool(empresa.optante_simples_nacional),
+            "termo_acordo": (
+                {
+                    "id": termo.id,
+                    "aliquota": _serialize_decimal(termo.aliquota),
+                    "descricao": termo.descricao,
+                }
+                if termo
+                else None
+            ),
+        },
+        "perfil": {
+            "id": perfil.id,
+            "nome": perfil.nome,
+            "descricao": perfil.descricao,
+            "configuracoes_extras": perfil.configuracoes_extras or {},
+        },
+        "regras_aliquotas": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "uf": regra.uf,
+                "ncm": regra.ncm,
+                "aliquota": _serialize_decimal(regra.aliquota),
+                "descricao": regra.descricao,
+                "parametros_extras": regra.parametros_extras or {},
+            }
+            for regra in aliquotas
+        ],
+        "regras_cfop": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "cfop_sufixo": regra.cfop_sufixo,
+                "destino": regra.destino,
+                "descricao": regra.descricao,
+            }
+            for regra in regras_cfop
+        ],
+        "regras_reducao": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "ncm": regra.ncm,
+                "termos_inclusao": regra.termos_inclusao or [],
+                "termos_exclusao": regra.termos_exclusao or [],
+                "aliquota": _serialize_decimal(regra.aliquota),
+                "descricao": regra.descricao,
+                "excecoes": [
+                    {
+                        "id": exc.id,
+                        "descricao_exata": exc.descricao_exata,
+                        "enquadrado": bool(exc.enquadrado),
+                        "observacao": exc.observacao,
+                    }
+                    for exc in regra.excecoes
+                ],
+            }
+            for regra in reducoes
+        ],
+        "regras_reclassificacao": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "ncm": regra.ncm,
+                "cfop_origem_sufixo": regra.cfop_origem_sufixo,
+                "cfop_destino_sufixo": regra.cfop_destino_sufixo,
+                "termos_inclusao": regra.termos_inclusao or [],
+                "termos_exclusao": regra.termos_exclusao or [],
+                "descricao": regra.descricao,
+                "excecoes": [
+                    {
+                        "id": exc.id,
+                        "descricao_exata": exc.descricao_exata,
+                        "aplicar": bool(exc.aplicar),
+                        "observacao": exc.observacao,
+                    }
+                    for exc in regra.excecoes
+                ],
+            }
+            for regra in reclassificacoes
+        ],
+        "regras_exclusao_parcial": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "uf": regra.uf,
+                "ncm": regra.ncm,
+                "descricao": regra.descricao,
+                "termos_obrigatorios": regra.termos_obrigatorios or [],
+                "motivo": regra.motivo,
+                "ativo": bool(regra.ativo),
+            }
+            for regra in exclusoes
+        ],
+        "templates_ativos": [
+            {
+                "id": template.id,
+                "tipo": template.tipo,
+                "versao": template.versao,
+                "arquivo_hash": template.arquivo_hash,
+                "mapeamento_campos": template.mapeamento_campos,
+                "observacoes": template.observacoes,
+            }
+            for template in templates
+        ],
+        "mva_anexo": MvaResolver._load_anexo_entries(),
+    }
+
+
+@router.post("/solicitacoes/{id}/resultado", response_model=SolicitacaoOut)
+def registrar_resultado_processamento_local(
+    id: str,
+    payload: LocalProcessingResultIn,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    solicitacao = db.get(Solicitacao, id)
+    if not solicitacao:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada.")
+    _authorize_request(solicitacao, current_user)
+
+    raw = payload.dict()
+    if len(json.dumps(raw, ensure_ascii=False, default=str)) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Resultado estruturado excede o limite permitido.")
+    _reject_raw_file_payload(raw)
+
+    db.query(NotaFiscalProcessada).filter(
+        NotaFiscalProcessada.solicitacao_id == id
+    ).delete(synchronize_session=False)
+    db.query(SolicitacaoSaida).filter(
+        SolicitacaoSaida.solicitacao_id == id
+    ).delete(synchronize_session=False)
+
+    for note in payload.notas_processadas:
+        values = note.dict()
+        for field in (
+            "v_total",
+            "base_calculo",
+            "ipi_despesas",
+            "a_ori",
+            "a_dst_resolvida",
+            "debito",
+            "credito",
+            "valor_devido",
+        ):
+            values[field] = Decimal(str(values[field]))
+        db.add(NotaFiscalProcessada(solicitacao_id=id, **values))
+
+    for output in payload.saidas:
+        values = output.dict()
+        values["total_valor_devido"] = Decimal(str(values["total_valor_devido"]))
+        db.add(
+            SolicitacaoSaida(
+                solicitacao_id=id,
+                arquivo_path=None,
+                **values,
+            )
+        )
+
+    solicitacao.status = "concluido"
+    solicitacao.mensagem_erro = payload.mensagem
+    solicitacao.arquivo_saida_path = None
+    solicitacao.total_notas_processadas = len(payload.notas_processadas)
+    solicitacao.notas_ignoradas = payload.notas_ignoradas
+    solicitacao.itens_excluidos = payload.itens_excluidos
+    solicitacao.avisos_avaliacao = payload.avisos_avaliacao
+    solicitacao.cfops_sem_regra = payload.cfops_sem_regra
+
+    db.commit()
+    db.refresh(solicitacao)
+    return solicitacao

@@ -1,101 +1,87 @@
-import io
-import zipfile
-import pytest
-from fastapi import HTTPException
-from app.api.upload_utils import _read_xml_archive
-from app.core.config import settings
-from tests.conftest import CHAVE_NF901, CHAVE_NF902, build_xml_nfe
-
-
-def _create_zip(files_dict: dict) -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for name, data in files_dict.items():
-            z.writestr(name, data)
-    buf.seek(0)
-    return buf.read()
-
-
-def test_processar_com_arquivo_zip(client, cenario_janeiro):
-    """Testa o processamento enviando um arquivo .zip contendo múltiplos XMLs."""
+def test_rotas_legacy_de_upload_fiscal_nao_existem(client, cenario_janeiro):
     sol = cenario_janeiro()
 
-    xml1 = build_xml_nfe("901", CHAVE_NF901, "1000.00", "10")
-    xml2 = build_xml_nfe("902", CHAVE_NF902, "2000.00", "15")
-
-    zip_bytes = _create_zip({
-        "pasta/901.xml": xml1,
-        "902.xml": xml2,
-        "leia-me.txt": b"instrucoes",
-    })
-
-    files = [
-        ("files", ("lote_nfe.zip", zip_bytes, "application/zip"))
+    payloads = [
+        (
+            f"/api/v1/solicitacoes/{sol.id}/pre-analisar",
+            {"files": ("nota.xml", b"<xml/>", "application/xml")},
+        ),
+        (
+            f"/api/v1/solicitacoes/{sol.id}/processar",
+            {"sped_file": ("sped.txt", b"|0000|", "text/plain")},
+        ),
     ]
 
-    response = client.post(f"/api/v1/solicitacoes/{sol.id}/processar", files=files)
+    for url, files in payloads:
+        response = client.post(url, files=files)
+        assert response.status_code in {404, 405}, response.text
+
+    response = client.get(f"/api/v1/solicitacoes/{sol.id}/download")
+    assert response.status_code in {404, 405}, response.text
+
+
+def test_resultado_local_rejeita_conteudo_bruto(client, cenario_janeiro):
+    sol = cenario_janeiro()
+
+    response = client.post(
+        f"/api/v1/processamento-local/solicitacoes/{sol.id}/resultado",
+        json={
+            "notas_processadas": [],
+            "saidas": [],
+            "notas_ignoradas": [],
+            "itens_excluidos": [],
+            "avisos_avaliacao": [],
+            "cfops_sem_regra": {},
+            "xml": "<NFe>conteudo-bruto-proibido</NFe>",
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_resultado_local_rejeita_multipart(client, cenario_janeiro):
+    sol = cenario_janeiro()
+
+    response = client.post(
+        f"/api/v1/processamento-local/solicitacoes/{sol.id}/resultado",
+        files={"file": ("nota.xml", b"<xml/>", "application/xml")},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_resultado_local_aceita_apenas_json_estruturado(client, cenario_janeiro):
+    sol = cenario_janeiro()
+
+    response = client.post(
+        f"/api/v1/processamento-local/solicitacoes/{sol.id}/resultado",
+        json={
+            "notas_processadas": [],
+            "saidas": [],
+            "notas_ignoradas": [],
+            "itens_excluidos": [],
+            "avisos_avaliacao": [],
+            "cfops_sem_regra": {},
+            "mensagem": "Processamento local sem itens a persistir.",
+        },
+    )
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["status"] == "concluido"
-    assert len(data["saidas"]) >= 1
+    assert data["arquivo_saida_path"] is None
+    assert data["total_notas_processadas"] == 0
 
 
-def test_processar_com_zip_e_xml_avulso(client, cenario_janeiro):
-    """Testa envio conjunto de um .zip e um .xml avulso."""
+def test_contexto_local_nao_contem_arquivo_fiscal(client, cenario_janeiro):
     sol = cenario_janeiro()
 
-    xml1 = build_xml_nfe("901", CHAVE_NF901, "1000.00", "10")
-    xml2 = build_xml_nfe("902", CHAVE_NF902, "2000.00", "15")
-
-    zip_bytes = _create_zip({"901.xml": xml1})
-
-    files = [
-        ("files", ("lote.zip", zip_bytes, "application/zip")),
-        ("files", ("902.xml", xml2, "application/xml")),
-    ]
-
-    response = client.post(f"/api/v1/solicitacoes/{sol.id}/processar", files=files)
+    response = client.get(
+        "/api/v1/processamento-local/contexto",
+        params={"empresa_id": sol.empresa_id},
+    )
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["status"] == "concluido"
+    serialized = str(data).lower()
 
-
-def test_zip_sem_arquivos_xml_rejeita(client, cenario_janeiro):
-    """Um arquivo ZIP sem nenhum XML deve ser rejeitado com mensagem explicativa."""
-    sol = cenario_janeiro()
-
-    zip_bytes = _create_zip({
-        "arquivo.pdf": b"%PDF-1.4...",
-        "planilha.xlsx": b"PK...",
-    })
-
-    files = [
-        ("files", ("lote_vazio.zip", zip_bytes, "application/zip"))
-    ]
-
-    response = client.post(f"/api/v1/solicitacoes/{sol.id}/processar", files=files)
-    assert response.status_code == 400
-    assert "não contém nenhum arquivo XML" in response.json()["detail"]
-
-
-def test_zip_corrompido_rejeita(client, cenario_janeiro):
-    """Um arquivo com extensão .zip corrompido deve ser rejeitado."""
-    sol = cenario_janeiro()
-
-    files = [
-        ("files", ("corrompido.zip", b"nao-sou-um-zip-valido", "application/zip"))
-    ]
-
-    response = client.post(f"/api/v1/solicitacoes/{sol.id}/processar", files=files)
-    assert response.status_code == 400
-    assert "inválido ou corrompido" in response.json()["detail"]
-
-
-def test_zip_bomb_rejeitado_antes_de_descompactar(monkeypatch):
-    content = b"A" * 10_000
-    zip_bytes = _create_zip({"compactado.xml": content})
-    monkeypatch.setattr(settings, "MAX_ZIP_COMPRESSION_RATIO", 2)
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
-        with pytest.raises(HTTPException) as exc_info:
-            _read_xml_archive(archive)
-    assert exc_info.value.status_code == 413
+    assert "xml_content" not in serialized
+    assert "sped_file" not in serialized
+    assert "arquivo_bytes" not in serialized
+    assert data["empresa"]["id"] == sol.empresa_id

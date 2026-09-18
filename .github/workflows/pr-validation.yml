@@ -94,18 +94,28 @@ jobs:
           set -Eeuo pipefail
           violations=0
 
-          if grep -RIn --include='*.ts' --include='*.tsx'             -E 'createFiscalInputFormData|new FormData\(' frontend/src; then
-            echo "::error::Release blocked: frontend still contains server-side fiscal file upload code."
+          if [[ -e frontend/src/api/multipart.ts ]]; then
+            echo "::error::Release blocked: legacy fiscal multipart helper still exists."
             violations=1
           fi
 
-          if grep -RIn --include='*.py'             -E 'UploadFile|File\(' app/api/endpoints/solicitacoes.py; then
-            echo "::error::Release blocked: FastAPI still exposes fiscal file upload endpoints."
+          if grep -RIn --include='*.ts' --include='*.tsx' \
+            -E 'createFiscalInputFormData|new FormData\(' \
+            frontend/src/api/solicitacoes.ts frontend/src/pages/NovaSolicitacao frontend/src/lib/localProcessing; then
+            echo "::error::Release blocked: fiscal processing still contains multipart/FormData upload code."
             violations=1
           fi
 
-          if grep -RIn --include='*.ts' --include='*.tsx'             -E '/pre-analisar|/processar' frontend/src/api frontend/src/pages; then
-            echo "::error::Release blocked: frontend still sends fiscal files to processing endpoints."
+          if grep -RIn --include='*.py' \
+            -E 'UploadFile|File\(|Form\(' app/api/endpoints/solicitacoes.py app/api/endpoints/processamento_local.py; then
+            echo "::error::Release blocked: fiscal API still exposes file/form upload contracts."
+            violations=1
+          fi
+
+          if grep -RIn --include='*.ts' --include='*.tsx' \
+            -E '/pre-analisar|/processar|/solicitacoes/.*/download' \
+            frontend/src/api/solicitacoes.ts frontend/src/pages/NovaSolicitacao; then
+            echo "::error::Release blocked: frontend still references legacy server-side fiscal processing."
             violations=1
           fi
 
