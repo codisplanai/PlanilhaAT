@@ -18,6 +18,14 @@ on:
           - development
           - production
         default: development
+      release_sha:
+        description: Exact main commit SHA for an unpublished production candidate
+        required: false
+        type: string
+      release_version:
+        description: Semantic version for an unpublished production candidate
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -185,36 +193,52 @@ jobs:
             {
               echo "### Vercel production not provisioned"
               echo
-              echo "The production release exists, but the required automated Vercel deployment was not created."
+              echo "The required automated Vercel production deployment cannot run."
               echo "Missing values: \`${missing[*]}\`."
               echo
               echo "A pre-existing VERCEL_PROJECT_ID is no longer required."
             } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "::error::Vercel production configuration is incomplete."
+            exit 1
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve released tag
+      - name: Resolve production source
         if: steps.preflight.outputs.configured == 'true'
         id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
         shell: bash
         run: |
           set -Eeuo pipefail
           git fetch --tags --force
 
-          TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')"
+          if [[ -n "$RELEASE_SHA" || -n "$RELEASE_VERSION" ]]; then
+            if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::release_sha must be a full 40-character commit SHA."
+              exit 1
+            fi
+            if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::release_version must use X.Y.Z SemVer."
+              exit 1
+            fi
 
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::No published semantic GitHub Release is available for Vercel production."
-            exit 1
+            git checkout --detach "$RELEASE_SHA"
+            echo "source=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+            echo "app_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')"
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::No published semantic GitHub Release is available for manual Vercel production deployment."
+              exit 1
+            fi
+
+            git checkout --detach "$TAG"
+            echo "source=$TAG" >> "$GITHUB_OUTPUT"
+            echo "app_version=${TAG#v}" >> "$GITHUB_OUTPUT"
           fi
-
-          git checkout --detach "$TAG"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "app_version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         if: steps.preflight.outputs.configured == 'true'
