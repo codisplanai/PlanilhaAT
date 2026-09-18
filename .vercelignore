@@ -1,0 +1,9 @@
+frontend/
+.github/
+deploy/
+tests/
+docs/
+Dockerfile
+compose.yaml
+README.md
+*.md
