@@ -11,8 +11,8 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 
-import { solicitacoesApi } from '../../api/solicitacoes';
 import { getErrorMessage } from '../../api/client';
+import { downloadLocalArtifacts } from '../../lib/localProcessing/artifactStore';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
@@ -50,14 +50,11 @@ export const DashboardPage: React.FC = () => {
 
   const getEmpresa = (id: number) => empresas.find((e) => e.id === id);
 
-  const handleDownload = async (id: string, tipo: string, empId: number, data: string) => {
+  const handleDownload = async (id: string) => {
     setDownloadError(null);
     setDownloadingId(id);
     try {
-      const emp = getEmpresa(empId);
-      const empNome = emp ? emp.razao_social.slice(0, 15).replace(/\s+/g, '_') : 'Empresa';
-      const filename = `Planilha_${tipo}_${empNome}_${data.slice(0, 7)}.xlsx`;
-      await solicitacoesApi.downloadPlanilha(id, filename);
+      await downloadLocalArtifacts(id);
     } catch (err) {
       setDownloadError(getErrorMessage(err));
     } finally {
@@ -275,12 +272,12 @@ export const DashboardPage: React.FC = () => {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleDownload(sol.id, sol.tipo_planilha, sol.empresa_id, sol.periodo_inicio)}
+                            onClick={() => handleDownload(sol.id)}
                             isLoading={downloadingId === sol.id}
                             disabled={downloadingId !== null}
                             leftIcon={<Download className="w-3.5 h-3.5 text-blue-700" />}
                           >
-                            Baixar .xlsx
+                            Baixar local
                           </Button>
                         ) : (
                           <NavLink
