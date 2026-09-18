@@ -63,6 +63,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
     clearFileError,
     isProcessing,
     resultadoSolicitacao,
+    hasLocalArtifact,
+    hasAnyLocalArtifact,
     errorMessage,
     setErrorMessage,
     downloadError,
@@ -122,7 +124,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
           />
         )}
 
-        {/* ETAPA 3: UPLOAD DE ARQUIVOS */}
+        {/* ETAPA 3: SELEÇÃO LOCAL DE ARQUIVOS */}
         {currentStep === 3 && (
           <div className="space-y-6 animate-fade-in">
             <div>
@@ -130,15 +132,15 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 Etapa 3: Adicionar Arquivos de Entrada
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Envie os XMLs de NF-e, o arquivo SPED Fiscal (.txt) da competência, ou ambos simultaneamente.
+                Selecione os XMLs de NF-e, o arquivo SPED Fiscal (.txt) da competência, ou ambos. Os arquivos permanecem neste navegador e não são enviados ao servidor.
               </p>
             </div>
 
             <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3.5 text-xs text-blue-950 leading-relaxed">
-              Envie os <strong>XMLs da competência</strong> e o <strong>SPED Fiscal do mesmo mês</strong> para
-              separar automaticamente a planilha <strong>Antecipação Parcial — Pago Antecipadamente</strong>:
-              as notas emitidas no período que não constarem do SPED ainda não deram entrada no estabelecimento
-              e são apuradas em arquivo próprio. Enviando apenas os XMLs, todas entram na planilha normal.
+              Selecione os <strong>XMLs da competência</strong> e o <strong>SPED Fiscal do mesmo mês</strong> para
+              separar automaticamente a planilha <strong>Antecipação Parcial — Pago Antecipadamente</strong>.
+              Todo o conteúdo fiscal é lido e processado localmente no navegador; somente o resultado estruturado
+              da apuração é registrado no sistema. Selecionando apenas os XMLs, todas entram na planilha normal.
             </div>
 
             {/* Fonte 1: XMLs / ZIP */}
@@ -167,7 +169,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   className="hidden"
                 />
                 <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mx-auto mb-2.5 transition-transform group-hover:scale-105 shadow-2xs">
-                  <UploadCloud className="w-6 h-6" />
+                  <FileCode className="w-6 h-6" />
                 </div>
                 <p className="text-xs sm:text-sm font-semibold text-slate-800">
                   Arraste os arquivos XML ou pacotes .ZIP aqui, ou <span className="text-blue-700 underline font-bold">clique para selecionar</span>
@@ -309,7 +311,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
               </div>
 
               <p className="text-xs text-slate-500 leading-relaxed">
-                Se você tiver a exportação do sistema contábil com as datas de entrada das notas, anexe aqui para preencher automaticamente. Caso não possua, a data de entrada permanecerá em branco para preenchimento manual.
+                Se você tiver a exportação do sistema contábil com as datas de entrada das notas, selecione um arquivo .xlsx. Ele será lido somente no navegador. Caso não possua, a data de entrada permanecerá em branco para preenchimento manual.
               </p>
 
               {!planilhaEntradaFile ? (
@@ -408,7 +410,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     Etapa 4: Revisar e Iniciar Apuração
                   </h2>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    Confirme os parâmetros antes de disparar o processamento dos XMLs e regras fiscais.
+                    Confirme os parâmetros antes de iniciar a apuração local. XML, ZIP, SPED e XLSX permanecem no navegador durante todo o processamento.
                   </p>
                 </div>
 
@@ -488,7 +490,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     size="lg"
                     rightIcon={<Sparkles className="w-4 h-4" />}
                   >
-                    {isProcessing ? 'Processando NF-es...' : 'Gerar Planilha'}
+                    {isProcessing ? 'Processando localmente...' : 'Gerar Planilha Localmente'}
                   </Button>
                 </div>
               </>
@@ -515,10 +517,10 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     !hasCfopsSemRegra;
                   const temAvisos = !todosExcluidos && (
                     (resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0) ||
-                    (resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => !s.arquivo_path)) ||
+                    (resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => Boolean(s.aviso) || !hasLocalArtifact(s.tipo))) ||
                     hasCfopsSemRegra
                   );
-                  const temArquivos = resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => s.arquivo_path);
+                  const temArquivos = hasAnyLocalArtifact;
 
                   return (
                     <div
@@ -600,7 +602,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
                         Planilhas Geradas ({resultadoSolicitacao.saidas.length})
                       </h3>
-                      {resultadoSolicitacao.saidas.filter((s) => s.arquivo_path).length > 1 && (
+                      {resultadoSolicitacao.saidas.filter((s) => hasLocalArtifact(s.tipo)).length > 1 && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -617,12 +619,12 @@ export const NovaSolicitacaoPage: React.FC = () => {
                         <div
                           key={saida.tipo}
                           className={`rounded-xl border p-4 space-y-3 shadow-2xs transition-all ${
-                            saida.arquivo_path ? 'bg-white border-slate-200/90 hover:border-slate-300' : 'bg-amber-50/60 border-amber-200'
+                            hasLocalArtifact(saida.tipo) ? 'bg-white border-slate-200/90 hover:border-slate-300' : 'bg-amber-50/60 border-amber-200'
                           }`}
                         >
                           <div className="flex items-center justify-between">
                             <PlanilhaBadge tipo={saida.tipo} detailed />
-                            {!saida.arquivo_path && (
+                            {!hasLocalArtifact(saida.tipo) && (
                               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                             )}
                           </div>
@@ -632,7 +634,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                               {formatCurrency(saida.total_valor_devido)}
                             </div>
                           </div>
-                          {saida.arquivo_path ? (
+                          {hasLocalArtifact(saida.tipo) ? (
                             <Button
                               size="sm"
                               className="w-full"
