@@ -1,0 +1,118 @@
+name: Vercel - API Bootstrap and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact main commit SHA for the production API
+        required: true
+        type: string
+      release_version:
+        description: Semantic version for the production API
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_CLI_VERSION: ${{ vars.VERCEL_CLI_VERSION || '59.19.1' }}
+  VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE || 'codisplan' }}
+  VERCEL_API_PROJECT_NAME: ${{ vars.VERCEL_API_PROJECT_NAME || 'planaut-api' }}
+  VERCEL_API_DOMAIN: ${{ vars.VERCEL_API_DOMAIN || 'api.planaut.codisplan.com.br' }}
+
+jobs:
+  production:
+    name: Deploy FastAPI to Vercel Production
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: vercel-api-production
+      cancel-in-progress: false
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL || secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://planaut.codisplan.com.br,https://planaut.dev.codisplan.com.br' }}
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+
+    steps:
+      - name: Checkout release candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Validate production API configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          missing=()
+          for name in VERCEL_TOKEN DATABASE_URL SUPABASE_URL SUPABASE_KEY SUPABASE_SERVICE_ROLE_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Vercel API production configuration is incomplete: ${missing[*]}"
+            exit 1
+          fi
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::release_sha must be a full 40-character commit SHA."
+            exit 1
+          fi
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release_version must use X.Y.Z SemVer."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Link or create Vercel API project
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          vercel link --yes             --project="$VERCEL_API_PROJECT_NAME"             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN"
+          vercel project inspect --non-interactive             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
+
+      - name: Pull Vercel API project settings
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build FastAPI production artifact
+        env:
+          APP_VERSION: ${{ inputs.release_version }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          vercel build --prod --token="$VERCEL_TOKEN"             --build-env APP_ENV=production             --build-env APP_VERSION="$APP_VERSION"
+
+      - name: Deploy FastAPI production artifact
+        id: deploy
+        env:
+          APP_VERSION: ${{ inputs.release_version }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"             --env APP_ENV=production             --env APP_VERSION="$APP_VERSION"             --env DEBUG=false             --env ENABLE_LOCAL_AUTH=false             --env AUTO_CREATE_SCHEMA=false             --env SEED_DEFAULTS=false             --env DATABASE_URL="$DATABASE_URL"             --env SUPABASE_URL="$SUPABASE_URL"             --env SUPABASE_KEY="$SUPABASE_KEY"             --env SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"             --env SUPABASE_JWT_SECRET="$SUPABASE_JWT_SECRET"             --env CORS_ORIGINS="$CORS_ORIGINS"             --env STORAGE_DIR=/tmp/planaut             --env TEMPLATES_DIR=/tmp/planaut/templates             --env OUTPUTS_DIR=/tmp/planaut/outputs             --env UPLOADS_DIR=/tmp/planaut/uploads)"
+
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          vercel alias set "$DEPLOYMENT_URL" "$VERCEL_API_DOMAIN" --token="$VERCEL_TOKEN"
+
+      - name: Verify production API
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --location --retry 10 --retry-delay 3             "https://${VERCEL_API_DOMAIN}/api/health" | tee /tmp/api-health.json
+          curl --fail --silent --show-error --location --retry 5 --retry-delay 2             "https://${VERCEL_API_DOMAIN}/openapi.json" >/dev/null
+          echo "Vercel API healthy: https://${VERCEL_API_DOMAIN}"
