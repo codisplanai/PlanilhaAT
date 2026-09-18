@@ -49,8 +49,8 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       DEVELOPMENT_DOMAIN: ${{ vars.VERCEL_DEVELOPMENT_DOMAIN || 'planaut.dev.codisplan.com.br' }}
-      VITE_API_URL: ${{ vars.VITE_API_URL }}
-      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_API_URL: ${{ secrets.VITE_API_URL || vars.VITE_API_URL }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
 
     steps:
@@ -165,8 +165,8 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       PRODUCTION_DOMAIN: ${{ vars.VERCEL_PRODUCTION_DOMAIN || 'planaut.codisplan.com.br' }}
-      VITE_API_URL: ${{ vars.VITE_API_URL }}
-      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_API_URL: ${{ secrets.VITE_API_URL || vars.VITE_API_URL }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
 
     steps:
