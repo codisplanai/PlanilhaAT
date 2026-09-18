@@ -151,11 +151,13 @@ jobs:
       - name: Build Vercel develop fullstack artifact
         if: steps.preflight.outputs.configured == 'true'
         env:
+          VITE_API_URL: ""
           VITE_APP_VERSION: ${{ steps.version.outputs.app_version }}
+          VITE_DEPLOYMENT_CHANNEL: development
         shell: bash
         run: |
           set -Eeuo pipefail
-          vercel build --token="$VERCEL_TOKEN"             --build-env "VITE_API_URL="             --build-env "VITE_SUPABASE_URL=$VITE_SUPABASE_URL"             --build-env "VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY"             --build-env "VITE_APP_VERSION=$VITE_APP_VERSION"             --build-env "VITE_DEPLOYMENT_CHANNEL=development"
+          vercel build --token="$VERCEL_TOKEN"
 
       - name: Detect Vercel runtime readiness
         if: steps.preflight.outputs.configured == 'true'
@@ -164,7 +166,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           missing=()
-          for name in DATABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+          for name in DATABASE_URL; do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
             fi
@@ -234,7 +236,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           missing=()
-          for name in VERCEL_TOKEN VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY DATABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+          for name in VERCEL_TOKEN VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY DATABASE_URL; do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
             fi
@@ -322,11 +324,13 @@ jobs:
 
       - name: Build Vercel production fullstack artifact
         env:
+          VITE_API_URL: ""
           VITE_APP_VERSION: ${{ steps.version.outputs.app_version }}
+          VITE_DEPLOYMENT_CHANNEL: production
         shell: bash
         run: |
           set -Eeuo pipefail
-          vercel build --prod --token="$VERCEL_TOKEN"             --build-env "VITE_API_URL="             --build-env "VITE_SUPABASE_URL=$VITE_SUPABASE_URL"             --build-env "VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY"             --build-env "VITE_APP_VERSION=$VITE_APP_VERSION"             --build-env "VITE_DEPLOYMENT_CHANNEL=production"
+          vercel build --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy Vercel production fullstack artifact
         id: deploy
