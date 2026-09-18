@@ -278,6 +278,7 @@ jobs:
       - name: Dispatch and require Vercel production deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           TARGET_SHA: ${{ needs.version.outputs.target_sha }}
           VERSION: ${{ needs.version.outputs.version }}
         shell: bash
