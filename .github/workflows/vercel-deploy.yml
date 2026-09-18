@@ -119,7 +119,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          vercel project update "$VERCEL_PROJECT_NAME"             --framework other             --auto-detect build-command             --auto-detect dev-command             --auto-detect install-command             --auto-detect output-directory             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
+          vercel project update "$VERCEL_PROJECT_NAME"             --yes             --framework other             --auto-detect build-command             --auto-detect dev-command             --auto-detect install-command             --auto-detect output-directory             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
 
       - name: Link or create Vercel project
         if: steps.preflight.outputs.configured == 'true'
@@ -308,7 +308,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          vercel project update "$VERCEL_PROJECT_NAME"             --framework other             --auto-detect build-command             --auto-detect dev-command             --auto-detect install-command             --auto-detect output-directory             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
+          vercel project update "$VERCEL_PROJECT_NAME"             --yes             --framework other             --auto-detect build-command             --auto-detect dev-command             --auto-detect install-command             --auto-detect output-directory             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
 
       - name: Link or create Vercel project
         shell: bash
