@@ -369,11 +369,63 @@ jobs:
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
           echo "Production domains are managed by the linked Vercel project."
 
-      - name: Verify production fullstack
+      - name: Verify immutable Vercel deployment
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error --location --retry 10 --retry-delay 3             "https://${PRODUCTION_DOMAIN}/" >/dev/null
-          curl --fail --silent --show-error --location --retry 10 --retry-delay 3             "https://${PRODUCTION_DOMAIN}/api/health" >/dev/null
-          curl --fail --silent --show-error --location --retry 5 --retry-delay 2             "https://${PRODUCTION_DOMAIN}/openapi.json" >/dev/null
+          failed=0
+
+          for path in / /api/health /openapi.json; do
+            echo "Checking immutable deployment path: ${path}"
+            if ! vercel curl "${path}" --deployment "${DEPLOYMENT_URL}" --token="${VERCEL_TOKEN}" >/tmp/vercel-probe.out 2>/tmp/vercel-probe.err; then
+              failed=1
+              echo "::error::Immutable Vercel deployment failed at ${path}"
+              cat /tmp/vercel-probe.err || true
+              head -c 4000 /tmp/vercel-probe.out || true
+              echo
+              break
+            fi
+          done
+
+          if (( failed != 0 )); then
+            echo "Recent production 5xx logs:"
+            vercel logs --environment production --status-code 5xx --since 10m --json --token="${VERCEL_TOKEN}" 2>&1 | tail -n 120 || true
+            exit 1
+          fi
+
+          echo "Immutable Vercel deployment healthy: ${DEPLOYMENT_URL}"
+
+      - name: Verify production custom domain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          probe() {
+            local path="$1"
+            local body
+            body="$(mktemp)"
+            local code
+            code="$(curl --silent --show-error --location --retry 3 --retry-delay 2               --output "${body}" --write-out '%{http_code}'               "https://${PRODUCTION_DOMAIN}${path}" || true)"
+
+            echo "https://${PRODUCTION_DOMAIN}${path} -> HTTP ${code}"
+            if [[ ! "${code}" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Production custom domain failed at ${path} with HTTP ${code}"
+              head -c 4000 "${body}" || true
+              echo
+              rm -f "${body}"
+              return 1
+            fi
+            rm -f "${body}"
+          }
+
+          if ! probe "/" || ! probe "/api/health" || ! probe "/openapi.json"; then
+            echo "Project-domain diagnostic:"
+            vercel domains inspect "${PRODUCTION_DOMAIN}" --token="${VERCEL_TOKEN}" 2>&1 || true
+            echo "Recent production 5xx logs:"
+            vercel logs --environment production --status-code 5xx --since 10m --json --token="${VERCEL_TOKEN}" 2>&1 | tail -n 120 || true
+            exit 1
+          fi
+
           echo "Vercel production fullstack healthy: https://${PRODUCTION_DOMAIN}"
