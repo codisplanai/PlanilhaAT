@@ -2,13 +2,88 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { getErrorMessage } from '../../api/client';
+import { localProcessingApi } from '../../api/localProcessing';
 import { queryKeys } from '../../api/queryKeys';
 import { solicitacoesApi } from '../../api/solicitacoes';
 import { useEmpresasQuery } from '../../hooks/useApiQueries';
 import type { Empresa } from '../../types/empresa';
+import type {
+  LocalProcessingContext,
+  LocalProcessingPersistPayload,
+  LocalProcessingResult,
+} from '../../types/localProcessing';
 import type { Solicitacao, TipoPlanilha, NotaBonificacaoPendencia } from '../../types/solicitacao';
+import {
+  downloadLocalArtifacts,
+  saveLocalArtifacts,
+} from '../../lib/localProcessing/artifactStore';
+import { processFiscalLocally } from '../../lib/localProcessing/processor';
 import { getMonthPeriod } from '../../lib/periods';
 import { useFiscalInputFiles } from './useFiscalInputFiles';
+
+function buildPersistPayload(
+  result: LocalProcessingResult,
+  context: LocalProcessingContext,
+): LocalProcessingPersistPayload {
+  const saidas = (Object.entries(result.rowsByDestination) as Array<
+    [TipoPlanilha, NonNullable<LocalProcessingResult['rowsByDestination'][TipoPlanilha]>]
+  >)
+    .filter(([, rows]) => Boolean(rows?.length))
+    .map(([tipo, rows]) => {
+      const template = context.templates_ativos.find((item) => item.tipo === tipo);
+      return {
+        tipo,
+        template_id: template?.id ?? null,
+        total_notas: rows.length,
+        total_valor_devido: rows.reduce((sum, row) => sum + Number(row.valor_devido), 0),
+        aviso: template ? null : `Nenhum template ativo cadastrado para ${tipo}.`,
+      };
+    });
+
+  return {
+    notas_processadas: result.notasProcessadas.map((note) => ({
+      chave_acesso: note.chave_acesso,
+      numero_nota: note.numero_nota,
+      serie: note.serie,
+      cnpj_emitente: note.cnpj_emitente,
+      uf_emitente: note.uf_emitente,
+      cnpj_destinatario: note.cnpj_destinatario,
+      uf_destinatario: note.uf_destinatario,
+      data_emissao: note.data_emissao,
+      data_entrada: note.data_entrada,
+      origem_data_entrada: note.origem_data_entrada,
+      item_numero: note.item_numero,
+      ncm: note.ncm,
+      cfop: note.cfop,
+      destino_planilha: note.destino_planilha,
+      v_total: Number(note.v_total),
+      base_calculo: Number(note.base_calculo),
+      ipi_despesas: Number(note.ipi_despesas),
+      a_ori: Number(note.a_ori),
+      a_dst_resolvida: Number(note.a_dst_resolvida),
+      debito: Number(note.debito),
+      credito: Number(note.credito),
+      valor_devido: Number(note.valor_devido),
+      metadados_extras: note.metadados_extras as Record<string, unknown>,
+    })),
+    saidas,
+    notas_ignoradas: result.notasIgnoradas,
+    itens_excluidos: result.itensExcluidos,
+    avisos_avaliacao: result.avisosAvaliacao,
+    cfops_sem_regra: result.cfopsSemRegra,
+    mensagem: result.mensagem ?? null,
+  };
+}
+
+async function loadTemplates(context: LocalProcessingContext): Promise<Map<number, ArrayBuffer>> {
+  const entries = await Promise.all(
+    context.templates_ativos.map(async (template) => [
+      template.id,
+      await localProcessingApi.baixarTemplate(template.id),
+    ] as const),
+  );
+  return new Map(entries);
+}
 
 export function useNovaSolicitacaoPage() {
   const queryClient = useQueryClient();
@@ -24,6 +99,7 @@ export function useNovaSolicitacaoPage() {
   const [pendenciasBonificacao, setPendenciasBonificacao] = useState<NotaBonificacaoPendencia[]>([]);
   const [showModalBonificacao, setShowModalBonificacao] = useState(false);
   const [resultadoSolicitacao, setResultadoSolicitacao] = useState<Solicitacao | null>(null);
+  const [localArtifactTypes, setLocalArtifactTypes] = useState<TipoPlanilha[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const empresasQuery = useEmpresasQuery();
@@ -52,20 +128,72 @@ export function useNovaSolicitacaoPage() {
   };
 
   const advanceFromPeriod = () => {
-    if (validatePeriod()) {
-      setCurrentStep(3);
+    if (validatePeriod()) setCurrentStep(3);
+  };
+
+  const executeLocalProcessing = async (
+    requestId: string,
+    decisions?: Record<string, boolean>,
+  ): Promise<void> => {
+    if (!selectedEmpresa) return;
+
+    const context = await localProcessingApi.obterContexto(selectedEmpresa.id);
+    const templateBytes = await loadTemplates(context);
+
+    const localResult = await processFiscalLocally(
+      {
+        solicitacaoId: requestId,
+        periodoInicio,
+        periodoFim,
+        context,
+        input: {
+          xmlFiles: files.xmlFiles,
+          spedFile: files.spedFile,
+          entrySheet: files.planilhaEntradaFile,
+        },
+        bonusDecisions: decisions,
+      },
+      templateBytes,
+    );
+
+    if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.notas_bonificacao.length > 0) {
+      setPendenciasBonificacao(localResult.preAnalysis.notas_bonificacao);
+      setShowModalBonificacao(true);
+      return;
     }
+
+    const persisted = await localProcessingApi.persistirResultado(
+      requestId,
+      buildPersistPayload(localResult, context),
+    );
+
+    try {
+      await saveLocalArtifacts(requestId, localResult.artifacts);
+      setLocalArtifactTypes(localResult.artifacts.map((artifact) => artifact.tipo));
+      setDownloadError(null);
+    } catch (storageError) {
+      setLocalArtifactTypes([]);
+      setDownloadError(
+        `A apuração foi concluída, mas o navegador não conseguiu armazenar as planilhas locais: ${getErrorMessage(storageError)}`,
+      );
+    }
+
+    setShowModalBonificacao(false);
+    setPendenciasBonificacao([]);
+    setResultadoSolicitacao(persisted);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
   };
 
   const generateSpreadsheet = async () => {
     if (!selectedEmpresa) return;
     if (!validatePeriod()) return;
     if (files.xmlFiles.length === 0 && !files.spedFile) {
-      setErrorMessage('Envie os XMLs de NF-e, o arquivo SPED Fiscal, ou ambos.');
+      setErrorMessage('Selecione os XMLs de NF-e, o arquivo SPED Fiscal, ou ambos.');
       return;
     }
 
     setErrorMessage(null);
+    setDownloadError(null);
     setIsProcessing(true);
     try {
       const request = await solicitacoesApi.criar({
@@ -74,31 +202,7 @@ export function useNovaSolicitacaoPage() {
         periodo_fim: periodoFim,
       });
       setSolicitacaoIdAtiva(request.id);
-
-      // 1. Pré-análise de bonificação e amostra grátis
-      const preAnalise = await solicitacoesApi.preAnalisar(
-        request.id,
-        files.xmlFiles.length > 0 ? files.xmlFiles : undefined,
-        files.planilhaEntradaFile,
-        files.spedFile ?? undefined,
-      );
-
-      if (preAnalise.requer_decisao && preAnalise.notas_bonificacao.length > 0) {
-        setPendenciasBonificacao(preAnalise.notas_bonificacao);
-        setShowModalBonificacao(true);
-        setIsProcessing(false);
-        return;
-      }
-
-      // Se não houver bonificação/amostra que requer confirmação, processa diretamente
-      const processedRequest = await solicitacoesApi.processar(
-        request.id,
-        files.xmlFiles.length > 0 ? files.xmlFiles : undefined,
-        files.planilhaEntradaFile,
-        files.spedFile ?? undefined,
-      );
-      setResultadoSolicitacao(processedRequest);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
+      await executeLocalProcessing(request.id);
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -111,16 +215,7 @@ export function useNovaSolicitacaoPage() {
     setIsProcessing(true);
     setErrorMessage(null);
     try {
-      const processedRequest = await solicitacoesApi.processar(
-        solicitacaoIdAtiva,
-        files.xmlFiles.length > 0 ? files.xmlFiles : undefined,
-        files.planilhaEntradaFile,
-        files.spedFile ?? undefined,
-        decisoes
-      );
-      setShowModalBonificacao(false);
-      setResultadoSolicitacao(processedRequest);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
+      await executeLocalProcessing(solicitacaoIdAtiva, decisoes);
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -137,9 +232,7 @@ export function useNovaSolicitacaoPage() {
     if (!resultadoSolicitacao) return;
     setDownloadError(null);
     try {
-      const companyName = selectedEmpresa?.razao_social.slice(0, 15).replace(/\s+/g, '_') || 'Empresa';
-      const filename = `Planilha_${tipo || 'todas'}_${companyName}_${periodoInicio.slice(0, 7)}.xlsx`;
-      await solicitacoesApi.downloadPlanilha(resultadoSolicitacao.id, filename, tipo);
+      await downloadLocalArtifacts(resultadoSolicitacao.id, tipo);
     } catch (error) {
       setDownloadError(getErrorMessage(error));
     }
@@ -151,6 +244,7 @@ export function useNovaSolicitacaoPage() {
     setSolicitacaoIdAtiva(null);
     setPendenciasBonificacao([]);
     setShowModalBonificacao(false);
+    setLocalArtifactTypes([]);
     files.resetFiles();
     setCurrentStep(1);
   };
@@ -169,6 +263,9 @@ export function useNovaSolicitacaoPage() {
     ...files,
     isProcessing,
     resultadoSolicitacao,
+    localArtifactTypes,
+    hasLocalArtifact: (tipo: TipoPlanilha) => localArtifactTypes.includes(tipo),
+    hasAnyLocalArtifact: localArtifactTypes.length > 0,
     pendenciasBonificacao,
     showModalBonificacao,
     confirmarBonificacoesEProcessar,

@@ -31,27 +31,49 @@ feature/* | fix/* | refactor/* | ci/* | ...
 
 A Vercel é o **único destino de deployment automatizado**. GitHub Actions valida a aplicação, cria uma imagem candidata GHCR, exige que o deployment Vercel Production e seu healthcheck terminem com sucesso e somente depois publica os aliases GHCR estáveis, a Git tag e a GitHub Release. CloudPanel, Docker Compose, Dockge e Portainer são alternativas exclusivamente manuais e não participam de nenhum workflow, gate ou Action.
 
-## Frontend Vercel + backend Docker
+## Vercel full-stack em projeto único
 
-A Vercel hospeda somente o frontend/PWA. O FastAPI permanece em Docker porque a aplicação suporta uploads maiores do que o limite de payload de funções serverless da Vercel.
-
-Domínios planejados:
+O projeto Vercel `planaut` publica frontend e FastAPI no mesmo deployment.
 
 ```text
-Frontend production:  https://planaut.codisplan.com.br
-Frontend development: https://planaut.dev.codisplan.com.br
-Backend production:   https://api.planaut.codisplan.com.br
-Backend development:  https://api.planaut.dev.codisplan.com.br
+Production:  https://planaut.codisplan.com.br
+Development: https://planaut.dev.codisplan.com.br
+
+/api/*        -> FastAPI
+/v1/*         -> FastAPI (alias legado)
+/docs         -> FastAPI
+/openapi.json -> FastAPI
+/*            -> React/Vite
 ```
 
-O frontend recebe `VITE_API_URL` por ambiente Vercel. Não exponha `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET` ou senhas no Vite.
+`VITE_API_URL` não é usado no deployment Vercel: o frontend chama `/api/v1` no mesmo domínio. Isso elimina DNS/CORS e um segundo projeto apenas para a API.
+
+Os secrets privados do backend (`DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`) nunca recebem prefixo `VITE_`.
+
+### Regra de privacidade do processamento fiscal
+
+Arquivos fiscais do usuário **não são enviados ao backend**. XML, ZIP, SPED e planilhas auxiliares devem ser lidos e processados no navegador, em memória local.
+
+O fluxo oficial não usa multipart/upload para processamento fiscal e não envia esses arquivos para FastAPI, Vercel Functions, Supabase Storage, banco de dados ou disco temporário do servidor.
+
+A API existe apenas para autenticação, cadastros, regras, metadados/histórico estruturado e recursos administrativos que não dependam do envio dos arquivos fiscais originais.
 
 ## Variáveis GitHub para Vercel
 
-Secret obrigatório por GitHub Environment:
+Secrets obrigatórios por GitHub Environment para o deployment full-stack:
 
 ```text
 VERCEL_TOKEN
+DATABASE_URL
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` não faz parte do processamento fiscal e não deve ser necessário para manipular arquivos do usuário. Se permanecer configurado para algum recurso administrativo legado, continua restrito ao backend e nunca é exposto ao navegador.
+
+Configuração pública do frontend:
+
+```text
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
 ```
 
 Variables usadas pelo workflow:
@@ -61,32 +83,16 @@ VERCEL_SCOPE=codisplan
 VERCEL_PROJECT_NAME=planaut
 VERCEL_PRODUCTION_DOMAIN=planaut.codisplan.com.br
 VERCEL_DEVELOPMENT_DOMAIN=planaut.dev.codisplan.com.br
-VITE_API_URL=...
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
+CORS_ORIGINS=https://planaut.codisplan.com.br,https://planaut.dev.codisplan.com.br
 ```
 
 O projeto Vercel é vinculado/criado pela própria CLI no primeiro run configurado; `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` e `VERCEL_DEPLOY_ENABLED` não são requisitos do fluxo atual.
 
 ## Variáveis no projeto Vercel
 
-Production:
+O workflow injeta as variáveis necessárias durante build/deploy. `VITE_API_URL` é forçada para vazio, ativando o fallback same-origin `/api/v1`.
 
-```env
-VITE_API_URL=https://api.planaut.codisplan.com.br
-VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
-```
-
-Preview com filtro para branch `develop`:
-
-```env
-VITE_API_URL=https://api.planaut.dev.codisplan.com.br
-VITE_SUPABASE_URL=https://YOUR_DEV_PROJECT.supabase.co
-VITE_SUPABASE_ANON_KEY=YOUR_DEV_ANON_PUBLIC_KEY
-```
-
-`vercel pull --environment=preview --git-branch=develop` baixa exatamente as variáveis específicas da branch antes do build de desenvolvimento. Production usa `vercel pull --environment=production`.
+O backend recebe em runtime `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e, quando configurado, `SUPABASE_JWT_SECRET`.
 
 ## Semantic versioning
 
@@ -218,10 +224,11 @@ Eles **não são executados, validados como gate, enviados por SSH nem acionados
 
 Para Vercel Preview/Production:
 
-1. configurar `VERCEL_TOKEN` nos GitHub Environments `development` e `production`;
-2. configurar `VITE_API_URL`, `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` por ambiente;
-3. configurar os domínios Vercel desejados;
-4. manter CloudPanel/Docker/Dockge/Portainer apenas para implantação manual quando necessário.
+1. configurar `VERCEL_TOKEN` e `DATABASE_URL` nos GitHub Environments;
+2. configurar `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` por ambiente;
+3. manter `planaut.codisplan.com.br` e `planaut.dev.codisplan.com.br` como aliases do projeto único `planaut`;
+4. não configurar `VITE_API_URL` no Vercel automatizado;
+5. manter CloudPanel/Docker/Dockge/Portainer apenas para implantação manual quando necessário.
 
 O arquivo `vercel.env.example` documenta os nomes exatos.
 

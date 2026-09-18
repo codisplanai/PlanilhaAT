@@ -1,10 +1,8 @@
 import { apiClient } from './client';
-import { createFiscalInputFormData } from './multipart';
 import type {
   Solicitacao,
   SolicitacaoCreate,
   NotaFiscalProcessada,
-  PreAnaliseSolicitacao,
 } from '../types/solicitacao';
 
 export const solicitacoesApi = {
@@ -20,38 +18,6 @@ export const solicitacoesApi = {
     const { data } = await apiClient.post<Solicitacao>('/solicitacoes', payload);
     return data;
   },
-  preAnalisar: async (
-    id: string,
-    files?: File[],
-    planilhaEntradas?: File | null,
-    spedFile?: File | null
-  ): Promise<PreAnaliseSolicitacao> => {
-    const formData = createFiscalInputFormData({
-      xmlFiles: files,
-      spedFile,
-      entrySheet: planilhaEntradas,
-    });
-    const { data } = await apiClient.post<PreAnaliseSolicitacao>(`/solicitacoes/${id}/pre-analisar`, formData, {
-      timeout: 120_000,
-    });
-    return data;
-  },
-  processar: async (
-    id: string,
-    files?: File[],
-    planilhaEntradas?: File | null,
-    spedFile?: File | null,
-    decisoesBonificacao?: Record<string, boolean>
-  ): Promise<Solicitacao> => {
-    const formData = createFiscalInputFormData(
-      { xmlFiles: files, spedFile, entrySheet: planilhaEntradas },
-      decisoesBonificacao,
-    );
-    const { data } = await apiClient.post<Solicitacao>(`/solicitacoes/${id}/processar`, formData, {
-      timeout: 300_000,
-    });
-    return data;
-  },
   atualizarDataEntrada: async (
     solicitacaoId: string,
     notaId: string,
@@ -63,31 +29,6 @@ export const solicitacoesApi = {
       { timeout: 120_000 }
     );
     return data;
-  },
-  downloadPlanilha: async (id: string, filename?: string, tipo?: string): Promise<void> => {
-    const response = await apiClient.get(`/solicitacoes/${id}/download`, {
-      responseType: 'blob',
-      params: tipo ? { tipo } : undefined,
-      timeout: 120_000,
-    });
-
-    const isZip = String(response.headers['content-type'] || '').includes('zip');
-    const extensao = isZip ? '.zip' : '.xlsx';
-    const disposition = String(response.headers['content-disposition'] || '');
-    const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-    const plainFilename = disposition.match(/filename="?([^";]+)"?/i)?.[1];
-    const serverFilename = encodedFilename ? decodeURIComponent(encodedFilename) : plainFilename;
-    const nomeBase = filename ? filename.replace(/\.(xlsx|zip)$/i, '') : `planilha_${id.slice(0, 8)}`;
-    const downloadName = serverFilename || `${nomeBase}${extensao}`;
-
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', downloadName);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
   },
   excluir: async (id: string): Promise<void> => {
     await apiClient.delete(`/solicitacoes/${id}`);

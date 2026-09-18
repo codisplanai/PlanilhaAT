@@ -87,6 +87,48 @@ jobs:
       - name: Check Python indentation
         run: python -m tabnanny app alembic tests
 
+      - name: Enforce zero-upload fiscal processing on release PRs
+        if: github.base_ref == 'main'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          violations=0
+
+          if [[ -e frontend/src/api/multipart.ts ]]; then
+            echo "::error::Release blocked: legacy fiscal multipart helper still exists."
+            violations=1
+          fi
+
+          if grep -RIn --include='*.ts' --include='*.tsx' \
+            -E 'createFiscalInputFormData|new FormData\(' \
+            frontend/src/api/solicitacoes.ts frontend/src/pages/NovaSolicitacao frontend/src/lib/localProcessing; then
+            echo "::error::Release blocked: fiscal processing still contains multipart/FormData upload code."
+            violations=1
+          fi
+
+          if grep -RIn --include='*.py' \
+            -E 'UploadFile|File\(|Form\(' app/api/endpoints/solicitacoes.py app/api/endpoints/processamento_local.py; then
+            echo "::error::Release blocked: fiscal API still exposes file/form upload contracts."
+            violations=1
+          fi
+
+          if grep -RIn --include='*.ts' --include='*.tsx' \
+            -E '/pre-analisar|/processar|/solicitacoes/.*/download' \
+            frontend/src/api/solicitacoes.ts frontend/src/pages/NovaSolicitacao; then
+            echo "::error::Release blocked: frontend still references legacy server-side fiscal processing."
+            violations=1
+          fi
+
+          if (( violations != 0 )); then
+            echo "Fiscal processing must be browser-local and zero-upload before develop can be released to main."
+            exit 1
+          fi
+
+      - name: Validate root Vercel fullstack config
+        run: |
+          python -c "import json; cfg=json.load(open('vercel.json', encoding='utf-8')); assert set(cfg['services']) == {'frontend','backend'}; assert cfg['services']['backend']['entrypoint'] == 'app.main:app'"
+          python -c "import tomllib; cfg=tomllib.load(open('pyproject.toml','rb')); assert cfg['tool']['vercel']['entrypoint'] == 'app.main:app'"
+
   frontend-static:
     name: Frontend lint and typecheck - no build
     if: github.event.pull_request.draft == false
