@@ -1,6 +1,7 @@
 import json
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -84,6 +85,26 @@ def listar_templates(
     if ativo is not None:
         query = query.filter(TemplateXlsx.ativo == ativo)
     return query.order_by(TemplateXlsx.tipo, TemplateXlsx.versao.desc()).all()
+
+@router.get("/{id}/arquivo")
+def baixar_template_para_processamento_local(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    template = get_by_id_or_404(db, TemplateXlsx, id, "Template não encontrado.")
+    try:
+        resolved_path = TemplateManager.resolve_template_path(template)
+    except PlanilhaATException as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+    return FileResponse(
+        path=resolved_path,
+        filename=f"template_{template.tipo}_v{template.versao}.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
 
 @router.get("/{id}", response_model=TemplateXlsxOut)
 def obter_template(
