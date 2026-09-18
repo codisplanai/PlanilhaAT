@@ -1,4 +1,5 @@
 import type { LocalFiscalInput } from '../../types/localProcessing';
+import type { NotaIgnorada } from '../../types/solicitacao';
 import type { EntrySheetRecord, ExtractedNote, ParsedFiscalSources } from './domain';
 import { parseNfeXml } from './xml';
 import { parseSped } from './sped';
@@ -124,7 +125,7 @@ export async function loadLocalFiscalSources(
   input: LocalFiscalInput,
   periodoInicio: string,
   periodoFim: string,
-): Promise<ParsedFiscalSources & { ignoredNotes: Array<Record<string, unknown>> }> {
+): Promise<ParsedFiscalSources & { ignoredNotes: NotaIgnorada[] }> {
   const entryRecords: EntrySheetRecord[] = input.entrySheet
     ? await parseEntrySheet(await input.entrySheet.arrayBuffer())
     : [];
@@ -151,7 +152,7 @@ export async function loadLocalFiscalSources(
   }
 
   const notes: ExtractedNote[] = [...spedNotes];
-  const ignoredNotes: Array<Record<string, unknown>> = [];
+  const ignoredNotes: NotaIgnorada[] = [];
   const spedByKey = new Map<string, ExtractedNote>();
   for (const note of spedNotes) {
     for (const key of crossingKeys(note)) spedByKey.set(key, note);
