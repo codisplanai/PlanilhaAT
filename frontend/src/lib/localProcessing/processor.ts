@@ -48,14 +48,14 @@ function cleanDigits(value: string): string {
 function validateCnpj(cnpj: string): boolean {
   const clean = cleanDigits(cnpj);
   if (clean.length !== 14 || new Set(clean).size === 1) return false;
-  const digit = (length: number, weights: number[]): number => {
+  const digit = (weights: number[]): number => {
     const sum = weights.reduce((total, weight, index) => total + Number(clean[index]) * weight, 0);
     const rest = sum % 11;
     return rest < 2 ? 0 : 11 - rest;
   };
-  const first = digit(12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const first = digit([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
   if (Number(clean[12]) !== first) return false;
-  const second = digit(13, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const second = digit([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
   return Number(clean[13]) === second;
 }
 
@@ -148,7 +148,7 @@ export async function processFiscalLocally(
     return {
       preAnalysis: { requer_decisao: true, notas_bonificacao: pending },
       notasProcessadas: [],
-      notasIgnoradas: sources.ignoredNotes as NotaIgnorada[],
+      notasIgnoradas: sources.ignoredNotes,
       itensExcluidos: [],
       avisosAvaliacao: [],
       cfopsSemRegra: {},
