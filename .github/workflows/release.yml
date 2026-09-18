@@ -431,13 +431,3 @@ jobs:
               --title "PlanAut $TAG" \
               --notes-file release-notes.md
           fi
-
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          gh workflow run vercel-deploy.yml \
-            --ref main \
-            -f target=production
-          echo "Vercel production workflow dispatched explicitly."
