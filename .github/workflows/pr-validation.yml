@@ -87,6 +87,33 @@ jobs:
       - name: Check Python indentation
         run: python -m tabnanny app alembic tests
 
+      - name: Enforce zero-upload fiscal processing on release PRs
+        if: github.base_ref == 'main'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          violations=0
+
+          if grep -RIn --include='*.ts' --include='*.tsx'             -E 'createFiscalInputFormData|new FormData\(' frontend/src; then
+            echo "::error::Release blocked: frontend still contains server-side fiscal file upload code."
+            violations=1
+          fi
+
+          if grep -RIn --include='*.py'             -E 'UploadFile|File\(' app/api/endpoints/solicitacoes.py; then
+            echo "::error::Release blocked: FastAPI still exposes fiscal file upload endpoints."
+            violations=1
+          fi
+
+          if grep -RIn --include='*.ts' --include='*.tsx'             -E '/pre-analisar|/processar' frontend/src/api frontend/src/pages; then
+            echo "::error::Release blocked: frontend still sends fiscal files to processing endpoints."
+            violations=1
+          fi
+
+          if (( violations != 0 )); then
+            echo "Fiscal processing must be browser-local and zero-upload before develop can be released to main."
+            exit 1
+          fi
+
       - name: Validate root Vercel fullstack config
         run: |
           python -c "import json; cfg=json.load(open('vercel.json', encoding='utf-8')); assert set(cfg['services']) == {'frontend','backend'}; assert cfg['services']['backend']['entrypoint'] == 'app.main:app'"
