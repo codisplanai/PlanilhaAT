@@ -87,6 +87,11 @@ jobs:
       - name: Check Python indentation
         run: python -m tabnanny app alembic tests
 
+      - name: Validate Vercel API configuration
+        run: |
+          python -c "import json; json.load(open('vercel.json', encoding='utf-8'))"
+          python -c "import tomllib; tomllib.load(open('pyproject.toml', 'rb'))"
+
   frontend-static:
     name: Frontend lint and typecheck - no build
     if: github.event.pull_request.draft == false
