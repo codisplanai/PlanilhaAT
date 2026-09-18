@@ -33,7 +33,8 @@ async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('Este navegador não oferece descompressão local necessária para ZIP/XLSX.');
   }
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const blobBytes = bytes.slice().buffer as ArrayBuffer;
+  const stream = new Blob([blobBytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
@@ -196,5 +197,5 @@ export function writeZip(entries: Map<string, Uint8Array>): ArrayBuffer {
   setU32(endView, 16, offset);
   setU16(endView, 20, 0);
 
-  return concat([...localParts, ...centralParts, end]).buffer;
+  return concat([...localParts, ...centralParts, end]).buffer as ArrayBuffer;
 }
