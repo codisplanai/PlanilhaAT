@@ -87,6 +87,49 @@ jobs:
       - name: Check Python indentation
         run: python -m tabnanny app alembic tests
 
+      - name: Validate Vercel Python dependency manifest
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import tomllib
+          from pathlib import Path
+
+          def package_name(spec: str) -> str:
+              return re.split(r"[<>=!~\[\s]", spec.strip(), maxsplit=1)[0].lower().replace("_", "-")
+
+          requirements = [
+              line.strip()
+              for line in Path("requirements.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip() and not line.lstrip().startswith("#")
+          ]
+          runtime_requirements = [
+              spec for spec in requirements
+              if package_name(spec) not in {"pytest", "pytest-asyncio"}
+          ]
+
+          with Path("pyproject.toml").open("rb") as handle:
+              project = tomllib.load(handle).get("project", {})
+
+          declared = {
+              package_name(spec)
+              for spec in project.get("dependencies", [])
+          }
+          required = {package_name(spec) for spec in runtime_requirements}
+          missing = sorted(required - declared)
+
+          if missing:
+              raise SystemExit(
+                  "pyproject.toml is missing Vercel runtime dependencies: "
+                  + ", ".join(missing)
+              )
+
+          if "fastapi" not in declared:
+              raise SystemExit("pyproject.toml must declare fastapi for the Vercel runtime.")
+
+          print("Vercel Python runtime dependency manifest is complete.")
+          PY
+
       - name: Enforce zero-upload fiscal processing on release PRs
         if: github.base_ref == 'main'
         shell: bash
