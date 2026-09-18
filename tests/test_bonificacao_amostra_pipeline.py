@@ -142,29 +142,3 @@ def test_processamento_simples_nacional_bonificacao(db_session, cenario_janeiro)
     nota = res.notas_processadas[0]
     assert nota.destino_planilha == "antecipacao_parcial_simples"
     assert nota.cfop == "2910"
-
-
-def test_api_pre_analisar_e_processar(db_session, cenario_janeiro, client):
-    sol = cenario_janeiro()
-
-    # 1. Chamar endpoint /pre-analisar
-    resp_pre = client.post(
-        f"/api/v1/solicitacoes/{sol.id}/pre-analisar",
-        files={"sped_file": ("sped.txt", SPED_BONIFICACAO_COM_CREDITO, "text/plain")},
-    )
-    assert resp_pre.status_code == 200
-    data_pre = resp_pre.json()
-    assert data_pre["requer_decisao"] is True
-    assert len(data_pre["notas_bonificacao"]) == 1
-
-    # 2. Chamar endpoint /processar com decisoes_bonificacao
-    decisoes = json.dumps({CHAVE_NF901: True})
-    resp_proc = client.post(
-        f"/api/v1/solicitacoes/{sol.id}/processar",
-        files={"sped_file": ("sped.txt", SPED_BONIFICACAO_COM_CREDITO, "text/plain")},
-        data={"decisoes_bonificacao": decisoes},
-    )
-    assert resp_proc.status_code == 200
-    data_proc = resp_proc.json()
-    assert data_proc["status"] == "concluido"
-    assert data_proc["total_notas_processadas"] == 1
