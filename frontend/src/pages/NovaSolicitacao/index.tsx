@@ -261,7 +261,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     className="hidden"
                   />
                   <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-105 shadow-2xs">
-                    <UploadCloud className="w-5 h-5" />
+                    <FileCode className="w-5 h-5" />
                   </div>
                   <p className="text-xs sm:text-sm font-semibold text-slate-800">
                     Arraste o arquivo SPED Fiscal (.txt) aqui, ou <span className="text-indigo-700 underline font-bold">clique para selecionar</span>
@@ -332,7 +332,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                   />
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                      <FileUp className="w-4 h-4" />
+                      <FileSpreadsheet className="w-4 h-4" />
                     </div>
                     <div>
                       <p className="text-xs font-bold text-emerald-950">
