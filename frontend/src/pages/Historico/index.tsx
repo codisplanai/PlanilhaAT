@@ -7,6 +7,7 @@ import {
   Check,
   AlertTriangle,
   Trash2,
+  X,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -54,6 +55,14 @@ export const HistoricoPage: React.FC = () => {
     setManualDateInput,
     solicitacaoParaExcluir,
     setSolicitacaoParaExcluir,
+    selectedIds,
+    toggleSelect,
+    toggleSelectAll,
+    clearSelection,
+    isBatchDeleteModalOpen,
+    setBatchDeleteModalOpen,
+    deleteBatchRequests,
+    isDeletingBatch,
     entryDateError,
     setEntryDateError,
     deleteError,
@@ -69,6 +78,22 @@ export const HistoricoPage: React.FC = () => {
     closeDetails,
     getEmpresa,
   } = useHistoricoPage();
+
+  const headerCheckboxRef = React.useRef<HTMLInputElement>(null);
+  const visibleIds = React.useMemo(() => solicitacoes.map((s) => s.id), [solicitacoes]);
+  const isAllSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const isSomeSelected = visibleIds.some((id) => selectedIds.has(id)) && !isAllSelected;
+
+  React.useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = isSomeSelected;
+    }
+  }, [isSomeSelected]);
+
+  const solicitacoesSelecionadas = React.useMemo(() => {
+    return solicitacoes.filter((s) => selectedIds.has(s.id));
+  }, [solicitacoes, selectedIds]);
+
 
   return (
     <div className="space-y-6">
@@ -154,6 +179,17 @@ export const HistoricoPage: React.FC = () => {
             <table className="w-full text-left text-xs divide-y divide-slate-100">
               <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
+                  <th className="py-3.5 px-4 w-10 text-center">
+                    <input
+                      ref={headerCheckboxRef}
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={() => toggleSelectAll(visibleIds)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-colors"
+                      title={isAllSelected ? 'Desmarcar todos' : 'Selecionar todos os visíveis'}
+                      aria-label="Selecionar todas as solicitações visíveis"
+                    />
+                  </th>
                   <th className="py-3.5 px-4">Empresa</th>
                   <th className="py-3.5 px-4">Competência / Período</th>
                   <th className="py-3.5 px-4">Tipo de Planilha</th>
@@ -166,8 +202,23 @@ export const HistoricoPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100/80">
                 {solicitacoes.map((sol) => {
                   const emp = getEmpresa(sol.empresa_id);
+                  const isSelected = selectedIds.has(sol.id);
                   return (
-                    <tr key={sol.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr
+                      key={sol.id}
+                      className={`transition-colors ${
+                        isSelected ? 'bg-blue-50/50 hover:bg-blue-50/80' : 'hover:bg-slate-50/70'
+                      }`}
+                    >
+                      <td className="py-3.5 px-4 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(sol.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-colors"
+                          aria-label={`Selecionar planilha de ${emp?.razao_social || sol.id}`}
+                        />
+                      </td>
                       <td className="py-3.5 px-4 font-semibold text-slate-900">
                         <div>{emp?.razao_social || `Empresa #${sol.empresa_id}`}</div>
                         {emp && (
@@ -237,6 +288,7 @@ export const HistoricoPage: React.FC = () => {
             </table>
           </div>
         </div>
+
       )}
 
       {/* Modal de Drill-down e Conferência de Notas */}
@@ -629,6 +681,121 @@ export const HistoricoPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* Modal de Confirmação de Exclusão em Lote */}
+      <Modal
+        isOpen={isBatchDeleteModalOpen}
+        onClose={() => {
+          if (!isDeletingBatch) setBatchDeleteModalOpen(false);
+        }}
+        title="Excluir Planilhas em Lote"
+        subtitle="Confirmação de exclusão permanente de histórico estruturado"
+        maxWidth="lg"
+      >
+        <div className="space-y-4 text-xs text-slate-600">
+          <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-4 text-rose-900 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-rose-950">Atenção: Ação Irreversível</p>
+              <p className="text-[11px] text-rose-800 leading-relaxed">
+                Você selecionou <strong className="font-bold text-rose-950">{selectedIds.size}</strong>{' '}
+                {selectedIds.size === 1 ? 'planilha' : 'planilhas'} para exclusão permanente. O histórico estruturado no servidor e os arquivos armazenados na sessão local do navegador serão apagados.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-semibold text-slate-700 mb-2">
+              Planilhas selecionadas ({solicitacoesSelecionadas.length}):
+            </h4>
+            <div className="max-h-56 overflow-y-auto border border-slate-200/90 rounded-xl divide-y divide-slate-100 bg-slate-50/60 p-1">
+              {solicitacoesSelecionadas.map((sol) => {
+                const emp = getEmpresa(sol.empresa_id);
+                return (
+                  <div key={sol.id} className="p-2.5 flex items-center justify-between text-xs gap-3 rounded-lg hover:bg-white transition-colors">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-800 truncate">
+                        {emp?.razao_social || `Empresa #${sol.empresa_id}`}
+                      </div>
+                      <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                        {emp?.cnpj && <span className="font-mono">{formatCNPJ(emp.cnpj)}</span>}
+                        <span>•</span>
+                        <span>{formatCompetencia(sol.periodo_inicio)}</span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200/80 text-slate-700">
+                        {getPlanilhaLabel(sol.tipo_planilha)}
+                      </span>
+                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {sol.total_notas_processadas} {sol.total_notas_processadas === 1 ? 'nota' : 'notas'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setBatchDeleteModalOpen(false)}
+              disabled={isDeletingBatch}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={deleteBatchRequests}
+              isLoading={isDeletingBatch}
+              leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+            >
+              Sim, Excluir {selectedIds.size} {selectedIds.size === 1 ? 'Planilha' : 'Planilhas'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Barra Flutuante de Ações em Lote */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-bottom-5 duration-200">
+          <div className="bg-slate-900/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700/60 flex items-center gap-4">
+            <div className="flex items-center gap-2 pr-3 border-r border-slate-700/80">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-xs font-bold text-white">
+                {selectedIds.size}
+              </span>
+              <span className="text-xs font-medium text-slate-200">
+                {selectedIds.size === 1 ? 'planilha selecionada' : 'planilhas selecionadas'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => setBatchDeleteModalOpen(true)}
+                leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+                className="shadow-sm"
+              >
+                Excluir Selecionadas
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={clearSelection}
+                className="text-slate-300 hover:text-white hover:bg-slate-800"
+                leftIcon={<X className="w-3.5 h-3.5" />}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

@@ -68,3 +68,96 @@ def test_excluir_solicitacao_remove_apenas_historico_estruturado(client, db_sess
 def test_excluir_solicitacao_inexistente(client):
     response = client.delete("/api/v1/solicitacoes/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
+
+
+def test_excluir_solicitacoes_em_lote_com_sucesso(client, db_session):
+    perfil = PerfilRegras(nome="Perfil exclusão lote")
+    db_session.add(perfil)
+    db_session.flush()
+    empresa = Empresa(
+        cnpj="99887766000100",
+        razao_social="Empresa Teste Lote",
+        uf="BA",
+        perfil_regras_id=perfil.id,
+    )
+    db_session.add(empresa)
+    db_session.commit()
+
+    sol1 = Solicitacao(
+        empresa_id=empresa.id,
+        periodo_inicio=datetime.date(2026, 8, 1),
+        periodo_fim=datetime.date(2026, 8, 31),
+        tipo_planilha="multi",
+        status="concluido",
+        total_notas_processadas=2,
+    )
+    sol2 = Solicitacao(
+        empresa_id=empresa.id,
+        periodo_inicio=datetime.date(2026, 9, 1),
+        periodo_fim=datetime.date(2026, 9, 30),
+        tipo_planilha="multi",
+        status="concluido",
+        total_notas_processadas=3,
+    )
+    db_session.add_all([sol1, sol2])
+    db_session.commit()
+
+    res = client.post("/api/v1/solicitacoes/batch-delete", json={"ids": [str(sol1.id), str(sol2.id)]})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["deleted_count"] == 2
+    assert str(sol1.id) in data["ids"]
+    assert str(sol2.id) in data["ids"]
+
+    assert db_session.get(Solicitacao, sol1.id) is None
+    assert db_session.get(Solicitacao, sol2.id) is None
+
+
+def test_excluir_solicitacoes_em_lote_inexistentes(client):
+    res = client.post("/api/v1/solicitacoes/batch-delete", json={"ids": ["00000000-0000-0000-0000-000000000001"]})
+    assert res.status_code == 200
+    assert res.json()["deleted_count"] == 0
+
+
+def test_excluir_solicitacoes_em_lote_operador_bloqueia_alheia(client, db_session):
+    perfil = PerfilRegras(nome="Perfil operador teste")
+    db_session.add(perfil)
+    db_session.flush()
+    empresa = Empresa(
+        cnpj="55443322000199",
+        razao_social="Empresa Operador Teste",
+        uf="BA",
+        perfil_regras_id=perfil.id,
+    )
+    db_session.add(empresa)
+    db_session.commit()
+
+    sol_alheia = Solicitacao(
+        empresa_id=empresa.id,
+        usuario_id="outro-usuario-id",
+        periodo_inicio=datetime.date(2026, 5, 1),
+        periodo_fim=datetime.date(2026, 5, 31),
+        tipo_planilha="multi",
+        status="concluido",
+    )
+    db_session.add(sol_alheia)
+    db_session.commit()
+
+    # Log in as operator
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "operador@contabilidade.com",
+        "password": "operador",
+    })
+    assert login_res.status_code == 200
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = client.post(
+        "/api/v1/solicitacoes/batch-delete",
+        json={"ids": [str(sol_alheia.id)]},
+        headers=headers,
+    )
+    assert res.status_code == 403
+    assert "Você não tem permissão" in res.json()["detail"]
+    assert db_session.get(Solicitacao, sol_alheia.id) is not None
+

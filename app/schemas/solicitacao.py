@@ -175,3 +175,13 @@ class NotaBonificacaoPendenciaOut(BaseModel):
 class PreAnaliseSolicitacaoOut(BaseModel):
     requer_decisao: bool
     notas_bonificacao: List[NotaBonificacaoPendenciaOut] = Field(default_factory=list)
+
+
+class SolicitacoesBatchDeleteRequest(BaseModel):
+    ids: List[str] = Field(..., min_items=1, description="Lista de IDs de solicitações a excluir")
+
+
+class SolicitacoesBatchDeleteResponse(BaseModel):
+    deleted_count: int
+    ids: List[str]
+

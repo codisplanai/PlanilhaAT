@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -8,6 +8,7 @@ import { solicitacoesApi } from '../../api/solicitacoes';
 import { useEmpresasQuery, useSolicitacoesQuery } from '../../hooks/useApiQueries';
 import {
   deleteLocalArtifacts,
+  deleteMultipleLocalArtifacts,
   downloadLocalArtifacts,
 } from '../../lib/localProcessing/artifactStore';
 import type { NotaFiscalProcessada, Solicitacao } from '../../types/solicitacao';
@@ -40,9 +41,19 @@ export function useHistoricoPage() {
   const [manualDateInput, setManualDateInput] = useState('');
   const [solicitacaoParaExcluir, setSolicitacaoParaExcluir] = useState<Solicitacao | null>(null);
 
+  // Seleção múltipla para exclusão em lote
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBatchDeleteModalOpen, setBatchDeleteModalOpen] = useState(false);
+
   const [entryDateError, setEntryDateError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // Limpa a seleção sempre que os filtros mudarem para evitar exclusão acidental de itens ocultos
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [empresaFilter, statusFilter]);
+
 
   const solicitacoesQuery = useSolicitacoesQuery(empresaFilter, statusFilter);
   const empresasQuery = useEmpresasQuery();
@@ -100,6 +111,51 @@ export function useHistoricoPage() {
     },
   });
 
+  const deleteBatchMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await solicitacoesApi.excluirEmLote(ids);
+      await deleteMultipleLocalArtifacts(ids).catch(() => undefined);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
+      if (selectedSolicitacaoId && selectedIds.has(selectedSolicitacaoId)) {
+        setSelectedSolicitacaoId(null);
+      }
+      setSelectedIds(new Set());
+      setBatchDeleteModalOpen(false);
+      setDeleteError(null);
+    },
+    onError: (error) => {
+      setDeleteError(getErrorMessage(error));
+    },
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (visibleIds: string[]) => {
+    setSelectedIds((prev) => {
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => prev.has(id));
+      if (allSelected) {
+        return new Set();
+      }
+      return new Set(visibleIds);
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
   const openEntryDateEditor = (note: NotaFiscalProcessada) => {
     setEditingNota(note);
     setManualDateInput(note.data_entrada ? note.data_entrada.split('T')[0] : '');
@@ -150,6 +206,14 @@ export function useHistoricoPage() {
     setManualDateInput,
     solicitacaoParaExcluir,
     setSolicitacaoParaExcluir,
+    selectedIds,
+    toggleSelect,
+    toggleSelectAll,
+    clearSelection,
+    isBatchDeleteModalOpen,
+    setBatchDeleteModalOpen,
+    deleteBatchRequests: () => deleteBatchMutation.mutate(Array.from(selectedIds)),
+    isDeletingBatch: deleteBatchMutation.isPending,
     entryDateError,
     setEntryDateError,
     deleteError,
@@ -166,3 +230,4 @@ export function useHistoricoPage() {
     getEmpresa: (id: number) => empresas.find((empresa) => empresa.id === id),
   };
 }
+

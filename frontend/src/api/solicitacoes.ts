@@ -3,6 +3,7 @@ import type {
   Solicitacao,
   SolicitacaoCreate,
   NotaFiscalProcessada,
+  SolicitacoesBatchDeleteResponse,
 } from '../types/solicitacao';
 
 export const solicitacoesApi = {
@@ -33,4 +34,9 @@ export const solicitacoesApi = {
   excluir: async (id: string): Promise<void> => {
     await apiClient.delete(`/solicitacoes/${id}`);
   },
+  excluirEmLote: async (ids: string[]): Promise<SolicitacoesBatchDeleteResponse> => {
+    const { data } = await apiClient.post<SolicitacoesBatchDeleteResponse>('/solicitacoes/batch-delete', { ids });
+    return data;
+  },
 };
+

@@ -125,6 +125,36 @@ export async function deleteLocalArtifacts(requestId: string): Promise<void> {
   });
 }
 
+export async function deleteMultipleLocalArtifacts(requestIds: string[]): Promise<void> {
+  if (!requestIds || requestIds.length === 0) return;
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const index = store.index('requestId');
+
+    for (const reqId of requestIds) {
+      const getReq = index.getAllKeys(IDBKeyRange.only(reqId));
+      getReq.onsuccess = () => {
+        const keys = getReq.result;
+        for (const key of keys) {
+          store.delete(key);
+        }
+      };
+    }
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error ?? new Error('Não foi possível remover as planilhas desta sessão.'));
+    };
+  });
+}
+
+
 function triggerDownload(bytes: ArrayBuffer, filename: string, mimeType: string): void {
   const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
   const anchor = document.createElement('a');

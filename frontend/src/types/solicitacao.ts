@@ -136,3 +136,13 @@ export interface PreAnaliseSolicitacao {
   requer_decisao: boolean;
   notas_bonificacao: NotaBonificacaoPendencia[];
 }
+
+export interface SolicitacoesBatchDeleteRequest {
+  ids: string[];
+}
+
+export interface SolicitacoesBatchDeleteResponse {
+  deleted_count: number;
+  ids: string[];
+}
+

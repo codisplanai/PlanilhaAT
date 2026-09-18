@@ -13,7 +13,14 @@ from app.models.profile import Profile
 from app.models.solicitacao import Solicitacao
 from app.models.template_xlsx import TemplateXlsx
 from app.schemas.nota_fiscal import NotaFiscalDataEntradaUpdate, NotaFiscalProcessadaOut
-from app.schemas.solicitacao import SolicitacaoCreate, SolicitacaoListOut, SolicitacaoOut
+from app.schemas.solicitacao import (
+    SolicitacaoCreate,
+    SolicitacaoListOut,
+    SolicitacaoOut,
+    SolicitacoesBatchDeleteRequest,
+    SolicitacoesBatchDeleteResponse,
+)
+
 from app.services.templates_admin.template_manager import TemplateManager
 
 router = APIRouter(prefix="/solicitacoes", tags=["Solicitações de Processamento"])
@@ -143,3 +150,34 @@ def excluir_solicitacao(
     db.delete(solicitacao)
     db.commit()
     return None
+
+
+@router.post("/batch-delete", response_model=SolicitacoesBatchDeleteResponse)
+def excluir_solicitacoes_em_lote(
+    payload: SolicitacoesBatchDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    """Exclui múltiplas solicitações de histórico estruturado em transação única.
+
+    Se o usuário não for administrador, apenas suas próprias solicitações podem ser excluídas.
+    Se qualquer ID solicitado não pertencer ao usuário, lança 403 Forbidden.
+    """
+    if not payload.ids:
+        return SolicitacoesBatchDeleteResponse(deleted_count=0, ids=[])
+
+    solicitacoes = db.query(Solicitacao).filter(Solicitacao.id.in_(payload.ids)).all()
+    if not solicitacoes:
+        return SolicitacoesBatchDeleteResponse(deleted_count=0, ids=[])
+
+    # Validar autorização para cada solicitação encontrada
+    for sol in solicitacoes:
+        _authorize_solicitacao(sol, current_user)
+
+    deleted_ids = [str(sol.id) for sol in solicitacoes]
+    for sol in solicitacoes:
+        db.delete(sol)
+    db.commit()
+
+    return SolicitacoesBatchDeleteResponse(deleted_count=len(deleted_ids), ids=deleted_ids)
+
