@@ -379,7 +379,7 @@ jobs:
 
           for path in / /api/health /openapi.json; do
             echo "Checking immutable deployment path: ${path}"
-            if ! vercel curl "${path}" --deployment "${DEPLOYMENT_URL}" --token="${VERCEL_TOKEN}" >/tmp/vercel-probe.out 2>/tmp/vercel-probe.err; then
+            if ! VERCEL_TOKEN="${VERCEL_TOKEN}" vercel curl "${path}" --deployment "${DEPLOYMENT_URL}" >/tmp/vercel-probe.out 2>/tmp/vercel-probe.err; then
               failed=1
               echo "::error::Immutable Vercel deployment failed at ${path}"
               cat /tmp/vercel-probe.err || true
