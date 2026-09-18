@@ -375,21 +375,28 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          failed=0
 
-          for path in / /api/health /openapi.json; do
-            echo "Checking immutable deployment path: ${path}"
-            if ! vercel curl "${path}" --deployment "${DEPLOYMENT_URL}" --token="${VERCEL_TOKEN}" >/tmp/vercel-probe.out 2>/tmp/vercel-probe.err; then
-              failed=1
-              echo "::error::Immutable Vercel deployment failed at ${path}"
-              cat /tmp/vercel-probe.err || true
-              head -c 4000 /tmp/vercel-probe.out || true
+          probe() {
+            local path="$1"
+            local body
+            body="$(mktemp)"
+            local code
+            code="$(curl --silent --show-error --location --retry 3 --retry-delay 2 \
+              --output "${body}" --write-out '%{http_code}' \
+              "${DEPLOYMENT_URL}${path}" || true)"
+
+            echo "${DEPLOYMENT_URL}${path} -> HTTP ${code}"
+            if [[ ! "${code}" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Immutable Vercel deployment failed at ${path} with HTTP ${code}"
+              head -c 4000 "${body}" || true
               echo
-              break
+              rm -f "${body}"
+              return 1
             fi
-          done
+            rm -f "${body}"
+          }
 
-          if (( failed != 0 )); then
+          if ! probe "/" || ! probe "/api/health" || ! probe "/openapi.json"; then
             echo "Recent production 5xx logs:"
             vercel logs --environment production --status-code 5xx --since 10m --json --token="${VERCEL_TOKEN}" 2>&1 | tail -n 120 || true
             exit 1
