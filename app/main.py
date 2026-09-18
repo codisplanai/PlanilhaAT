@@ -101,6 +101,7 @@ def runtime_config():
         "apiUrl": "",
         "supabaseUrl": settings.SUPABASE_URL or "",
         "supabaseAnonKey": settings.SUPABASE_KEY or "",
+        "appVersion": os.getenv("APP_VERSION", "development"),
     }
     body = f"window.__PLANAUT_CONFIG__ = {json.dumps(payload, separators=(',', ':'))};"
     return Response(

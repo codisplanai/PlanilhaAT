@@ -26,20 +26,20 @@ from app.services.rules_engine.mva_resolver import MvaResolver
 router = APIRouter(prefix="/processamento-local", tags=["Processamento Fiscal Local"])
 
 _FORBIDDEN_RAW_KEYS = {
-    "arquivo",
     "arquivo_bytes",
     "arquivo_conteudo",
     "base64",
     "bytes",
     "content",
     "conteudo",
-    "file",
     "file_content",
     "raw_file",
     "sped",
     "xml",
     "xml_content",
 }
+
+_FILE_METADATA_KEYS = {"arquivo", "file"}
 
 
 def _serialize_decimal(value: Any) -> Any:
@@ -52,10 +52,22 @@ def _reject_raw_file_payload(value: Any, path: str = "payload") -> None:
     if isinstance(value, dict):
         for key, nested in value.items():
             normalized = str(key).strip().lower()
+            if normalized in _FILE_METADATA_KEYS:
+                if not isinstance(nested, str) or not nested.strip() or len(nested) > 512:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Metadado de arquivo inválido em {path}.{key}.",
+                    )
+                if any(marker in nested for marker in ("<NFe", "<nfeProc", "|0000|", "\x00", "\r", "\n")):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Conteúdo bruto de arquivo não permitido em {path}.{key}.",
+                    )
+                continue
             if normalized in _FORBIDDEN_RAW_KEYS:
                 raise HTTPException(
                     status_code=422,
-                    detail=f"Campo bruto de arquivo não permitido em {path}.{key}. O processamento fiscal deve permanecer no navegador.",
+                    detail=f"Conteúdo bruto de arquivo não permitido em {path}.{key}.",
                 )
             _reject_raw_file_payload(nested, f"{path}.{key}")
     elif isinstance(value, list):

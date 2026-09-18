@@ -2,6 +2,7 @@ export type RuntimeConfig = {
   apiUrl?: string;
   supabaseUrl?: string;
   supabaseAnonKey?: string;
+  appVersion?: string;
 };
 
 declare global {

@@ -77,7 +77,7 @@ export async function saveLocalArtifacts(
     };
     tx.onerror = () => {
       db.close();
-      reject(tx.error ?? new Error('Não foi possível salvar as planilhas no navegador.'));
+      reject(tx.error ?? new Error('Não foi possível disponibilizar as planilhas nesta sessão.'));
     };
     tx.onabort = () => {
       db.close();
@@ -120,7 +120,7 @@ export async function deleteLocalArtifacts(requestId: string): Promise<void> {
     };
     tx.onerror = () => {
       db.close();
-      reject(tx.error ?? new Error('Não foi possível remover as planilhas locais.'));
+      reject(tx.error ?? new Error('Não foi possível remover as planilhas desta sessão.'));
     };
   });
 }
@@ -144,7 +144,7 @@ export async function downloadLocalArtifacts(
   const selected = tipo ? artifacts.filter((artifact) => artifact.tipo === tipo) : artifacts;
   if (selected.length === 0) {
     throw new Error(
-      'A planilha não está armazenada neste navegador. Por privacidade, arquivos gerados não são mantidos no servidor.',
+      'A planilha não está mais disponível nesta sessão. Gere-a novamente para fazer o download.',
     );
   }
 

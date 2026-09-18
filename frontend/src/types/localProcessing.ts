@@ -13,6 +13,7 @@ import type { RegraCfop } from './regraCfop';
 import type { RegraExclusaoParcial } from './regraExclusaoParcial';
 import type { RegraReclassificacaoCfop } from './regraReclassificacaoCfop';
 import type { RegraReducao } from './regraReducao';
+import type { DiagnosticRecorder } from '../lib/processingDiagnostics';
 
 export interface LocalTemplateDescriptor {
   id: number;
@@ -86,6 +87,7 @@ export interface LocalProcessingRequest {
   context: LocalProcessingContext;
   input: LocalFiscalInput;
   bonusDecisions?: Record<string, boolean>;
+  diagnostic?: DiagnosticRecorder;
 }
 
 export interface LocalOutputRow {

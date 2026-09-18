@@ -45,7 +45,7 @@ export function getErrorMessage(error: unknown): string {
         if (typeof detail === 'string') return detail;
         if (Array.isArray(detail)) return detail.map(getValidationDetailMessage).join(' | ');
       }
-      return 'O conjunto de arquivos enviados excede o tamanho máximo permitido pelo servidor.';
+      return 'O conjunto de arquivos excede o tamanho máximo permitido.';
     }
     if (error.response?.data?.detail) {
       const detail = error.response.data.detail;

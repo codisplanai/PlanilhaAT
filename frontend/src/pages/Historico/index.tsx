@@ -75,7 +75,7 @@ export const HistoricoPage: React.FC = () => {
       <PageHeader
         icon={<History className="w-5 h-5 text-blue-700" />}
         title="Histórico de Solicitações e Planilhas Geradas"
-        description="Consulte o histórico estruturado e baixe as planilhas geradas que ainda estejam armazenadas neste navegador"
+        description="Consulte o histórico estruturado e baixe as planilhas ainda disponíveis nesta sessão"
       />
       {empresasError && <ErrorAlert message={getErrorMessage(empresasError)} />}
       {downloadError && (
@@ -487,7 +487,7 @@ export const HistoricoPage: React.FC = () => {
                     onClick={() => handleDownload(solicitacaoDetalhada)}
                     leftIcon={<Download className="w-3.5 h-3.5 text-blue-700" />}
                   >
-                    Baixar planilhas locais
+                    Baixar planilhas
                   </Button>
                 )}
                 <Button
@@ -539,7 +539,7 @@ export const HistoricoPage: React.FC = () => {
           </div>
 
           <div className="bg-amber-50/90 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-900 leading-relaxed">
-            <strong>Atenção:</strong> Ao alterar a data de entrada, qualquer planilha local já gerada para esta solicitação será invalidada. Para gerar uma nova planilha será necessário selecionar novamente os arquivos fiscais originais, que não são armazenados no servidor.
+            <strong>Atenção:</strong> Ao alterar a data de entrada, qualquer planilha já gerada para esta solicitação será invalidada. Para gerar uma nova planilha será necessário selecionar novamente os arquivos fiscais originais.
           </div>
 
           <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
@@ -568,7 +568,7 @@ export const HistoricoPage: React.FC = () => {
         isOpen={!!solicitacaoParaExcluir}
         onClose={() => setSolicitacaoParaExcluir(null)}
         title="Excluir Histórico de Planilha"
-        subtitle="Esta ação removerá o histórico estruturado e também as planilhas locais deste navegador."
+        subtitle="Esta ação removerá o histórico estruturado e as planilhas disponíveis nesta sessão."
         maxWidth="md"
       >
         {solicitacaoParaExcluir && (
