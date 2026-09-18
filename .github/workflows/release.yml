@@ -1,4 +1,4 @@
-name: Main - Candidate, Production Deploy and Semantic Release
+name: Main - Build Artifacts and Semantic Release
 
 on:
   pull_request:
@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   version:
-    name: Resolve release candidate version
+    name: Resolve semantic version
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
@@ -50,7 +50,6 @@ jobs:
       major: ${{ steps.semver.outputs.major }}
       minor: ${{ steps.semver.outputs.minor }}
       patch: ${{ steps.semver.outputs.patch }}
-      bump: ${{ steps.semver.outputs.bump }}
       target_sha: ${{ steps.semver.outputs.target_sha }}
       candidate_tag: ${{ steps.semver.outputs.candidate_tag }}
     steps:
@@ -60,7 +59,7 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
 
-      - name: Calculate candidate version
+      - name: Calculate semantic version
         id: semver
         shell: bash
         env:
@@ -85,7 +84,6 @@ jobs:
 
           if [[ -z "$LATEST_TAG" ]]; then
             VERSION="1.0.0"
-            BUMP="initial"
           else
             CURRENT="${LATEST_TAG#v}"
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
@@ -107,15 +105,11 @@ jobs:
           echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
           echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
           echo "patch=$PATCH" >> "$GITHUB_OUTPUT"
-          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_tag=$CANDIDATE_TAG" >> "$GITHUB_OUTPUT"
 
-          echo "Candidate only: $CANDIDATE_TAG"
-          echo "No stable GHCR tag or GitHub Release is created before a healthy production deployment."
-
   tests:
-    name: Full release candidate validation
+    name: Full release validation
     needs: version
     runs-on: ubuntu-latest
     permissions:
@@ -176,73 +170,9 @@ jobs:
           node --check frontend/public/runtime-config.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
 
-  runtime-preflight:
-    name: Detect configured production runtime
-    needs: [version, tests]
-    runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: read
-    outputs:
-      configured: ${{ steps.check.outputs.configured }}
-    steps:
-      - name: Check production target without creating a release
-        id: check
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          missing=()
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS DEPLOY_HEALTH_URL; do
-            if [[ -z "${!name:-}" ]]; then
-              missing+=("$name")
-            fi
-          done
-
-          if (( ${#missing[@]} > 0 )); then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            {
-              echo "### Production runtime not provisioned"
-              echo
-              echo "No release image, stable alias, Git tag, or GitHub Release will be created."
-              echo "Missing GitHub Environment values: \`${missing[*]}\`."
-              echo
-              echo "The next run can bootstrap the first release after the runtime is configured."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          echo "configured=true" >> "$GITHUB_OUTPUT"
-
-  not-ready:
-    name: Production release pending infrastructure bootstrap
-    needs: [version, tests, runtime-preflight]
-    if: needs.runtime-preflight.outputs.configured != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Keep repository in unreleased state
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        shell: bash
-        run: |
-          echo "::warning::Production is not provisioned. v$VERSION remains a candidate only; no release was published."
-          {
-            echo "### Release not published"
-            echo
-            echo "Target version: \`v$VERSION\`"
-            echo
-            echo "Status: **waiting for production runtime bootstrap**"
-          } >> "$GITHUB_STEP_SUMMARY"
-
   candidate:
-    name: Build production release candidate
-    needs: [version, tests, runtime-preflight]
-    if: needs.runtime-preflight.outputs.configured == 'true'
+    name: Build production container artifact
+    needs: [version, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -281,7 +211,7 @@ jobs:
           echo "node_base=${REGISTRY}/${OWNER}/planilhaat-base-node:22-alpine" >> "$GITHUB_OUTPUT"
           echo "python_base=${REGISTRY}/${OWNER}/planilhaat-base-python:3.12-slim" >> "$GITHUB_OUTPUT"
 
-      - name: Candidate metadata only
+      - name: Candidate metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -289,11 +219,11 @@ jobs:
           tags: |
             type=raw,value=${{ needs.version.outputs.candidate_tag }}
           labels: |
-            org.opencontainers.image.version=${{ needs.version.outputs.version }}-rc.${{ github.run_number }}.${{ github.run_attempt }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.version.outputs.target_sha }}
 
-      - name: Build and push candidate image
+      - name: Build and push container artifact
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -302,40 +232,32 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            APP_VERSION=${{ needs.version.outputs.version }}-rc.${{ github.run_number }}.${{ github.run_attempt }}
+            APP_VERSION=${{ needs.version.outputs.version }}
             NODE_BASE_IMAGE=${{ steps.image.outputs.node_base }}
             PYTHON_BASE_IMAGE=${{ steps.image.outputs.python_base }}
           provenance: false
           sbom: false
 
-      - name: Select candidate deployment reference
+      - name: Select immutable candidate reference
         id: output
         shell: bash
         run: echo "deploy_ref=${{ steps.image.outputs.name }}:${{ needs.version.outputs.candidate_tag }}" >> "$GITHUB_OUTPUT"
 
-      - name: Attest candidate provenance in GitHub
+      - name: Attest provenance in GitHub
         uses: actions/attest-build-provenance@v3
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: false
 
-      - name: Remove untagged and legacy hash-only versions
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          REPO="${GITHUB_REPOSITORY#*/}"
-          bash deploy/cleanup-ghcr.sh "${REPO,,}"
-
   public-candidate:
-    name: Verify release candidate image is public
-    needs: [version, candidate]
+    name: Verify container artifact is public
+    needs: candidate
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Anonymous candidate pull
+      - name: Anonymous pull
         env:
           IMAGE: ${{ needs.candidate.outputs.deploy_ref }}
         shell: bash
@@ -344,87 +266,9 @@ jobs:
           docker logout ghcr.io >/dev/null 2>&1 || true
           docker pull "$IMAGE"
 
-  deploy:
-    name: Deploy candidate to production
-    needs: [version, candidate, public-candidate]
-    runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout production deployment files
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.version.outputs.target_sha }}
-          sparse-checkout: |
-            deploy/cloudpanel
-            deploy/deploy.sh
-          sparse-checkout-cone-mode: false
-
-      - name: Configure SSH
-        env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
-      - name: Upload production manifests
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          PORT="${DEPLOY_PORT:-22}"
-          TARGET="${DEPLOY_PATH:-/opt/planaut-production}"
-          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$TARGET/deploy'"
-          scp -P "$PORT" deploy/cloudpanel/compose.yaml "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/compose.yaml"
-          scp -P "$PORT" deploy/cloudpanel/.env.example "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/.env.example"
-          scp -P "$PORT" deploy/deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$TARGET/deploy/deploy.sh"
-
-      - name: Deploy exact candidate image
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-          IMAGE: ${{ needs.candidate.outputs.deploy_ref }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          PORT="${DEPLOY_PORT:-22}"
-          TARGET="${DEPLOY_PATH:-/opt/planaut-production}"
-          ssh -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "chmod +x '$TARGET/deploy/deploy.sh' && APP_DIR='$TARGET' '$TARGET/deploy/deploy.sh' '$IMAGE'"
-
-      - name: Require public production health before release
-        env:
-          HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          for attempt in {1..36}; do
-            if curl --fail --silent --show-error --max-time 10 "$HEALTH_URL" >/dev/null; then
-              echo "Production application is publicly healthy at $HEALTH_URL"
-              exit 0
-            fi
-            echo "Public production healthcheck not ready ($attempt/36)"
-            sleep 5
-          done
-          echo "::error::Production application did not become publicly healthy: $HEALTH_URL"
-          exit 1
-
   promote:
-    name: Promote deployed candidate to stable GHCR tags
-    needs: [version, candidate, deploy]
+    name: Publish stable GHCR tags
+    needs: [version, candidate, public-candidate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -439,7 +283,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Promote the deployed image without rebuilding
+      - name: Promote artifact without rebuilding
         id: refs
         env:
           CANDIDATE: ${{ needs.candidate.outputs.deploy_ref }}
@@ -452,24 +296,16 @@ jobs:
           set -Eeuo pipefail
           docker pull "$CANDIDATE"
 
-          tags=(
-            "production"
-            "latest"
-            "$VERSION"
-            "${MAJOR}.${MINOR}"
-            "$MAJOR"
-          )
-
+          tags=("production" "latest" "$VERSION" "${MAJOR}.${MINOR}" "$MAJOR")
           for tag in "${tags[@]}"; do
             target="${APP_IMAGE}:${tag}"
-            echo "Promoting $CANDIDATE -> $target"
             docker tag "$CANDIDATE" "$target"
             docker push "$target"
           done
 
           echo "release_ref=${APP_IMAGE}:${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify all stable aliases by anonymous pull
+      - name: Verify stable aliases by anonymous pull
         env:
           APP_IMAGE: ${{ needs.candidate.outputs.image_name }}
           VERSION: ${{ needs.version.outputs.version }}
@@ -479,18 +315,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           docker logout ghcr.io >/dev/null 2>&1 || true
-
           tags=("production" "latest" "$VERSION" "${MAJOR}.${MINOR}" "$MAJOR")
           for tag in "${tags[@]}"; do
-            image="${APP_IMAGE}:${tag}"
-            docker image rm "$image" >/dev/null 2>&1 || true
-            echo "Anonymous pull check: $image"
-            docker pull "$image"
+            docker pull "${APP_IMAGE}:${tag}"
           done
 
   release:
-    name: Create first-class Git tag and GitHub Release
-    needs: [version, candidate, deploy, promote]
+    name: Create Git tag and GitHub Release
+    needs: [version, candidate, promote]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -501,7 +333,7 @@ jobs:
           ref: ${{ needs.version.outputs.target_sha }}
           fetch-depth: 0
 
-      - name: Create idempotent semantic tag and GitHub Release
+      - name: Create semantic tag and GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
@@ -531,20 +363,18 @@ jobs:
           cat > release-notes.md <<NOTES
           ## PlanAut $VERSION
 
-          This release was created only after the production container passed its public health check.
+          Automated production deployment target: Vercel.
 
-          - Production channel: \`$APP_IMAGE:production\`
-          - Latest channel: \`$APP_IMAGE:latest\`
-          - Exact release image: \`$RELEASE_REF\`
-          - Build digest (audit): \`$APP_DIGEST\`
-          - Production deployment: healthy before release publication.
+          Manual deployment artifacts are also published for optional use outside CI/CD:
+          - Container image: `$RELEASE_REF`
+          - Build digest: `$APP_DIGEST`
+          - CloudPanel, Docker Compose, Dockge and Portainer manifests remain repository artifacts only.
+
+          The Vercel production workflow is triggered by publication of this GitHub Release.
           NOTES
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "GitHub Release $TAG already exists; keeping it."
           else
-            gh release create "$TAG" \
-              --target "$TARGET_SHA" \
-              --title "PlanAut $TAG" \
-              --notes-file release-notes.md
+            gh release create "$TAG"               --target "$TARGET_SHA"               --title "PlanAut $TAG"               --notes-file release-notes.md
           fi
