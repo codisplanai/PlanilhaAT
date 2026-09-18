@@ -8,9 +8,6 @@ on:
       - "frontend/**"
       - ".github/workflows/vercel-deploy.yml"
       - "vercel.env.example"
-  release:
-    types:
-      - published
   workflow_dispatch:
     inputs:
       target:
@@ -151,9 +148,7 @@ jobs:
 
   production:
     name: Bootstrap/deploy released frontend to Vercel
-    if: >-
-      github.event_name == 'release' ||
-      (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'production'
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -190,7 +185,7 @@ jobs:
             {
               echo "### Vercel production not provisioned"
               echo
-              echo "The Docker/GHCR release remains valid, but the optional Vercel frontend mirror was not deployed."
+              echo "The production release exists, but the required automated Vercel deployment was not created."
               echo "Missing values: \`${missing[*]}\`."
               echo
               echo "A pre-existing VERCEL_PROJECT_ID is no longer required."
@@ -205,17 +200,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_TAG: ${{ github.event.release.tag_name }}
         shell: bash
         run: |
           set -Eeuo pipefail
           git fetch --tags --force
 
-          if [[ "$EVENT_NAME" == "release" ]]; then
-            TAG="$EVENT_TAG"
-          else
-            TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')"
-          fi
+          TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')"
 
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::No published semantic GitHub Release is available for Vercel production."
