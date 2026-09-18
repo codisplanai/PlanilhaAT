@@ -75,7 +75,7 @@ export function useFiscalInputFiles() {
     const file = event.dataTransfer.files[0];
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.txt')) {
-      setFileError('Envie um arquivo com extensão .txt para o SPED Fiscal.');
+      setFileError('Selecione um arquivo com extensão .txt para o SPED Fiscal.');
       return;
     }
     if (file.size === 0 || file.size > MAX_FILE_BYTES) {
@@ -91,8 +91,8 @@ export function useFiscalInputFiles() {
     if (!file) return;
 
     const filename = file.name.toLowerCase();
-    if (!filename.endsWith('.xls') && !filename.endsWith('.xlsx')) {
-      setFileError('Selecione uma planilha no formato .xls ou .xlsx.');
+    if (!filename.endsWith('.xlsx')) {
+      setFileError('Selecione uma planilha no formato .xlsx. O formato .xls legado deve ser convertido antes do processamento local.');
       event.target.value = '';
       return;
     }
