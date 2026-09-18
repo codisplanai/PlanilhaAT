@@ -169,7 +169,7 @@ jobs:
 
       - name: Validate root Vercel fullstack config
         run: |
-          python -c "import json; cfg=json.load(open('vercel.json', encoding='utf-8')); assert set(cfg['services']) == {'frontend','backend'}; assert cfg['services']['backend']['entrypoint'] == 'app.main:app'"
+          python -c "import json; cfg=json.load(open('vercel.json', encoding='utf-8')); assert set(cfg['services']) == {'frontend','backend'}; assert cfg['services']['backend']['entrypoint'] == 'app.main:app'; assert cfg['services']['frontend']['rewrites'] == [{'source': '/(.*)', 'destination': '/index.html'}]"
           python -c "import tomllib; cfg=tomllib.load(open('pyproject.toml','rb')); assert cfg['tool']['vercel']['entrypoint'] == 'app.main:app'"
 
   frontend-static:
