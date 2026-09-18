@@ -1,4 +1,4 @@
-name: Vercel - Frontend Bootstrap and Release
+name: Vercel - Fullstack Bootstrap and Release
 
 on:
   push:
@@ -6,6 +6,12 @@ on:
       - develop
     paths:
       - "frontend/**"
+      - "app/**"
+      - "alembic/**"
+      - "storage/**"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "vercel.json"
       - ".github/workflows/vercel-deploy.yml"
       - "vercel.env.example"
   workflow_dispatch:
@@ -37,7 +43,7 @@ env:
 
 jobs:
   develop:
-    name: Bootstrap/deploy develop frontend to Vercel
+    name: Deploy develop fullstack to Vercel
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development')
@@ -49,9 +55,14 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       DEVELOPMENT_DOMAIN: ${{ vars.VERCEL_DEVELOPMENT_DOMAIN || 'planaut.dev.codisplan.com.br' }}
-      VITE_API_URL: ${{ secrets.VITE_API_URL || vars.VITE_API_URL }}
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL || secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://planaut.dev.codisplan.com.br,https://planaut.codisplan.com.br' }}
 
     steps:
       - name: Checkout develop
@@ -60,13 +71,13 @@ jobs:
           ref: develop
           fetch-depth: 0
 
-      - name: Detect Vercel bootstrap readiness
+      - name: Detect Vercel fullstack readiness
         id: preflight
         shell: bash
         run: |
           set -Eeuo pipefail
           missing=()
-          for name in VERCEL_TOKEN VITE_API_URL VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+          for name in VERCEL_TOKEN VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY DATABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
             fi
@@ -75,12 +86,10 @@ jobs:
           if (( ${#missing[@]} > 0 )); then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### Vercel development not provisioned"
+              echo "### Vercel development fullstack not provisioned"
               echo
-              echo "No unusable frontend deployment was created."
+              echo "No partial deployment was created."
               echo "Missing values: \`${missing[*]}\`."
-              echo
-              echo "A pre-existing VERCEL_PROJECT_ID is no longer required; the workflow bootstraps the project on the first configured run."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -100,21 +109,15 @@ jobs:
 
       - name: Link or create Vercel project
         if: steps.preflight.outputs.configured == 'true'
-        working-directory: frontend
         shell: bash
         run: |
           set -Eeuo pipefail
-          vercel link --yes \
-            --project="$VERCEL_PROJECT_NAME" \
-            --scope="$VERCEL_SCOPE" \
-            --token="$VERCEL_TOKEN"
-          vercel project inspect --non-interactive \
-            --scope="$VERCEL_SCOPE" \
-            --token="$VERCEL_TOKEN" >/dev/null
+          vercel link --yes             --project="$VERCEL_PROJECT_NAME"             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN"
+          vercel project inspect --non-interactive             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
 
       - name: Pull Vercel development project settings
         if: steps.preflight.outputs.configured == 'true'
-        run: vercel pull --yes --environment=preview --git-branch=develop --cwd=frontend --token="$VERCEL_TOKEN"
+        run: vercel pull --yes --environment=preview --git-branch=develop --token="$VERCEL_TOKEN"
 
       - name: Resolve develop version
         if: steps.preflight.outputs.configured == 'true'
@@ -131,35 +134,36 @@ jobs:
           APP_VERSION="${STABLE_VERSION}-develop.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Build Vercel develop artifact
+      - name: Build Vercel develop fullstack artifact
         if: steps.preflight.outputs.configured == 'true'
         env:
           VITE_APP_VERSION: ${{ steps.version.outputs.app_version }}
-          VITE_DEPLOYMENT_CHANNEL: development
-        run: vercel build --cwd=frontend --token="$VERCEL_TOKEN"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          vercel build --token="$VERCEL_TOKEN"             --build-env "VITE_API_URL="             --build-env "VITE_SUPABASE_URL=$VITE_SUPABASE_URL"             --build-env "VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY"             --build-env "VITE_APP_VERSION=$VITE_APP_VERSION"             --build-env "VITE_DEPLOYMENT_CHANNEL=development"
 
-      - name: Deploy Vercel develop artifact
+      - name: Deploy Vercel develop fullstack artifact
         if: steps.preflight.outputs.configured == 'true'
         id: deploy
         shell: bash
         run: |
           set -Eeuo pipefail
-          DEPLOYMENT_URL="$(vercel deploy --prebuilt --cwd=frontend --token="$VERCEL_TOKEN")"
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --token="$VERCEL_TOKEN"             --env APP_ENV=development             --env DEBUG=false             --env ENABLE_LOCAL_AUTH=false             --env AUTO_CREATE_SCHEMA=false             --env SEED_DEFAULTS=false             --env DATABASE_URL="$DATABASE_URL"             --env SUPABASE_URL="$SUPABASE_URL"             --env SUPABASE_KEY="$SUPABASE_KEY"             --env SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"             --env SUPABASE_JWT_SECRET="$SUPABASE_JWT_SECRET"             --env CORS_ORIGINS="$CORS_ORIGINS"             --env STORAGE_DIR=/tmp/planaut             --env TEMPLATES_DIR=/tmp/planaut/templates             --env OUTPUTS_DIR=/tmp/planaut/outputs             --env UPLOADS_DIR=/tmp/planaut/uploads)"
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-          vercel alias set "$DEPLOYMENT_URL" "$DEVELOPMENT_DOMAIN" \
-            --cwd=frontend --token="$VERCEL_TOKEN"
+          vercel alias set "$DEPLOYMENT_URL" "$DEVELOPMENT_DOMAIN" --token="$VERCEL_TOKEN"
 
-      - name: Verify development frontend
+      - name: Verify development fullstack
         if: steps.preflight.outputs.configured == 'true'
         shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error --location --retry 8 --retry-delay 3 \
-            "https://${DEVELOPMENT_DOMAIN}/" >/dev/null
-          echo "Vercel development healthy: https://${DEVELOPMENT_DOMAIN}"
+          curl --fail --silent --show-error --location --retry 8 --retry-delay 3             "https://${DEVELOPMENT_DOMAIN}/" >/dev/null
+          curl --fail --silent --show-error --location --retry 8 --retry-delay 3             "https://${DEVELOPMENT_DOMAIN}/api/health" >/dev/null
+          echo "Vercel development fullstack healthy: https://${DEVELOPMENT_DOMAIN}"
 
   production:
-    name: Bootstrap/deploy released frontend to Vercel
+    name: Deploy released fullstack to Vercel
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'production'
     runs-on: ubuntu-latest
     environment: production
@@ -169,9 +173,14 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       PRODUCTION_DOMAIN: ${{ vars.VERCEL_PRODUCTION_DOMAIN || 'planaut.codisplan.com.br' }}
-      VITE_API_URL: ${{ secrets.VITE_API_URL || vars.VITE_API_URL }}
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL || secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://planaut.codisplan.com.br,https://planaut.dev.codisplan.com.br' }}
 
     steps:
       - name: Checkout main
@@ -180,35 +189,30 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Detect Vercel bootstrap readiness
+      - name: Detect Vercel production fullstack readiness
         id: preflight
         shell: bash
         run: |
           set -Eeuo pipefail
           missing=()
-          for name in VERCEL_TOKEN VITE_API_URL VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+          for name in VERCEL_TOKEN VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY DATABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
             fi
           done
 
           if (( ${#missing[@]} > 0 )); then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### Vercel production not provisioned"
+              echo "### Vercel production fullstack configuration incomplete"
               echo
-              echo "The required automated Vercel production deployment cannot run."
               echo "Missing values: \`${missing[*]}\`."
-              echo
-              echo "A pre-existing VERCEL_PROJECT_ID is no longer required."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::Vercel production configuration is incomplete."
+            echo "::error::Missing production values: ${missing[*]}"
             exit 1
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
       - name: Resolve production source
-        if: steps.preflight.outputs.configured == 'true'
         id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -235,7 +239,7 @@ jobs:
           else
             TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')"
             if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::No published semantic GitHub Release is available for manual Vercel production deployment."
+              echo "::error::No published semantic GitHub Release is available."
               exit 1
             fi
 
@@ -245,7 +249,6 @@ jobs:
           fi
 
       - name: Setup Node
-        if: steps.preflight.outputs.configured == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -253,50 +256,42 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install pinned Vercel CLI
-        if: steps.preflight.outputs.configured == 'true'
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
 
       - name: Link or create Vercel project
-        if: steps.preflight.outputs.configured == 'true'
-        working-directory: frontend
         shell: bash
         run: |
           set -Eeuo pipefail
-          vercel link --yes \
-            --project="$VERCEL_PROJECT_NAME" \
-            --scope="$VERCEL_SCOPE" \
-            --token="$VERCEL_TOKEN"
-          vercel project inspect --non-interactive \
-            --scope="$VERCEL_SCOPE" \
-            --token="$VERCEL_TOKEN" >/dev/null
+          vercel link --yes             --project="$VERCEL_PROJECT_NAME"             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN"
+          vercel project inspect --non-interactive             --scope="$VERCEL_SCOPE"             --token="$VERCEL_TOKEN" >/dev/null
 
       - name: Pull Vercel production project settings
-        if: steps.preflight.outputs.configured == 'true'
-        run: vercel pull --yes --environment=production --cwd=frontend --token="$VERCEL_TOKEN"
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
-      - name: Build Vercel production artifact
-        if: steps.preflight.outputs.configured == 'true'
+      - name: Build Vercel production fullstack artifact
         env:
           VITE_APP_VERSION: ${{ steps.version.outputs.app_version }}
-          VITE_DEPLOYMENT_CHANNEL: production
-        run: vercel build --prod --cwd=frontend --token="$VERCEL_TOKEN"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          vercel build --prod --token="$VERCEL_TOKEN"             --build-env "VITE_API_URL="             --build-env "VITE_SUPABASE_URL=$VITE_SUPABASE_URL"             --build-env "VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY"             --build-env "VITE_APP_VERSION=$VITE_APP_VERSION"             --build-env "VITE_DEPLOYMENT_CHANNEL=production"
 
-      - name: Deploy Vercel production artifact
-        if: steps.preflight.outputs.configured == 'true'
+      - name: Deploy Vercel production fullstack artifact
         id: deploy
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
         shell: bash
         run: |
           set -Eeuo pipefail
-          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --cwd=frontend --token="$VERCEL_TOKEN")"
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"             --env APP_ENV=production             --env APP_VERSION="$APP_VERSION"             --env DEBUG=false             --env ENABLE_LOCAL_AUTH=false             --env AUTO_CREATE_SCHEMA=false             --env SEED_DEFAULTS=false             --env DATABASE_URL="$DATABASE_URL"             --env SUPABASE_URL="$SUPABASE_URL"             --env SUPABASE_KEY="$SUPABASE_KEY"             --env SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"             --env SUPABASE_JWT_SECRET="$SUPABASE_JWT_SECRET"             --env CORS_ORIGINS="$CORS_ORIGINS"             --env STORAGE_DIR=/tmp/planaut             --env TEMPLATES_DIR=/tmp/planaut/templates             --env OUTPUTS_DIR=/tmp/planaut/outputs             --env UPLOADS_DIR=/tmp/planaut/uploads)"
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-          vercel alias set "$DEPLOYMENT_URL" "$PRODUCTION_DOMAIN" \
-            --cwd=frontend --token="$VERCEL_TOKEN"
+          vercel alias set "$DEPLOYMENT_URL" "$PRODUCTION_DOMAIN" --token="$VERCEL_TOKEN"
 
-      - name: Verify production frontend
-        if: steps.preflight.outputs.configured == 'true'
+      - name: Verify production fullstack
         shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error --location --retry 8 --retry-delay 3 \
-            "https://${PRODUCTION_DOMAIN}/" >/dev/null
-          echo "Vercel production healthy: https://${PRODUCTION_DOMAIN}"
+          curl --fail --silent --show-error --location --retry 10 --retry-delay 3             "https://${PRODUCTION_DOMAIN}/" >/dev/null
+          curl --fail --silent --show-error --location --retry 10 --retry-delay 3             "https://${PRODUCTION_DOMAIN}/api/health" >/dev/null
+          curl --fail --silent --show-error --location --retry 5 --retry-delay 2             "https://${PRODUCTION_DOMAIN}/openapi.json" >/dev/null
+          echo "Vercel production fullstack healthy: https://${PRODUCTION_DOMAIN}"
