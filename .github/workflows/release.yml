@@ -267,9 +267,43 @@ jobs:
           docker pull "$IMAGE"
 
 
+  vercel-api-production:
+    name: Deploy release candidate API to Vercel Production
+    needs: [version, candidate, public-candidate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Dispatch and require Vercel API production deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ needs.version.outputs.target_sha }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DISPATCH_OUTPUT="$(gh workflow run vercel-api-deploy.yml \
+            --ref main \
+            -f release_sha="$TARGET_SHA" \
+            -f release_version="$VERSION")"
+
+          echo "$DISPATCH_OUTPUT"
+          RUN_ID="${DISPATCH_OUTPUT##*/}"
+
+          if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not resolve the dispatched Vercel API workflow run from: $DISPATCH_OUTPUT"
+            exit 1
+          fi
+
+          echo "Watching Vercel API production workflow run $RUN_ID"
+          gh run watch "$RUN_ID" --exit-status
+
   vercel-production:
     name: Deploy release candidate frontend to Vercel Production
-    needs: [version, candidate, public-candidate]
+    needs: [version, candidate, public-candidate, vercel-api-production]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -304,7 +338,7 @@ jobs:
 
   promote:
     name: Publish stable GHCR tags
-    needs: [version, candidate, public-candidate, vercel-production]
+    needs: [version, candidate, public-candidate, vercel-api-production, vercel-production]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -402,7 +436,8 @@ jobs:
             echo "Production deployment target: Vercel."
             echo
             echo "Release validations completed before publication:"
-            echo "- Vercel production deployment: healthy"
+            echo "- Vercel API production deployment: healthy"
+            echo "- Vercel frontend production deployment: healthy"
             printf -- '- Container image: \x60%s\x60\n' "$RELEASE_REF"
             printf -- '- Build digest: \x60%s\x60\n' "$APP_DIGEST"
             echo "- CloudPanel, Docker Compose, Dockge and Portainer remain manual deployment artifacts only."
