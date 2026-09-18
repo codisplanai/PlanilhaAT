@@ -27,8 +27,8 @@ feature/* | fix/* | refactor/* | ci/* | ...
                     +--> Git tag + GitHub Release
                               |
                               v
-                      GitHub Actions -> Vercel Production
-                                        planaut.codisplan.com.br
+                      dispatch explícito -> Vercel Production
+                                           planaut.codisplan.com.br
 ```
 
 A Vercel é o **único destino de deployment automatizado**. GitHub Actions valida a aplicação, publica os artefatos GHCR/release e executa o deployment do frontend pela Vercel CLI. CloudPanel, Docker Compose, Dockge e Portainer são alternativas exclusivamente manuais e não participam de nenhum workflow, gate ou Action.
@@ -50,23 +50,25 @@ O frontend recebe `VITE_API_URL` por ambiente Vercel. Não exponha `DATABASE_URL
 
 ## Variáveis GitHub para Vercel
 
-Secrets usados pelo workflow:
+Secret obrigatório por GitHub Environment:
 
 ```text
 VERCEL_TOKEN
-VERCEL_ORG_ID
-VERCEL_PROJECT_ID
 ```
 
-Repository/Environment variables:
+Variables usadas pelo workflow:
 
 ```text
-VERCEL_DEPLOY_ENABLED=true
+VERCEL_SCOPE=codisplan
+VERCEL_PROJECT_NAME=planaut
 VERCEL_PRODUCTION_DOMAIN=planaut.codisplan.com.br
 VERCEL_DEVELOPMENT_DOMAIN=planaut.dev.codisplan.com.br
+VITE_API_URL=...
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
 ```
 
-Enquanto `VERCEL_DEPLOY_ENABLED` não for `true`, os jobs Vercel ficam deliberadamente desabilitados.
+O projeto Vercel é vinculado/criado pela própria CLI no primeiro run configurado; `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` e `VERCEL_DEPLOY_ENABLED` não são requisitos do fluxo atual.
 
 ## Variáveis no projeto Vercel
 
