@@ -11,7 +11,7 @@ feature/* | fix/* | refactor/* | ci/* | ...
                     |
                     +--> testes completos
                     +--> build frontend/PWA
-                    +--> GHCR :develop
+                    +--> GHCR :develop (artefato para uso manual)
                     +--> GitHub Actions -> Vercel Preview
                     |                     planaut.dev.codisplan.com.br
                     |
@@ -23,18 +23,15 @@ feature/* | fix/* | refactor/* | ci/* | ...
                     |
                     +--> SemVer
                     +--> testes completos + PWA
-                    +--> imagem release GHCR + SBOM + provenance
-                    +--> validação de pull público GHCR
-                    +--> Docker deploy por digest + healthcheck/rollback
+                    +--> imagem GHCR de release para uso manual
                     +--> Git tag + GitHub Release
-                    +--> workflow_run bem-sucedido
                               |
                               v
                       GitHub Actions -> Vercel Production
                                         planaut.codisplan.com.br
 ```
 
-A Vercel **não controla o fluxo de release**. GitHub Actions é o orquestrador. O workflow usa Vercel CLI autenticado por secrets do GitHub para executar `vercel pull`, `vercel build` e `vercel deploy --prebuilt`.
+A Vercel é o **único destino de deployment automatizado**. GitHub Actions valida a aplicação, publica os artefatos GHCR/release e executa o deployment do frontend pela Vercel CLI. CloudPanel, Docker Compose, Dockge e Portainer são alternativas exclusivamente manuais e não participam de nenhum workflow, gate ou Action.
 
 ## Frontend Vercel + backend Docker
 
@@ -211,39 +208,20 @@ Crie uma Stack usando o `compose.yaml` do repositório e cole as variáveis de `
 
 Crie a stack a partir do mesmo `compose.yaml`, copie o `.env.example` para o `.env` gerenciado pelo Dockge e preencha os secrets. O Compose não contém configuração específica de plataforma, portanto a mesma definição é usada por Docker CLI, Dockge e Portainer.
 
-## Deploy Docker via GitHub Actions
+## Deployments manuais
 
-Environment `production` no GitHub:
+Os diretórios `deploy/cloudpanel`, `deploy/dockge`, `deploy/portainer`, o `compose.yaml` raiz e os scripts em `deploy/` são entregáveis prontos para operação manual.
 
-Secrets:
+Eles **não são executados, validados como gate, enviados por SSH nem acionados por GitHub Actions**. O operador escolhe quando e onde usar esses pacotes.
 
-```text
-DEPLOY_HOST
-DEPLOY_USER
-DEPLOY_PORT
-DEPLOY_SSH_KEY
-DEPLOY_KNOWN_HOSTS
-```
+## Primeira configuração necessária para o deployment automatizado
 
-Variables:
+Para Vercel Preview/Production:
 
-```text
-production:  DEPLOY_PATH=/opt/planaut-production
-development: DEPLOY_PATH=/opt/planaut-development
-```
-
-O workflow implanta uma tag candidata exclusiva e legível (`release-candidate-X.Y.Z-rN.M`), valida o healthcheck público e só então promove exatamente essa imagem para `production`, `latest` e aliases SemVer. O script de deploy executa Alembic, aguarda o healthcheck do container e tenta rollback para a imagem anterior em caso de falha.
-
-## Primeira configuração necessária
-
-Antes do primeiro deployment automático completo:
-
-1. GHCR: os pacotes já devem estar públicos para pull anônimo.
-2. VPS/CloudPanel: executar `deploy/bootstrap-vps.sh`, criar o `.env` real em `/opt/planaut-production` e, se usado, em `/opt/planaut-development`, e configurar os secrets SSH do GitHub.
-3. DNS backend: apontar `api.planaut.codisplan.com.br` e, se usado, `api.planaut.dev.codisplan.com.br` para o servidor CloudPanel.
-4. Vercel: criar/vincular o projeto do frontend e adicionar os dois domínios frontend.
-5. Vercel: configurar as variáveis Production e Preview/`develop`.
-6. GitHub: cadastrar `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` e depois definir `VERCEL_DEPLOY_ENABLED=true`.
+1. configurar `VERCEL_TOKEN` nos GitHub Environments `development` e `production`;
+2. configurar `VITE_API_URL`, `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` por ambiente;
+3. configurar os domínios Vercel desejados;
+4. manter CloudPanel/Docker/Dockge/Portainer apenas para implantação manual quando necessário.
 
 O arquivo `vercel.env.example` documenta os nomes exatos.
 
