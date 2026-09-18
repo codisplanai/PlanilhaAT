@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 from pydantic import BaseSettings
 
-default_storage_base = "./storage"
+default_storage_base = "/tmp/planaut" if os.getenv("VERCEL") == "1" else "./storage"
 
 class Settings(BaseSettings):
     APP_NAME: str = "PlanAut-Backend"
