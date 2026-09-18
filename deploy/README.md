@@ -225,20 +225,21 @@ DEPLOY_SSH_KEY
 DEPLOY_KNOWN_HOSTS
 ```
 
-Variable:
+Variables:
 
 ```text
-DEPLOY_PATH=/opt/planaut
+production:  DEPLOY_PATH=/opt/planaut-production
+development: DEPLOY_PATH=/opt/planaut-development
 ```
 
-A release usa imagem por digest (`ghcr.io/...@sha256:...`), envia apenas `compose.yaml`, `.env.example` e `deploy/deploy.sh`, executa Alembic e aguarda healthcheck. Em falha após troca do container, tenta rollback para a imagem anterior.
+O workflow implanta uma tag candidata exclusiva e legível (`release-candidate-X.Y.Z-rN.M`), valida o healthcheck público e só então promove exatamente essa imagem para `production`, `latest` e aliases SemVer. O script de deploy executa Alembic, aguarda o healthcheck do container e tenta rollback para a imagem anterior em caso de falha.
 
 ## Primeira configuração necessária
 
 Antes do primeiro deployment automático completo:
 
 1. GHCR: os pacotes já devem estar públicos para pull anônimo.
-2. VPS/CloudPanel: criar o `.env` real em `DEPLOY_PATH` e configurar os secrets SSH do GitHub.
+2. VPS/CloudPanel: executar `deploy/bootstrap-vps.sh`, criar o `.env` real em `/opt/planaut-production` e, se usado, em `/opt/planaut-development`, e configurar os secrets SSH do GitHub.
 3. DNS backend: apontar `api.planaut.codisplan.com.br` e, se usado, `api.planaut.dev.codisplan.com.br` para o servidor CloudPanel.
 4. Vercel: criar/vincular o projeto do frontend e adicionar os dois domínios frontend.
 5. Vercel: configurar as variáveis Production e Preview/`develop`.
