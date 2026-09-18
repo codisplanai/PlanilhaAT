@@ -102,6 +102,20 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Setup Python
+        if: steps.preflight.outputs.configured == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv for Vercel Python build
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check uv
+          uv --version
+
       - name: Install pinned Vercel CLI
         if: steps.preflight.outputs.configured == 'true'
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
@@ -295,6 +309,18 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv for Vercel Python build
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check uv
+          uv --version
 
       - name: Install pinned Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
