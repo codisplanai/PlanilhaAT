@@ -159,7 +159,7 @@ def test_data_entrada_matcher_com_arquivo_real_teste2_xls():
     assert dt == datetime.date(2026, 5, 4)
     assert origem == "planilha_sistema_contabil"
 
-def test_api_patch_data_entrada_manual(client, db_session, sample_xml_nfe):
+def test_api_patch_data_entrada_manual(client, db_session):
     seed_default_templates(db_session)
     perfil = PerfilRegras(nome="Perfil Padrão")
     db_session.add(perfil)
@@ -193,10 +193,44 @@ def test_api_patch_data_entrada_manual(client, db_session, sample_xml_nfe):
     sol_id = res_create.json()["id"]
 
     res_proc = client.post(
-        f"/api/v1/solicitacoes/{sol_id}/processar",
-        files=[("files", ("nfe_1234.xml", sample_xml_nfe, "text/xml"))]
+        f"/api/v1/processamento-local/solicitacoes/{sol_id}/resultado",
+        json={
+            "notas_processadas": [
+                {
+                    "chave_acesso": "29260111222333000181550010000012341000012340",
+                    "numero_nota": "1234",
+                    "serie": "1",
+                    "cnpj_emitente": "11222333000181",
+                    "uf_emitente": "SP",
+                    "cnpj_destinatario": empresa.cnpj,
+                    "uf_destinatario": "BA",
+                    "data_emissao": "2026-01-15T10:00:00",
+                    "data_entrada": None,
+                    "origem_data_entrada": None,
+                    "item_numero": 1,
+                    "ncm": "72142000",
+                    "cfop": "2102",
+                    "destino_planilha": "antecipacao_parcial",
+                    "v_total": 1000.0,
+                    "base_calculo": 1000.0,
+                    "ipi_despesas": 0.0,
+                    "a_ori": 0.12,
+                    "a_dst_resolvida": 0.205,
+                    "debito": 205.0,
+                    "credito": 120.0,
+                    "valor_devido": 85.0,
+                    "metadados_extras": {"origem_processamento": "browser"},
+                }
+            ],
+            "saidas": [],
+            "notas_ignoradas": [],
+            "itens_excluidos": [],
+            "avisos_avaliacao": [],
+            "cfops_sem_regra": {},
+            "mensagem": None,
+        },
     )
-    assert res_proc.status_code == 200
+    assert res_proc.status_code == 200, res_proc.text
     sol_data = res_proc.json()
     assert len(sol_data["notas_processadas"]) == 1
     nota_id = sol_data["notas_processadas"][0]["id"]
