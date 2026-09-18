@@ -367,7 +367,7 @@ jobs:
           set -Eeuo pipefail
           DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"             --env APP_ENV=production             --env APP_VERSION="$APP_VERSION"             --env DEBUG=false             --env ENABLE_LOCAL_AUTH=false             --env AUTO_CREATE_SCHEMA=false             --env SEED_DEFAULTS=false             --env DATABASE_URL="$DATABASE_URL"             --env SUPABASE_URL="$SUPABASE_URL"             --env SUPABASE_KEY="$SUPABASE_KEY"             --env SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"             --env SUPABASE_JWT_SECRET="$SUPABASE_JWT_SECRET"             --env CORS_ORIGINS="$CORS_ORIGINS"             --env STORAGE_DIR=/tmp/planaut             --env TEMPLATES_DIR=/tmp/planaut/templates             --env OUTPUTS_DIR=/tmp/planaut/outputs             --env UPLOADS_DIR=/tmp/planaut/uploads)"
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-          vercel alias set "$DEPLOYMENT_URL" "$PRODUCTION_DOMAIN" --token="$VERCEL_TOKEN"
+          echo "Production domains are managed by the linked Vercel project."
 
       - name: Verify production fullstack
         shell: bash
