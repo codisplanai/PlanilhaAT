@@ -23,15 +23,13 @@ feature/* | fix/* | refactor/* | ci/* | ...
                     |
                     +--> SemVer
                     +--> testes completos + PWA
-                    +--> imagem GHCR de release para uso manual
+                    +--> imagem candidata GHCR
+                    +--> Vercel Production + healthcheck
+                    +--> aliases GHCR estáveis
                     +--> Git tag + GitHub Release
-                              |
-                              v
-                      dispatch explícito -> Vercel Production
-                                           planaut.codisplan.com.br
 ```
 
-A Vercel é o **único destino de deployment automatizado**. GitHub Actions valida a aplicação, publica os artefatos GHCR/release e executa o deployment do frontend pela Vercel CLI. CloudPanel, Docker Compose, Dockge e Portainer são alternativas exclusivamente manuais e não participam de nenhum workflow, gate ou Action.
+A Vercel é o **único destino de deployment automatizado**. GitHub Actions valida a aplicação, cria uma imagem candidata GHCR, exige que o deployment Vercel Production e seu healthcheck terminem com sucesso e somente depois publica os aliases GHCR estáveis, a Git tag e a GitHub Release. CloudPanel, Docker Compose, Dockge e Portainer são alternativas exclusivamente manuais e não participam de nenhum workflow, gate ou Action.
 
 ## Frontend Vercel + backend Docker
 
