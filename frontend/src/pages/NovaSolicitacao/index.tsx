@@ -2,7 +2,6 @@ import React from 'react';
 import {
   FileSpreadsheet,
   CheckCircle2,
-  UploadCloud,
   FileCode,
   FileArchive,
   Trash2,
@@ -12,7 +11,6 @@ import {
   Sparkles,
   FileCheck2,
   CalendarDays,
-  FileUp,
   X,
   AlertTriangle,
 } from 'lucide-react';
