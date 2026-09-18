@@ -27,6 +27,7 @@ import { AvisosAvaliacaoSection } from '../../components/domain/AvisosAvaliacaoS
 import { getEntryOriginLabel } from '../../constants/domain';
 import { TemplateUpdateBanner } from '../../components/feedback/TemplateUpdateBanner';
 import { ModalConfirmacaoBonificacao } from '../../components/ModalConfirmacaoBonificacao';
+import { ProcessingDiagnostics } from '../../components/processing/ProcessingDiagnostics';
 import { formatCNPJ, formatDate, formatCurrency, formatPercent } from '../../lib/formatters';
 import { CompanySelectionStep } from './CompanySelectionStep';
 import { PeriodSelectionStep } from './PeriodSelectionStep';
@@ -77,6 +78,10 @@ export const NovaSolicitacaoPage: React.FC = () => {
     showModalBonificacao,
     confirmarBonificacoesEProcessar,
     cancelarModalBonificacao,
+    diagnosticSession,
+    clearDiagnostic,
+    exportDiagnosticText,
+    exportDiagnosticJson,
   } = useNovaSolicitacaoPage();
 
   return (
@@ -130,15 +135,14 @@ export const NovaSolicitacaoPage: React.FC = () => {
                 Etapa 3: Adicionar Arquivos de Entrada
               </h2>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Selecione os XMLs de NF-e, o arquivo SPED Fiscal (.txt) da competência, ou ambos. Os arquivos permanecem neste navegador e não são enviados ao servidor.
+                Selecione os XMLs de NF-e, o arquivo SPED Fiscal (.txt) da competência, ou ambos.
               </p>
             </div>
 
             <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl p-3.5 text-xs text-blue-950 leading-relaxed">
               Selecione os <strong>XMLs da competência</strong> e o <strong>SPED Fiscal do mesmo mês</strong> para
               separar automaticamente a planilha <strong>Antecipação Parcial — Pago Antecipadamente</strong>.
-              Todo o conteúdo fiscal é lido e processado localmente no navegador; somente o resultado estruturado
-              da apuração é registrado no sistema. Selecionando apenas os XMLs, todas entram na planilha normal.
+              Selecionando apenas os XMLs, todas as notas entram na planilha normal.
             </div>
 
             {/* Fonte 1: XMLs / ZIP */}
@@ -309,7 +313,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
               </div>
 
               <p className="text-xs text-slate-500 leading-relaxed">
-                Se você tiver a exportação do sistema contábil com as datas de entrada das notas, selecione um arquivo .xlsx. Ele será lido somente no navegador. Caso não possua, a data de entrada permanecerá em branco para preenchimento manual.
+                Se você tiver a exportação do sistema contábil com as datas de entrada das notas, selecione um arquivo .xlsx. Caso não possua, a data de entrada permanecerá em branco para preenchimento manual.
               </p>
 
               {!planilhaEntradaFile ? (
@@ -408,7 +412,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     Etapa 4: Revisar e Iniciar Apuração
                   </h2>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    Confirme os parâmetros antes de iniciar a apuração local. XML, ZIP, SPED e XLSX permanecem no navegador durante todo o processamento.
+                    Confirme os parâmetros antes de iniciar a apuração.
                   </p>
                 </div>
 
@@ -488,11 +492,19 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     size="lg"
                     rightIcon={<Sparkles className="w-4 h-4" />}
                   >
-                    {isProcessing ? 'Processando localmente...' : 'Gerar Planilha Localmente'}
+                    {isProcessing ? 'Processando...' : 'Gerar Planilha'}
                   </Button>
                 </div>
               </>
             )}
+
+            <ProcessingDiagnostics
+              session={diagnosticSession}
+              isProcessing={isProcessing}
+              onDownloadText={exportDiagnosticText}
+              onDownloadJson={exportDiagnosticJson}
+              onClear={clearDiagnostic}
+            />
 
             {/* RESULTADO CONCLUÍDO */}
             {resultadoSolicitacao && (

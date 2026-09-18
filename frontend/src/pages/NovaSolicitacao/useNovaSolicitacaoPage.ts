@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { getErrorMessage } from '../../api/client';
@@ -19,6 +19,15 @@ import {
 } from '../../lib/localProcessing/artifactStore';
 import { processFiscalLocally } from '../../lib/localProcessing/processor';
 import { getMonthPeriod } from '../../lib/periods';
+import { runtimeConfig } from '../../lib/runtimeConfig';
+import {
+  cloneDiagnosticSession,
+  createDiagnosticRecorder,
+  createDiagnosticSession,
+  downloadDiagnosticJson,
+  downloadDiagnosticText,
+} from '../../lib/processingDiagnostics';
+import type { DiagnosticRecorder } from '../../lib/processingDiagnostics';
 import { useFiscalInputFiles } from './useFiscalInputFiles';
 
 function buildPersistPayload(
@@ -102,7 +111,18 @@ export function useNovaSolicitacaoPage() {
   const [localArtifactTypes, setLocalArtifactTypes] = useState<TipoPlanilha[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const diagnosticSessionRef = useRef(
+    createDiagnosticSession(runtimeConfig.appVersion || import.meta.env.VITE_APP_VERSION || '1.0.0'),
+  );
+  const activeDiagnosticRef = useRef<DiagnosticRecorder | null>(null);
+  const [diagnosticSession, setDiagnosticSession] = useState(
+    () => cloneDiagnosticSession(diagnosticSessionRef.current),
+  );
   const empresasQuery = useEmpresasQuery();
+
+  const refreshDiagnostic = () => {
+    setDiagnosticSession(cloneDiagnosticSession(diagnosticSessionRef.current));
+  };
 
   const filteredEmpresas = (empresasQuery.data ?? []).filter((empresa) => {
     const term = empresaSearch.toLowerCase();
@@ -134,11 +154,28 @@ export function useNovaSolicitacaoPage() {
   const executeLocalProcessing = async (
     requestId: string,
     decisions?: Record<string, boolean>,
+    diagnostic: DiagnosticRecorder | null = activeDiagnosticRef.current,
   ): Promise<void> => {
     if (!selectedEmpresa) return;
 
+    if (diagnostic) {
+      diagnostic.attempt.requestId = requestId;
+      diagnostic.attempt.status = 'em_andamento';
+      diagnostic.stage('configuracao', 'Carregamento das regras e modelos iniciado.');
+    }
+    const contextStartedAt = performance.now();
     const context = await localProcessingApi.obterContexto(selectedEmpresa.id);
+    diagnostic?.event('info', 'configuracao', 'Regras fiscais carregadas.', {
+      regrasAliquotas: context.regras_aliquotas.length,
+      regrasCfop: context.regras_cfop.length,
+      modelosAtivos: context.templates_ativos.length,
+    }, Math.round(performance.now() - contextStartedAt));
+    const templatesStartedAt = performance.now();
     const templateBytes = await loadTemplates(context);
+    diagnostic?.event('info', 'configuracao', 'Modelos de planilha carregados em memória.', {
+      quantidade: templateBytes.size,
+      tamanhoTotalBytes: [...templateBytes.values()].reduce((sum, bytes) => sum + bytes.byteLength, 0),
+    }, Math.round(performance.now() - templatesStartedAt));
 
     const localResult = await processFiscalLocally(
       {
@@ -152,6 +189,7 @@ export function useNovaSolicitacaoPage() {
           entrySheet: files.planilhaEntradaFile,
         },
         bonusDecisions: decisions,
+        diagnostic: diagnostic ?? undefined,
       },
       templateBytes,
     );
@@ -162,26 +200,67 @@ export function useNovaSolicitacaoPage() {
       return;
     }
 
+    diagnostic?.stage('registro', 'Registro do resultado estruturado iniciado.', {
+      registros: localResult.notasProcessadas.length,
+      saidas: localResult.artifacts.length,
+    });
+    const persistenceStartedAt = performance.now();
     const persisted = await localProcessingApi.persistirResultado(
       requestId,
       buildPersistPayload(localResult, context),
     );
+    diagnostic?.event('info', 'registro', 'Resultado estruturado registrado sem conteúdo fiscal bruto.', {
+      solicitacaoId: requestId,
+    }, Math.round(performance.now() - persistenceStartedAt));
 
+    let artifactStorageFailed = false;
     try {
+      diagnostic?.stage('armazenamento_resultado', 'Disponibilização das planilhas para download iniciada.');
       await saveLocalArtifacts(requestId, localResult.artifacts);
       setLocalArtifactTypes(localResult.artifacts.map((artifact) => artifact.tipo));
       setDownloadError(null);
+      diagnostic?.event('info', 'armazenamento_resultado', 'Planilhas disponíveis para download nesta sessão.', {
+        quantidade: localResult.artifacts.length,
+        tamanhoTotalBytes: localResult.artifacts.reduce((sum, artifact) => sum + artifact.bytes.byteLength, 0),
+      });
     } catch (storageError) {
+      artifactStorageFailed = true;
       setLocalArtifactTypes([]);
       setDownloadError(
-        `A apuração foi concluída, mas o navegador não conseguiu armazenar as planilhas locais: ${getErrorMessage(storageError)}`,
+        `A apuração foi concluída, mas as planilhas não ficaram disponíveis para download: ${getErrorMessage(storageError)}`,
+      );
+      diagnostic?.error(
+        'armazenamento_resultado',
+        storageError,
+        'A apuração foi registrada, mas as planilhas não ficaram disponíveis para download.',
       );
     }
 
     setShowModalBonificacao(false);
     setPendenciasBonificacao([]);
     setResultadoSolicitacao(persisted);
-    await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
+    if (artifactStorageFailed) {
+      diagnostic?.finish('parcialmente_concluido', 'Processamento concluído parcialmente: resultado registrado sem arquivo disponível para download.');
+    } else {
+      const hasWarnings = localResult.notasIgnoradas.length > 0
+        || localResult.avisosAvaliacao.length > 0
+        || Object.keys(localResult.cfopsSemRegra).length > 0;
+      diagnostic?.finish(
+        hasWarnings ? 'concluido_com_avisos' : 'concluido',
+        hasWarnings ? 'Processamento concluído com avisos.' : 'Processamento e geração concluídos.',
+      );
+    }
+    try {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
+    } catch (refreshError) {
+      diagnostic?.event('warning', 'atualizacao_interface', 'A planilha foi gerada, mas o histórico não pôde ser atualizado automaticamente.', {
+        tipo: refreshError instanceof Error ? refreshError.name : typeof refreshError,
+      });
+      if (diagnostic?.attempt.status === 'concluido') {
+        diagnostic.attempt.status = 'concluido_com_avisos';
+        refreshDiagnostic();
+      }
+    }
   };
 
   const generateSpreadsheet = async () => {
@@ -195,15 +274,26 @@ export function useNovaSolicitacaoPage() {
     setErrorMessage(null);
     setDownloadError(null);
     setIsProcessing(true);
+    const diagnostic = createDiagnosticRecorder(
+      diagnosticSessionRef.current,
+      [...files.xmlFiles, ...(files.spedFile ? [files.spedFile] : []), ...(files.planilhaEntradaFile ? [files.planilhaEntradaFile] : [])],
+      refreshDiagnostic,
+    );
+    activeDiagnosticRef.current = diagnostic;
     try {
+      diagnostic.stage('solicitacao', 'Criação da solicitação iniciada.');
       const request = await solicitacoesApi.criar({
         empresa_id: selectedEmpresa.id,
         periodo_inicio: periodoInicio,
         periodo_fim: periodoFim,
       });
+      diagnostic.attempt.requestId = request.id;
+      diagnostic.event('info', 'solicitacao', 'Solicitação criada.', { solicitacaoId: request.id });
       setSolicitacaoIdAtiva(request.id);
-      await executeLocalProcessing(request.id);
+      await executeLocalProcessing(request.id, undefined, diagnostic);
     } catch (error) {
+      diagnostic.error(diagnostic.attempt.currentStage, error, 'O processamento não pôde ser concluído.');
+      diagnostic.finish('falhou', 'Tentativa encerrada com falha.');
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsProcessing(false);
@@ -215,8 +305,18 @@ export function useNovaSolicitacaoPage() {
     setIsProcessing(true);
     setErrorMessage(null);
     try {
-      await executeLocalProcessing(solicitacaoIdAtiva, decisoes);
+      const diagnostic = activeDiagnosticRef.current;
+      diagnostic?.event('info', 'validacao', 'Decisões de bonificação recebidas; processamento retomado.', {
+        quantidadeDecisoes: Object.keys(decisoes).length,
+      });
+      await executeLocalProcessing(solicitacaoIdAtiva, decisoes, diagnostic);
     } catch (error) {
+      activeDiagnosticRef.current?.error(
+        activeDiagnosticRef.current.attempt.currentStage,
+        error,
+        'O processamento não pôde ser concluído após a confirmação.',
+      );
+      activeDiagnosticRef.current?.finish('falhou', 'Tentativa encerrada com falha.');
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsProcessing(false);
@@ -224,6 +324,7 @@ export function useNovaSolicitacaoPage() {
   };
 
   const cancelarModalBonificacao = () => {
+    activeDiagnosticRef.current?.finish('cancelado', 'Processamento cancelado durante a confirmação de bonificações.');
     setShowModalBonificacao(false);
     setIsProcessing(false);
   };
@@ -233,7 +334,13 @@ export function useNovaSolicitacaoPage() {
     setDownloadError(null);
     try {
       await downloadLocalArtifacts(resultadoSolicitacao.id, tipo);
+      activeDiagnosticRef.current?.event('info', 'download', 'Download da planilha solicitado pelo usuário.', {
+        tipo: tipo ?? 'todas',
+      });
     } catch (error) {
+      activeDiagnosticRef.current?.error('download', error, 'Falha ao preparar o download da planilha.', {
+        tipo: tipo ?? 'todas',
+      });
       setDownloadError(getErrorMessage(error));
     }
   };
@@ -247,6 +354,27 @@ export function useNovaSolicitacaoPage() {
     setLocalArtifactTypes([]);
     files.resetFiles();
     setCurrentStep(1);
+  };
+
+  const clearDiagnostic = () => {
+    if (isProcessing) return;
+    diagnosticSessionRef.current = createDiagnosticSession(
+      runtimeConfig.appVersion || import.meta.env.VITE_APP_VERSION || '1.0.0',
+    );
+    activeDiagnosticRef.current = null;
+    refreshDiagnostic();
+  };
+
+  const exportDiagnosticText = () => {
+    const recorder = activeDiagnosticRef.current;
+    recorder?.event('info', 'diagnostico', 'Exportação do diagnóstico em texto solicitada.');
+    downloadDiagnosticText(diagnosticSessionRef.current);
+  };
+
+  const exportDiagnosticJson = () => {
+    const recorder = activeDiagnosticRef.current;
+    recorder?.event('info', 'diagnostico', 'Exportação do diagnóstico em JSON solicitada.');
+    downloadDiagnosticJson(diagnosticSessionRef.current);
   };
 
   return {
@@ -281,5 +409,9 @@ export function useNovaSolicitacaoPage() {
     generateSpreadsheet,
     downloadSpreadsheet,
     startNewRequest,
+    diagnosticSession,
+    clearDiagnostic,
+    exportDiagnosticText,
+    exportDiagnosticJson,
   };
 }

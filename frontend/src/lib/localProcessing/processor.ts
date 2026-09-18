@@ -138,13 +138,36 @@ export async function processFiscalLocally(
   templateBytes: Map<number, ArrayBuffer>,
 ): Promise<LocalProcessingResult> {
   const { context, periodoInicio, periodoFim, solicitacaoId } = request;
+  const diagnostic = request.diagnostic;
+  const sourceStartedAt = performance.now();
+  diagnostic?.stage('leitura', 'Leitura e interpretação das fontes fiscais iniciada.');
   if (!validateCnpj(context.empresa.cnpj)) {
     throw new Error(`CNPJ da empresa selecionada "${context.empresa.cnpj}" é inválido.`);
   }
 
   const sources = await loadLocalFiscalSources(request.input, periodoInicio, periodoFim);
+  diagnostic?.event('info', 'leitura', 'Fontes fiscais interpretadas.', {
+    notasLidas: sources.notes.length,
+    registrosEntrada: sources.entryRecords.length,
+    notasInvalidas: sources.ignoredNotes.length,
+    possuiSped: Boolean(request.input.spedFile),
+  }, Math.round(performance.now() - sourceStartedAt));
+  diagnostic?.setSummary({
+    read: sources.notes.length + sources.ignoredNotes.length,
+    rejected: sources.ignoredNotes.length,
+  });
+  for (const ignoredNote of sources.ignoredNotes) {
+    diagnostic?.event('warning', 'leitura', ignoredNote.motivo, {
+      numeroNota: ignoredNote.numero_nota,
+      referenciaArquivo: ignoredNote.arquivo ? 'disponível na interface' : 'não disponível',
+    });
+  }
   const pending = bonusPreAnalysis(sources.notes, periodoInicio, periodoFim, context.empresa.uf);
   if (pending.length > 0 && !request.bonusDecisions) {
+    if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
+    diagnostic?.stage('validacao', 'Processamento pausado para confirmação de bonificações.', {
+      pendencias: pending.length,
+    });
     return {
       preAnalysis: { requer_decisao: true, notas_bonificacao: pending },
       notasProcessadas: [],
@@ -163,6 +186,8 @@ export async function processFiscalLocally(
   const missingCfops: Record<string, number> = {};
   const rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>> = {};
   const processed: LocalProcessingResult['notasProcessadas'] = [];
+  const transformationStartedAt = performance.now();
+  diagnostic?.stage('transformacao', 'Validação fiscal, aplicação de regras e cálculos iniciados.');
 
   const hasEntrySource = Boolean(request.input.spedFile) || sources.entryRecords.length > 0;
 
@@ -482,7 +507,7 @@ export async function processFiscalLocally(
     else if (ignored.length > 0) {
       throw new Error('Nenhuma NF-e válida para apuração interestadual foi encontrada no período informado.');
     } else {
-      throw new Error('Nenhuma nota fiscal pôde ser processada localmente.');
+      throw new Error('Nenhuma nota fiscal pôde ser processada.');
     }
   }
 
@@ -515,6 +540,12 @@ export async function processFiscalLocally(
         totalNotas: rows.length,
         totalValorDevido: rows.reduce((sum, row) => sum + row.valor_devido, 0),
       });
+      diagnostic?.event('info', 'geracao_planilha', 'Planilha montada e validada em memória.', {
+        tipo: destination,
+        linhas: rows.length,
+        tamanhoBytes: output.byteLength,
+        templateId: template.id,
+      });
     }
 
     const destinationsWithoutTemplate = Object.entries(rowsByDestination)
@@ -526,6 +557,19 @@ export async function processFiscalLocally(
       );
     }
   }
+
+  diagnostic?.event('info', 'transformacao', 'Regras fiscais e cálculos concluídos.', {
+    registrosProcessados: processed.length,
+    registrosIgnorados: ignored.length,
+    itensExcluidos: excluded.length,
+    destinosGerados: artifacts.length,
+  }, Math.round(performance.now() - transformationStartedAt));
+  diagnostic?.setSummary({
+    processed: processed.length,
+    ignored: ignored.length,
+    rejected: sources.ignoredNotes.length,
+    outputs: artifacts.length,
+  });
 
   return {
     preAnalysis: { requer_decisao: false, notas_bonificacao: pending },

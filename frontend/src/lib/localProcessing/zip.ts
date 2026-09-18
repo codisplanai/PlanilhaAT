@@ -31,7 +31,7 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream === 'undefined') {
-    throw new Error('Este navegador não oferece descompressão local necessária para ZIP/XLSX.');
+    throw new Error('Não foi possível descompactar o arquivo ZIP/XLSX neste dispositivo.');
   }
   const blobBytes = bytes.slice().buffer as ArrayBuffer;
   const stream = new Blob([blobBytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));

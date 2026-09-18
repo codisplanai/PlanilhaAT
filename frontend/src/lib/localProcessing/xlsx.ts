@@ -46,7 +46,7 @@ function parseDateString(value: string): string | null {
   if (!raw) return null;
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  const br = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  const br = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (br) {
     const year = br[3].length === 2 ? `20${br[3]}` : br[3];
     return `${year}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
@@ -183,7 +183,7 @@ function findHeader(
 export async function parseEntrySheet(buffer: ArrayBuffer): Promise<EntrySheetRecord[]> {
   const signature = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
   if (signature[0] !== 0x50 || signature[1] !== 0x4b) {
-    throw new Error('O processamento local aceita planilha auxiliar .xlsx. Converta arquivos .xls para .xlsx antes de selecionar.');
+    throw new Error('A planilha auxiliar deve estar no formato .xlsx. Converta arquivos .xls antes de selecionar.');
   }
 
   const entries = await readZip(buffer);

@@ -192,7 +192,7 @@ export async function loadLocalFiscalSources(
   }
 
   if (unique.length === 0) {
-    throw new Error('Nenhum XML de NF-e ou SPED Fiscal válido foi encontrado para processamento local.');
+    throw new Error('Nenhum XML de NF-e ou SPED Fiscal válido foi encontrado para processamento.');
   }
 
   return {

@@ -196,6 +196,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: Frontend regression tests
+        working-directory: frontend
+        run: npm run test
+
       - name: TypeScript typecheck without emit
         working-directory: frontend
         run: |

@@ -92,7 +92,7 @@ export function useFiscalInputFiles() {
 
     const filename = file.name.toLowerCase();
     if (!filename.endsWith('.xlsx')) {
-      setFileError('Selecione uma planilha no formato .xlsx. O formato .xls legado deve ser convertido antes do processamento local.');
+      setFileError('Selecione uma planilha no formato .xlsx. O formato .xls legado deve ser convertido antes do processamento.');
       event.target.value = '';
       return;
     }
