@@ -268,14 +268,14 @@ jobs:
 
 
   vercel-production:
-    name: Deploy release candidate frontend to Vercel Production
+    name: Deploy release candidate fullstack to Vercel Production
     needs: [version, candidate, public-candidate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: write
     steps:
-      - name: Dispatch and require Vercel production deployment
+      - name: Dispatch and require Vercel fullstack production deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -402,7 +402,7 @@ jobs:
             echo "Production deployment target: Vercel."
             echo
             echo "Release validations completed before publication:"
-            echo "- Vercel production deployment: healthy"
+            echo "- Vercel full-stack production deployment: healthy"
             printf -- '- Container image: \x60%s\x60\n' "$RELEASE_REF"
             printf -- '- Build digest: \x60%s\x60\n' "$APP_DIGEST"
             echo "- CloudPanel, Docker Compose, Dockge and Portainer remain manual deployment artifacts only."
