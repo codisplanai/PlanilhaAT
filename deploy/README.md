@@ -50,7 +50,13 @@ Development: https://planaut.dev.codisplan.com.br
 
 Os secrets privados do backend (`DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`) nunca recebem prefixo `VITE_`.
 
-> Limite de upload: Vercel Functions limita payloads HTTP a 4,5 MB. Os endpoints atuais de XML/SPED/template ainda aceitam limites maiores no backend Docker; no runtime Vercel, arquivos maiores precisam migrar para upload direto ao Storage antes de serem processados. O deployment full-stack não deve ser interpretado como aumento desse limite da plataforma.
+### Regra de privacidade do processamento fiscal
+
+Arquivos fiscais do usuário **não são enviados ao backend**. XML, ZIP, SPED e planilhas auxiliares devem ser lidos e processados no navegador, em memória local.
+
+O fluxo oficial não usa multipart/upload para processamento fiscal e não envia esses arquivos para FastAPI, Vercel Functions, Supabase Storage, banco de dados ou disco temporário do servidor.
+
+A API existe apenas para autenticação, cadastros, regras, metadados/histórico estruturado e recursos administrativos que não dependam do envio dos arquivos fiscais originais.
 
 ## Variáveis GitHub para Vercel
 
@@ -59,8 +65,9 @@ Secrets obrigatórios por GitHub Environment para o deployment full-stack:
 ```text
 VERCEL_TOKEN
 DATABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
 ```
+
+`SUPABASE_SERVICE_ROLE_KEY` não faz parte do processamento fiscal e não deve ser necessário para manipular arquivos do usuário. Se permanecer configurado para algum recurso administrativo legado, continua restrito ao backend e nunca é exposto ao navegador.
 
 Configuração pública do frontend:
 
@@ -217,7 +224,7 @@ Eles **não são executados, validados como gate, enviados por SSH nem acionados
 
 Para Vercel Preview/Production:
 
-1. configurar `VERCEL_TOKEN`, `DATABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` nos GitHub Environments;
+1. configurar `VERCEL_TOKEN` e `DATABASE_URL` nos GitHub Environments;
 2. configurar `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` por ambiente;
 3. manter `planaut.codisplan.com.br` e `planaut.dev.codisplan.com.br` como aliases do projeto único `planaut`;
 4. não configurar `VITE_API_URL` no Vercel automatizado;
