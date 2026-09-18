@@ -214,6 +214,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           curl --fail --silent --show-error --location --retry 8 --retry-delay 3             "https://${DEVELOPMENT_DOMAIN}/" >/dev/null
+          curl --fail --silent --show-error --location --retry 8 --retry-delay 3             "https://${DEVELOPMENT_DOMAIN}/nova-solicitacao" >/dev/null
           curl --fail --silent --show-error --location --retry 8 --retry-delay 3             "https://${DEVELOPMENT_DOMAIN}/api/health" >/dev/null
           echo "Vercel development fullstack healthy: https://${DEVELOPMENT_DOMAIN}"
 
@@ -377,7 +378,7 @@ jobs:
           set -Eeuo pipefail
           failed=0
 
-          for path in / /api/health /openapi.json; do
+          for path in / /nova-solicitacao /api/health /openapi.json; do
             echo "Checking immutable deployment path: ${path}"
             if ! VERCEL_TOKEN="${VERCEL_TOKEN}" vercel curl "${path}" --deployment "${DEPLOYMENT_URL}" >/tmp/vercel-probe.out 2>/tmp/vercel-probe.err; then
               failed=1
@@ -420,7 +421,7 @@ jobs:
             rm -f "${body}"
           }
 
-          if ! probe "/" || ! probe "/api/health" || ! probe "/openapi.json"; then
+          if ! probe "/" || ! probe "/nova-solicitacao" || ! probe "/api/health" || ! probe "/openapi.json"; then
             echo "Project-domain diagnostic:"
             vercel domains inspect "${PRODUCTION_DOMAIN}" --token="${VERCEL_TOKEN}" 2>&1 || true
             echo "Recent production 5xx logs:"
