@@ -247,6 +247,10 @@ function worksheetForTemplate(
 }
 
 const SINGLE_PERIOD_SHEET_TYPES = new Set<LocalTemplateDescriptor['tipo']>([
+  'antecipacao_parcial',
+  'antecipacao_parcial_antecipado',
+  'antecipacao_parcial_simples',
+  'antecipacao_parcial_antecipado_simples',
   'antecipacao_tributaria',
   'difal',
 ]);
