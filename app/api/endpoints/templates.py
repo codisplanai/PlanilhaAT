@@ -102,7 +102,12 @@ def baixar_template_para_processamento_local(
         path=resolved_path,
         filename=f"template_{template.tipo}_v{template.versao}.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Cache-Control": "private, max-age=300"},
+        headers={
+            "Cache-Control": "private, no-store",
+            "ETag": f'"sha256-{template.arquivo_hash}"',
+            "X-Template-Id": str(template.id),
+            "X-Template-Version": str(template.versao),
+        },
     )
 
 

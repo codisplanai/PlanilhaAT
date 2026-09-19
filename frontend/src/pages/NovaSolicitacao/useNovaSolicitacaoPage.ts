@@ -84,12 +84,29 @@ function buildPersistPayload(
   };
 }
 
+async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 async function loadTemplates(context: LocalProcessingContext): Promise<Map<number, ArrayBuffer>> {
   const entries = await Promise.all(
-    context.templates_ativos.map(async (template) => [
-      template.id,
-      await localProcessingApi.baixarTemplate(template.id),
-    ] as const),
+    context.templates_ativos.map(async (template) => {
+      const bytes = await localProcessingApi.baixarTemplate(template.id);
+      const expectedHash = template.arquivo_hash.trim().toLowerCase();
+      if (expectedHash) {
+        const actualHash = await sha256Hex(bytes);
+        if (actualHash !== expectedHash) {
+          throw new Error(
+            `O modelo oficial ${template.tipo} v${template.versao} recebido não corresponde à versão ativa. `
+            + 'O processamento foi bloqueado para evitar gerar uma planilha a partir do arquivo errado.',
+          );
+        }
+      }
+      return [template.id, bytes] as const;
+    }),
   );
   return new Map(entries);
 }
