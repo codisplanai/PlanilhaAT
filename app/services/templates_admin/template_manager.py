@@ -145,6 +145,27 @@ class TemplateManager:
         if not target:
             raise NotFoundException(f"Template com ID {template_id} não encontrado.")
 
+        clean_tipo = target.tipo.strip().lower()
+        if clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES and os.getenv("VERCEL") == "1":
+            raw_path = (target.arquivo_path or "").replace("\\", "/")
+            filename = os.path.basename(raw_path)
+            file_bytes = SupabaseStorageService.download_file(
+                settings.SUPABASE_STORAGE_BUCKET_TEMPLATES,
+                filename,
+            )
+            if not file_bytes:
+                raise ValidationException(
+                    f"A versão {target.tipo} v{target.versao} não possui o arquivo original "
+                    "no armazenamento persistente e não pode ser promovida como oficial."
+                )
+            expected_hash = (target.arquivo_hash or "").strip().lower()
+            actual_hash = cls.calculate_file_hash(file_bytes).lower()
+            if expected_hash and actual_hash != expected_hash:
+                raise ValidationException(
+                    f"A versão {target.tipo} v{target.versao} possui arquivo persistido divergente "
+                    "do hash registrado e não pode ser promovida."
+                )
+
         # Desativa todos do mesmo tipo
         db.query(TemplateXlsx).filter(TemplateXlsx.tipo == target.tipo).update({"ativo": False})
         target.ativo = True
