@@ -7,6 +7,7 @@ function isXmlOrZip(file: File): boolean {
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_SPED_BYTES = 50 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 
 export function useFiscalInputFiles() {
@@ -60,8 +61,8 @@ export function useFiscalInputFiles() {
       event.target.value = '';
       return;
     }
-    if (file.size === 0 || file.size > MAX_FILE_BYTES) {
-      setFileError('O arquivo SPED deve ser não vazio e ter no máximo 20 MB.');
+    if (file.size === 0 || file.size > MAX_SPED_BYTES) {
+      setFileError('O arquivo SPED deve ser não vazio e ter no máximo 50 MB.');
       event.target.value = '';
       return;
     }
@@ -78,8 +79,8 @@ export function useFiscalInputFiles() {
       setFileError('Selecione um arquivo com extensão .txt para o SPED Fiscal.');
       return;
     }
-    if (file.size === 0 || file.size > MAX_FILE_BYTES) {
-      setFileError('O arquivo SPED deve ser não vazio e ter no máximo 20 MB.');
+    if (file.size === 0 || file.size > MAX_SPED_BYTES) {
+      setFileError('O arquivo SPED deve ser não vazio e ter no máximo 50 MB.');
       return;
     }
     setSpedFile(file);
