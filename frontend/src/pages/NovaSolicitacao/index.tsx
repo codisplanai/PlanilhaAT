@@ -271,7 +271,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     Arraste o arquivo SPED Fiscal (.txt) aqui, ou <span className="text-indigo-700 underline font-bold">clique para selecionar</span>
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Arquivo de texto (.txt) gerado pelo sistema contendo blocos 0 e C • Limite: até 20 MB
+                    Arquivo de texto (.txt) gerado pelo sistema contendo blocos 0 e C • Limite: até 50 MB
                   </p>
                 </div>
               ) : (
