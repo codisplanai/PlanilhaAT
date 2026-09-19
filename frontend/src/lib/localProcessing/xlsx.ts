@@ -246,6 +246,39 @@ function worksheetForTemplate(
   );
 }
 
+const SINGLE_PERIOD_SHEET_TYPES = new Set<LocalTemplateDescriptor['tipo']>([
+  'antecipacao_tributaria',
+  'difal',
+]);
+
+function keepOnlyPeriodSheetVisible(
+  entries: Map<string, Uint8Array>,
+  selected: { name: string; path: string },
+): void {
+  const workbookRaw = entries.get('xl/workbook.xml');
+  if (!workbookRaw) throw new Error('XLSX inválido: workbook.xml ausente.');
+
+  const workbook = parseXml(workbookRaw, 'workbook.xml');
+  const sheets = Array.from(workbook.getElementsByTagNameNS(XML_NS, 'sheet'));
+  const selectedIndex = sheets.findIndex((sheet) => (sheet.getAttribute('name') ?? '') === selected.name);
+  if (selectedIndex < 0) throw new Error(`A aba selecionada "${selected.name}" não existe no workbook.`);
+
+  sheets.forEach((sheet, index) => {
+    if (index === selectedIndex) {
+      sheet.removeAttribute('state');
+      return;
+    }
+    if (sheet.getAttribute('state') !== 'veryHidden') sheet.setAttribute('state', 'hidden');
+  });
+
+  for (const view of Array.from(workbook.getElementsByTagNameNS(XML_NS, 'workbookView'))) {
+    view.setAttribute('activeTab', String(selectedIndex));
+    view.setAttribute('firstSheet', String(selectedIndex));
+  }
+
+  entries.set('xl/workbook.xml', serializeXml(workbook));
+}
+
 function createElement(doc: XMLDocument, name: string): Element {
   return doc.createElementNS(XML_NS, name);
 }
@@ -383,6 +416,10 @@ export async function fillTemplateLocally(
   });
 
   entries.set(selected.path, serializeXml(doc));
+
+  if (SINGLE_PERIOD_SHEET_TYPES.has(template.tipo)) {
+    keepOnlyPeriodSheetVisible(entries, selected);
+  }
 
   const calcRaw = entries.get('xl/workbook.xml');
   if (calcRaw) {
