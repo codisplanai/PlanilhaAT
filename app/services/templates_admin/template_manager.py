@@ -18,6 +18,8 @@ from app.services.local_files import atomic_write, remove_file_if_exists
 
 logger = logging.getLogger(__name__)
 
+STRICT_OFFICIAL_TEMPLATE_TYPES = {"antecipacao_tributaria", "difal"}
+
 class TemplateManager:
     """
     Camada 9: Gestão, upload, validação de mapeamento obrigatório e versionamento rastreável de templates Excel.
@@ -73,6 +75,17 @@ class TemplateManager:
             .first()
         )
         proxima_versao = (ultima_versao.versao + 1) if ultima_versao else 1
+
+        # DIFAL e Antecipação Tributária precisam estar em armazenamento persistente
+        # quando executadas em ambiente serverless. Sem isso, /tmp desaparece entre
+        # invocações e uma versão marcada como oficial deixa de ser reproduzível.
+        if clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES and os.getenv("VERCEL") == "1":
+            if not SupabaseStorageService.is_configured():
+                raise ValidationException(
+                    "O armazenamento persistente de templates não está configurado. "
+                    "Não é possível publicar uma versão oficial de DIFAL/Antecipação Tributária "
+                    "apenas no disco temporário da Vercel."
+                )
 
         # Salvar o arquivo no diretório de templates versionados
         ext = os.path.splitext(filename)[1] or ".xlsx"
@@ -156,37 +169,72 @@ class TemplateManager:
         return template
 
     @classmethod
+    def _path_matches_template_hash(cls, template: TemplateXlsx, path: str) -> bool:
+        try:
+            with open(path, "rb") as handle:
+                actual_hash = cls.calculate_file_hash(handle.read())
+        except OSError:
+            return False
+
+        expected_hash = (template.arquivo_hash or "").strip().lower()
+        if not expected_hash:
+            return True
+
+        matches = actual_hash.lower() == expected_hash
+        if not matches:
+            logger.warning(
+                "Template %s v%s rejeitado por divergência de hash em %s",
+                template.tipo,
+                template.versao,
+                path,
+            )
+        return matches
+
+    @classmethod
     def resolve_template_path(cls, template: TemplateXlsx) -> str:
         """
-        Resolve determinísticamente o caminho local do arquivo de template no sistema de arquivos,
-        com suporte a cold-start e ambientes serverless (Vercel):
-        1. Verifica se o caminho salvo existe diretamente no disco (normalizando separadores).
-        2. Verifica se o arquivo pelo basename existe no diretório TEMPLATES_DIR.
-        3. Tenta baixar do Supabase Storage se configurado.
-        4. Tenta carregar o modelo padrão oficial dos templates empacotados (BUNDLED_TEMPLATES_DIR).
+        Resolve determinísticamente o arquivo exato associado à versão do template.
+
+        Para DIFAL e Antecipação Tributária, nunca substitui silenciosamente uma
+        versão oficial ausente por outro modelo empacotado: o SHA-256 precisa ser
+        exatamente o registrado na versão ativa.
         """
         raw_path = (template.arquivo_path or "").replace("\\", "/")
         clean_tipo = template.tipo.strip().lower()
         filename = os.path.basename(raw_path) if raw_path else f"modelo_padrao_{clean_tipo}.xlsx"
+        strict_official = clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES
 
         # 1. Caminho direto existente
         if raw_path and os.path.exists(raw_path):
-            return raw_path
+            if not strict_official or cls._path_matches_template_hash(template, raw_path):
+                return raw_path
 
         # 2. Arquivo presente no diretório de templates runtime
         runtime_path = os.path.join(settings.TEMPLATES_DIR, filename)
         if os.path.exists(runtime_path):
-            return runtime_path
+            if not strict_official or cls._path_matches_template_hash(template, runtime_path):
+                return runtime_path
 
         # 3. Download do Supabase Storage
         file_bytes = SupabaseStorageService.download_file(
             settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, filename
         )
         if file_bytes:
+            if strict_official:
+                downloaded_hash = cls.calculate_file_hash(file_bytes).lower()
+                expected_hash = (template.arquivo_hash or "").strip().lower()
+                if expected_hash and downloaded_hash != expected_hash:
+                    raise ValidationException(
+                        f"O arquivo persistido da versão oficial {template.tipo} v{template.versao} "
+                        "não corresponde ao hash registrado. O processamento foi bloqueado para "
+                        "evitar o uso de um modelo incorreto."
+                    )
             atomic_write(runtime_path, file_bytes, prefix="template_download_")
             return runtime_path
 
-        # 4. Fallback para os modelos oficiais empacotados no repositório
+        # 4. Fallback para modelos empacotados. Para os tipos oficiais estritos,
+        # o fallback só é permitido quando o próprio arquivo empacotado possui
+        # exatamente o mesmo hash da versão registrada (ex.: versão seed original).
         bundled_candidates = [
             os.path.join(settings.BUNDLED_TEMPLATES_DIR, filename),
             os.path.join(settings.BUNDLED_TEMPLATES_DIR, f"modelo_padrao_{clean_tipo}.xlsx"),
@@ -195,8 +243,17 @@ class TemplateManager:
             os.path.join(os.getcwd(), "storage", "templates", filename),
         ]
         for candidate in bundled_candidates:
-            if os.path.exists(candidate):
+            if not os.path.exists(candidate):
+                continue
+            if not strict_official or cls._path_matches_template_hash(template, candidate):
                 return candidate
+
+        if strict_official:
+            raise ValidationException(
+                f"A versão oficial {template.tipo} v{template.versao} está ativa, mas o arquivo original "
+                f"'{filename}' não está disponível no armazenamento persistente. "
+                "O sistema não utilizará outra versão no lugar dela. Reenvie o arquivo e publique-o como oficial."
+            )
 
         raise ValidationException(
             f"Arquivo de template '{filename}' (tipo: '{template.tipo}') não foi encontrado no servidor "
