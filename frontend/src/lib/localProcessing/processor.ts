@@ -3,6 +3,7 @@ import type {
   LocalOutputRow,
   LocalProcessingRequest,
   LocalProcessingResult,
+  LocalTemplateDescriptor,
 } from '../../types/localProcessing';
 import type {
   AvisoAvaliacao,
@@ -136,6 +137,7 @@ function sortRows(rows: LocalOutputRow[]): void {
 export async function processFiscalLocally(
   request: LocalProcessingRequest,
   templateBytes: Map<number, ArrayBuffer>,
+  loadTemplate?: (template: LocalTemplateDescriptor) => Promise<ArrayBuffer>,
 ): Promise<LocalProcessingResult> {
   const { context, periodoInicio, periodoFim, solicitacaoId } = request;
   const diagnostic = request.diagnostic;
@@ -522,8 +524,16 @@ export async function processFiscalLocally(
       if (!rows?.length) continue;
       const template = context.templates_ativos.find((item) => item.tipo === destination);
       if (!template) continue;
-      const bytes = templateBytes.get(template.id);
-      if (!bytes) throw new Error(`Template ativo não carregado para ${destination}.`);
+      let bytes = templateBytes.get(template.id);
+      if (!bytes && loadTemplate) {
+        bytes = await loadTemplate(template);
+        templateBytes.set(template.id, bytes);
+      }
+      if (!bytes) {
+        throw new Error(
+          `O modelo oficial necessário para ${destination} não pôde ser carregado (template ${template.id}, v${template.versao}).`,
+        );
+      }
 
       const output = await fillTemplateLocally(bytes, template, rows, {
         razaoSocial: context.empresa.razao_social,

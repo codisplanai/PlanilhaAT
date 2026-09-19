@@ -11,6 +11,7 @@ import type {
   LocalProcessingContext,
   LocalProcessingPersistPayload,
   LocalProcessingResult,
+  LocalTemplateDescriptor,
 } from '../../types/localProcessing';
 import type { Solicitacao, TipoPlanilha, NotaBonificacaoPendencia } from '../../types/solicitacao';
 import {
@@ -91,24 +92,27 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
     .join('');
 }
 
-async function loadTemplates(context: LocalProcessingContext): Promise<Map<number, ArrayBuffer>> {
-  const entries = await Promise.all(
-    context.templates_ativos.map(async (template) => {
-      const bytes = await localProcessingApi.baixarTemplate(template.id);
-      const expectedHash = template.arquivo_hash.trim().toLowerCase();
-      if (expectedHash) {
-        const actualHash = await sha256Hex(bytes);
-        if (actualHash !== expectedHash) {
-          throw new Error(
-            `O modelo oficial ${template.tipo} v${template.versao} recebido não corresponde à versão ativa. `
-            + 'O processamento foi bloqueado para evitar gerar uma planilha a partir do arquivo errado.',
-          );
-        }
-      }
-      return [template.id, bytes] as const;
-    }),
-  );
-  return new Map(entries);
+async function loadOfficialTemplate(template: LocalTemplateDescriptor): Promise<ArrayBuffer> {
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await localProcessingApi.baixarTemplate(template.id);
+  } catch (error) {
+    throw new Error(
+      `Não foi possível carregar o modelo oficial ${template.tipo} v${template.versao}: ${getErrorMessage(error)}`,
+    );
+  }
+
+  const expectedHash = template.arquivo_hash.trim().toLowerCase();
+  if (expectedHash) {
+    const actualHash = await sha256Hex(bytes);
+    if (actualHash !== expectedHash) {
+      throw new Error(
+        `O modelo oficial ${template.tipo} v${template.versao} recebido não corresponde à versão ativa. `
+        + 'O processamento foi bloqueado para evitar gerar uma planilha a partir do arquivo errado.',
+      );
+    }
+  }
+  return bytes;
 }
 
 export function useNovaSolicitacaoPage() {
@@ -187,12 +191,10 @@ export function useNovaSolicitacaoPage() {
       regrasCfop: context.regras_cfop.length,
       modelosAtivos: context.templates_ativos.length,
     }, Math.round(performance.now() - contextStartedAt));
-    const templatesStartedAt = performance.now();
-    const templateBytes = await loadTemplates(context);
-    diagnostic?.event('info', 'configuracao', 'Modelos de planilha carregados em memória.', {
-      quantidade: templateBytes.size,
-      tamanhoTotalBytes: [...templateBytes.values()].reduce((sum, bytes) => sum + bytes.byteLength, 0),
-    }, Math.round(performance.now() - templatesStartedAt));
+    // Os arquivos XLSX são carregados somente quando a classificação fiscal
+    // produzir linhas para aquele destino. Um modelo ativo não utilizado não pode
+    // bloquear a leitura/transformação dos arquivos da solicitação.
+    const templateBytes = new Map<number, ArrayBuffer>();
 
     const localResult = await processFiscalLocally(
       {
@@ -209,6 +211,22 @@ export function useNovaSolicitacaoPage() {
         diagnostic: diagnostic ?? undefined,
       },
       templateBytes,
+      async (template) => {
+        const startedAt = performance.now();
+        diagnostic?.stage('geracao_planilha', 'Carregamento do modelo oficial necessário iniciado.', {
+          tipo: template.tipo,
+          templateId: template.id,
+          versao: template.versao,
+        });
+        const bytes = await loadOfficialTemplate(template);
+        diagnostic?.event('info', 'geracao_planilha', 'Modelo oficial carregado e validado por hash.', {
+          tipo: template.tipo,
+          templateId: template.id,
+          versao: template.versao,
+          tamanhoBytes: bytes.byteLength,
+        }, Math.round(performance.now() - startedAt));
+        return bytes;
+      },
     );
 
     if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.notas_bonificacao.length > 0) {
