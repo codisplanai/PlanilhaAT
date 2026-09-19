@@ -76,17 +76,6 @@ class TemplateManager:
         )
         proxima_versao = (ultima_versao.versao + 1) if ultima_versao else 1
 
-        # DIFAL e Antecipação Tributária precisam estar em armazenamento persistente
-        # quando executadas em ambiente serverless. Sem isso, /tmp desaparece entre
-        # invocações e uma versão marcada como oficial deixa de ser reproduzível.
-        if clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES and os.getenv("VERCEL") == "1":
-            if not SupabaseStorageService.is_configured():
-                raise ValidationException(
-                    "O armazenamento persistente de templates não está configurado. "
-                    "Não é possível publicar uma versão oficial de DIFAL/Antecipação Tributária "
-                    "apenas no disco temporário da Vercel."
-                )
-
         # Salvar o arquivo no diretório de templates versionados
         ext = os.path.splitext(filename)[1] or ".xlsx"
         stored_filename = f"template_{clean_tipo}_v{proxima_versao}_{file_hash[:8]}{ext}"
@@ -97,14 +86,19 @@ class TemplateManager:
         except Exception:
             raise ValidationException("Não foi possível armazenar o template enviado.")
 
-        # Upload para Supabase Storage se configurado (armazenamento em nuvem)
+        # O banco é a fonte persistente primária do arquivo original. O Supabase
+        # Storage permanece como réplica opcional quando houver credencial de serviço.
         if SupabaseStorageService.is_configured() and not SupabaseStorageService.upload_file(
             bucket=settings.SUPABASE_STORAGE_BUCKET_TEMPLATES,
             path=stored_filename,
             file_bytes=file_bytes,
         ):
-            remove_file_if_exists(stored_path)
-            raise ValidationException("Não foi possível armazenar o template na nuvem.")
+            logger.warning(
+                "Não foi possível replicar o template %s v%s no Supabase Storage; "
+                "o arquivo original permanece persistido no banco.",
+                clean_tipo,
+                proxima_versao,
+            )
 
         # Se for o primeiro template do tipo, ativa por padrão se não houver ativo
         template_ativo_existente = (
@@ -123,6 +117,7 @@ class TemplateManager:
             versao=proxima_versao,
             arquivo_path=stored_path,
             arquivo_hash=file_hash,
+            arquivo_blob=file_bytes,
             mapeamento_campos=validated_mapping.dict(),
             ativo=deve_ativar,
             observacoes=observacoes
@@ -146,25 +141,10 @@ class TemplateManager:
             raise NotFoundException(f"Template com ID {template_id} não encontrado.")
 
         clean_tipo = target.tipo.strip().lower()
-        if clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES and os.getenv("VERCEL") == "1":
-            raw_path = (target.arquivo_path or "").replace("\\", "/")
-            filename = os.path.basename(raw_path)
-            file_bytes = SupabaseStorageService.download_file(
-                settings.SUPABASE_STORAGE_BUCKET_TEMPLATES,
-                filename,
-            )
-            if not file_bytes:
-                raise ValidationException(
-                    f"A versão {target.tipo} v{target.versao} não possui o arquivo original "
-                    "no armazenamento persistente e não pode ser promovida como oficial."
-                )
-            expected_hash = (target.arquivo_hash or "").strip().lower()
-            actual_hash = cls.calculate_file_hash(file_bytes).lower()
-            if expected_hash and actual_hash != expected_hash:
-                raise ValidationException(
-                    f"A versão {target.tipo} v{target.versao} possui arquivo persistido divergente "
-                    "do hash registrado e não pode ser promovida."
-                )
+        if clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES:
+            # A promoção só é permitida se a versão puder resolver exatamente
+            # o arquivo correspondente ao hash registrado.
+            cls.resolve_template_path(target)
 
         # Desativa todos do mesmo tipo
         db.query(TemplateXlsx).filter(TemplateXlsx.tipo == target.tipo).update({"ativo": False})
@@ -236,7 +216,22 @@ class TemplateManager:
             if not strict_official or cls._path_matches_template_hash(template, runtime_path):
                 return runtime_path
 
-        # 3. Download do Supabase Storage
+        # 3. Bytes originais persistidos no banco. Essa é a fonte de verdade
+        # para uploads feitos pelo app e sobrevive a cold starts/deploys da Vercel.
+        persisted_blob = getattr(template, "arquivo_blob", None)
+        if persisted_blob:
+            file_bytes = bytes(persisted_blob)
+            expected_hash = (template.arquivo_hash or "").strip().lower()
+            persisted_hash = cls.calculate_file_hash(file_bytes).lower()
+            if expected_hash and persisted_hash != expected_hash:
+                raise ValidationException(
+                    f"O arquivo persistido da versão {template.tipo} v{template.versao} "
+                    "não corresponde ao hash registrado. O processamento foi bloqueado."
+                )
+            atomic_write(runtime_path, file_bytes, prefix="template_db_")
+            return runtime_path
+
+        # 4. Réplica opcional no Supabase Storage
         file_bytes = SupabaseStorageService.download_file(
             settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, filename
         )
@@ -253,7 +248,7 @@ class TemplateManager:
             atomic_write(runtime_path, file_bytes, prefix="template_download_")
             return runtime_path
 
-        # 4. Fallback para modelos empacotados. Para os tipos oficiais estritos,
+        # 5. Fallback para modelos empacotados. Para os tipos oficiais estritos,
         # o fallback só é permitido quando o próprio arquivo empacotado possui
         # exatamente o mesmo hash da versão registrada (ex.: versão seed original).
         bundled_candidates = [
