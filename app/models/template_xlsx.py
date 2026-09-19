@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, UniqueConstraint, Index
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, UniqueConstraint, Index, LargeBinary
+from sqlalchemy.orm import relationship, deferred
 
 from app.core.database import Base
 from app.core.time import utcnow_naive
@@ -12,6 +12,7 @@ class TemplateXlsx(Base):
     versao = Column(Integer, nullable=False)               # 1, 2, 3...
     arquivo_path = Column(String(500), nullable=False)
     arquivo_hash = Column(String(64), nullable=False)      # SHA256 do arquivo original
+    arquivo_blob = deferred(Column(LargeBinary, nullable=True))  # Bytes originais persistidos para runtimes efêmeros
     mapeamento_campos = Column(JSON, nullable=False)       # Mapeamento obrigatório declarado de linhas/colunas
     ativo = Column(Boolean, default=False, nullable=False) # Apenas 1 ativo por tipo
     observacoes = Column(Text, nullable=True)
