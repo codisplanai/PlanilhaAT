@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Copy,
   Sliders,
   Plus,
   Edit2,
@@ -50,6 +51,8 @@ export const PerfisRegrasPage: React.FC = () => {
     perfilModalOpen,
     setPerfilModalOpen,
     editingPerfil,
+    duplicatingPerfil,
+    openDuplicatePerfil,
     regraModalOpen,
     setRegraModalOpen,
     editingRegra,
@@ -176,7 +179,7 @@ export const PerfisRegrasPage: React.FC = () => {
                     aria-pressed={isSelected}
                     onClick={() => setSelectedPerfilId(p.id)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                      if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                         e.preventDefault();
                         setSelectedPerfilId(p.id);
                       }
@@ -207,6 +210,18 @@ export const PerfisRegrasPage: React.FC = () => {
                           aria-label={`Editar perfil ${p.nome}`}
                         >
                           <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDuplicatePerfil(p);
+                          }}
+                          className="p-1 rounded-md text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+                          title="Duplicar perfil"
+                          aria-label={`Duplicar perfil ${p.nome}`}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
                         </button>
                         {perfis.length > 1 && (
                           <button
@@ -674,8 +689,8 @@ export const PerfisRegrasPage: React.FC = () => {
       <Modal
         isOpen={perfilModalOpen}
         onClose={() => setPerfilModalOpen(false)}
-        title={editingPerfil ? 'Editar Perfil de Regras' : 'Novo Perfil de Regras'}
-        subtitle="Perfis agrupam conjuntos de regras e alíquotas compartilhados entre várias empresas"
+        title={duplicatingPerfil ? 'Duplicar Perfil de Regras' : editingPerfil ? 'Editar Perfil de Regras' : 'Novo Perfil de Regras'}
+        subtitle={duplicatingPerfil ? `Cópia de ${duplicatingPerfil.nome}: inclui todas as regras, exceções e configurações. As empresas permanecem no perfil original.` : "Perfis agrupam conjuntos de regras e alíquotas compartilhados entre várias empresas"}
       >
         {errorMessage && <ErrorAlert message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
         <form onSubmit={submitPerfil} className="space-y-4">
@@ -685,6 +700,7 @@ export const PerfisRegrasPage: React.FC = () => {
             {...registerPerfil('nome')}
             error={errorsPerfil.nome?.message}
           />
+          {!duplicatingPerfil && <>
           <Input
             label="Descrição (Opcional)"
             placeholder="Ex: Perfil padrão para empresas de vestuário e calçados"
@@ -707,12 +723,13 @@ export const PerfisRegrasPage: React.FC = () => {
               </span>
             </label>
           </div>
+          </>}
           <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
             <Button type="button" variant="outline" onClick={() => setPerfilModalOpen(false)}>
               Cancelar
             </Button>
             <Button type="submit" isLoading={isSubmittingPerfil}>
-              Salvar Perfil
+              {duplicatingPerfil ? 'Duplicar Perfil' : 'Salvar Perfil'}
             </Button>
           </div>
         </form>
