@@ -87,3 +87,17 @@ class PerfilRegrasOut(PerfilRegrasBase):
 
     class Config:
         orm_mode = True
+
+
+class PerfilRegrasDuplicar(BaseModel):
+    nome: str = Field(..., min_length=1, max_length=100)
+
+    @validator("nome")
+    def validate_name(cls, value):
+        clean = value.strip()
+        if not clean:
+            raise ValueError("Nome não pode ser vazio")
+        return clean
+
+    class Config:
+        extra = "forbid"
