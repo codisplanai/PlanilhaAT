@@ -15,7 +15,7 @@ import type { RegraAliquota, RegraAliquotaCreate } from '../../types/regra';
 import type { RegraCfopCreate, RegraCfopEfetiva } from '../../types/regraCfop';
 
 const perfilSchema = z.object({
-  nome: z.string().min(2, 'Informe o nome do perfil'),
+  nome: z.string().trim().min(2, 'Informe o nome do perfil').max(100, 'Use até 100 caracteres'),
   descricao: z.string().optional(),
   limitar_a_ori_reducoes: z.boolean().optional(),
 });
@@ -51,6 +51,7 @@ export function usePerfisRegrasPage() {
   const queryClient = useQueryClient();
   const [selectedPerfilId, setSelectedPerfilId] = useState<number | null>(null);
   const [perfilModalOpen, setPerfilModalOpen] = useState(false);
+  const [duplicatingPerfil, setDuplicatingPerfil] = useState<PerfilRegras | null>(null);
   const [editingPerfil, setEditingPerfil] = useState<PerfilRegras | null>(null);
   const [regraModalOpen, setRegraModalOpen] = useState(false);
   const [editingRegra, setEditingRegra] = useState<RegraAliquota | null>(null);
@@ -102,6 +103,15 @@ export function usePerfisRegrasPage() {
 
   const createPerfilMutation = useMutation({
     mutationFn: (payload: PerfilRegrasCreate) => perfisApi.criar(payload),
+    onSuccess: async (newPerfil) => {
+      await invalidatePerfis();
+      setSelectedPerfilId(newPerfil.id);
+      setPerfilModalOpen(false);
+    },
+    onError: mutationError,
+  });
+  const duplicatePerfilMutation = useMutation({
+    mutationFn: ({ id, nome }: { id: number; nome: string }) => perfisApi.duplicar(id, nome),
     onSuccess: async (newPerfil) => {
       await invalidatePerfis();
       setSelectedPerfilId(newPerfil.id);
@@ -184,12 +194,14 @@ export function usePerfisRegrasPage() {
   });
 
   const openCreatePerfil = () => {
+    setDuplicatingPerfil(null);
     setEditingPerfil(null);
     setErrorMessage(null);
     perfilForm.reset({ nome: '', descricao: '', limitar_a_ori_reducoes: false });
     setPerfilModalOpen(true);
   };
   const openEditPerfil = (perfil: PerfilRegras) => {
+    setDuplicatingPerfil(null);
     setEditingPerfil(perfil);
     setErrorMessage(null);
     perfilForm.reset({
@@ -199,9 +211,26 @@ export function usePerfisRegrasPage() {
     });
     setPerfilModalOpen(true);
   };
+  const openDuplicatePerfil = (perfil: PerfilRegras) => {
+    setEditingPerfil(null);
+    setDuplicatingPerfil(perfil);
+    setErrorMessage(null);
+    let suffix = ' (cópia)';
+    let nome = perfil.nome.slice(0, 100 - suffix.length) + suffix;
+    for (let n = 2; perfis.some((item) => item.nome === nome); n += 1) {
+      suffix = ` (cópia ${n})`;
+      nome = perfil.nome.slice(0, 100 - suffix.length) + suffix;
+    }
+    perfilForm.reset({ nome });
+    setPerfilModalOpen(true);
+  };
   const submitPerfil = perfilForm.handleSubmit(async (data) => {
     setErrorMessage(null);
     try {
+      if (duplicatingPerfil) {
+        await duplicatePerfilMutation.mutateAsync({ id: duplicatingPerfil.id, nome: data.nome });
+        return;
+      }
       const payload: PerfilRegrasCreate = {
         nome: data.nome,
         descricao: data.descricao || null,
@@ -413,6 +442,8 @@ export function usePerfisRegrasPage() {
     perfilModalOpen,
     setPerfilModalOpen,
     editingPerfil,
+    duplicatingPerfil,
+    openDuplicatePerfil,
     regraModalOpen,
     setRegraModalOpen,
     editingRegra,
