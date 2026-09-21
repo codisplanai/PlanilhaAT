@@ -5,11 +5,16 @@ export function selectTemplateForRows(
   templates: LocalTemplateDescriptor[],
   tipo: TipoPlanilha,
   requiredRows: number,
+  safetyMargin = 0,
 ): LocalTemplateDescriptor | null {
   if (!Number.isInteger(requiredRows) || requiredRows < 1) {
     throw new Error('A quantidade de linhas necessária deve ser maior ou igual a 1.');
   }
+  if (!Number.isInteger(safetyMargin) || safetyMargin < 0) {
+    throw new Error('A margem de segurança deve ser um número inteiro maior ou igual a 0.');
+  }
 
+  const requiredCapacity = requiredRows + safetyMargin;
   const candidates = templates.filter((template) => template.tipo === tipo);
   const capacityTemplates = candidates
     .filter(
@@ -25,14 +30,17 @@ export function selectTemplateForRows(
 
   if (capacityTemplates.length > 0) {
     const selected = capacityTemplates.find(
-      (template) => Number(template.capacidade_linhas) >= requiredRows,
+      (template) => Number(template.capacidade_linhas) >= requiredCapacity,
     );
     if (selected) return selected;
 
     const maxCapacity = Number(capacityTemplates[capacityTemplates.length - 1].capacidade_linhas);
+    const marginDetail = safetyMargin > 0
+      ? ` + ${safetyMargin} linhas de segurança = ${requiredCapacity}`
+      : '';
     throw new Error(
-      `O processamento de ${tipo} necessita de ${requiredRows} linhas, mas o maior modelo oficial cadastrado suporta ${maxCapacity} linhas. `
-      + `Cadastre um modelo com capacidade igual ou superior a ${requiredRows}.`,
+      `O processamento de ${tipo} necessita de ${requiredRows} linhas${marginDetail}, mas o maior modelo oficial cadastrado suporta ${maxCapacity} linhas. `
+      + `Cadastre um modelo com capacidade igual ou superior a ${requiredCapacity}.`,
     );
   }
 
