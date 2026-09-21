@@ -100,6 +100,31 @@ class RevendaAntecipacaoTributariaPolicy:
     def _clean_ncm(ncm: Optional[str]) -> str:
         return re.sub(r"\D", "", str(ncm or ""))
 
+    @staticmethod
+    def _clean_cnpj(cnpj: Optional[str]) -> str:
+        return re.sub(r"\D", "", str(cnpj or ""))
+
+    @classmethod
+    def config_for_empresa(
+        cls,
+        configuracoes: Optional[Mapping[str, Any]],
+        empresa_cnpj: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Retorna a política ativa somente para a empresa autorizada.
+
+        Perfis antigos sem empresa_cnpj continuam compatíveis. Quando o campo é
+        informado, ele funciona como trava adicional para impedir que a regra
+        especial seja aplicada caso o perfil seja associado por engano a outra empresa.
+        """
+        config = cls.config_from_profile(configuracoes)
+        if not config:
+            return None
+
+        expected = cls._clean_cnpj(config.get("empresa_cnpj"))
+        if expected and expected != cls._clean_cnpj(empresa_cnpj):
+            return None
+        return config
+
     @classmethod
     def classify(
         cls,
