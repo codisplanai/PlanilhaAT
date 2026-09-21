@@ -179,8 +179,9 @@ class ProcessingPipelineService:
                 if empresa.perfil_regras and empresa.perfil_regras.configuracoes_extras
                 else {}
             )
-            revenda_tributaria_config = RevendaAntecipacaoTributariaPolicy.config_from_profile(
-                configuracoes_perfil
+            revenda_tributaria_config = RevendaAntecipacaoTributariaPolicy.config_for_empresa(
+                configuracoes_perfil,
+                empresa.cnpj,
             )
 
             for filename, nf_data in raw_nfs:
