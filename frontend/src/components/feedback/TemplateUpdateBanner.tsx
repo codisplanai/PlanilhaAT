@@ -41,7 +41,7 @@ export const TemplateUpdateBanner: React.FC = () => {
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-300/90 leading-relaxed">
-              Todas as novas apurações fiscais geradas utilizarão automaticamente a versão mais recente dos modelos:
+              Cada apuração utiliza automaticamente o menor modelo oficial cuja capacidade comporte todas as linhas geradas:
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {templatesAtivos.map((t) => (
@@ -54,7 +54,7 @@ export const TemplateUpdateBanner: React.FC = () => {
                     {getPlanilhaLabel(t.tipo)}:
                   </span>
                   <span className="px-1.5 py-0.2 rounded bg-blue-900/70 text-cyan-300 font-mono text-[10px] font-bold">
-                    v{t.versao}
+                    v{t.versao}{t.capacidade_linhas ? ` · até ${t.capacidade_linhas.toLocaleString('pt-BR')} linhas` : ' · legado'}
                   </span>
                 </div>
               ))}
