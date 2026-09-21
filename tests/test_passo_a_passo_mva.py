@@ -21,6 +21,7 @@ from app.services.rules_engine.revenda_antecipacao_policy import (
 
 POLICY_CONFIG = {
     "enabled": True,
+    "empresa_cnpj": "33906322000153",
     "special_ncms": ["64039990"],
     "description_fallback_ncms": ["61178090"],
     "special_keywords": ["CINTO", "CINTOS"],
@@ -30,6 +31,26 @@ POLICY_CONFIG = {
         "demais": {"4": "69.06", "7": "63.77", "12": "54.97", "original": "40.00"},
     },
 }
+
+
+def test_politica_especial_exige_cnpj_configurado():
+    configuracoes = {PROFILE_CONFIG_KEY: POLICY_CONFIG}
+
+    assert RevendaAntecipacaoTributariaPolicy.config_for_empresa(
+        configuracoes,
+        "33.906.322/0001-53",
+    ) is not None
+    assert RevendaAntecipacaoTributariaPolicy.config_for_empresa(
+        configuracoes,
+        "12345678000195",
+    ) is None
+
+    sem_cnpj = {PROFILE_CONFIG_KEY: {**POLICY_CONFIG}}
+    sem_cnpj[PROFILE_CONFIG_KEY].pop("empresa_cnpj")
+    assert RevendaAntecipacaoTributariaPolicy.config_for_empresa(
+        sem_cnpj,
+        "33906322000153",
+    ) is None
 
 
 @pytest.mark.parametrize(
