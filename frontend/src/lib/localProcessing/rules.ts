@@ -1,7 +1,8 @@
 import type { LocalProcessingContext, LocalMvaEntry } from '../../types/localProcessing';
 import type { CfopResolution, ExtractedItem, TaxRateResolution } from './domain';
 import type { TipoPlanilha } from '../../types/solicitacao';
-import { calculateTax } from './calculations';
+import type { MvaAntecipacaoTributariaConfig } from '../../types/perfil';
+import { calculateTax } from './calculations.ts';
 
 const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_parcial',
@@ -9,6 +10,98 @@ const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_parcial_simples',
   'antecipacao_parcial_antecipado_simples',
 ]);
+
+export interface RevendaMvaClassification {
+  grupo: 'especial' | 'demais';
+  fonte: string;
+  aviso?: string;
+}
+
+export function getRevendaAntecipacaoConfig(
+  context: LocalProcessingContext,
+): MvaAntecipacaoTributariaConfig | null {
+  const config = context.perfil.configuracoes_extras.mva_revenda_antecipacao_tributaria;
+  if (!config || config.enabled !== true) return null;
+  const expectedCnpj = String(config.empresa_cnpj ?? '').replace(/\D/g, '');
+  const actualCnpj = String(context.empresa.cnpj ?? '').replace(/\D/g, '');
+  return expectedCnpj && expectedCnpj === actualCnpj ? config : null;
+}
+
+export function redirectRevendaToAntecipacaoTributaria(
+  config: MvaAntecipacaoTributariaConfig | null,
+  destination: TipoPlanilha,
+): TipoPlanilha {
+  return config && destination === 'antecipacao_parcial'
+    ? 'antecipacao_tributaria'
+    : destination;
+}
+
+export function classifyRevendaMva(
+  config: MvaAntecipacaoTributariaConfig,
+  item: ExtractedItem,
+): RevendaMvaClassification {
+  const cleanNcm = item.ncm.replace(/\D/g, '');
+  const description = item.descricaoConfiavel ? normalizeDescription(item.descricao) : '';
+
+  if (description && anyTerm(description, config.exclusion_keywords)) {
+    return {
+      grupo: 'demais',
+      fonte: 'descricao_exclusao',
+      aviso: `NCM ${cleanNcm || 'ausente'} mantido em 'demais produtos' porque a descrição identifica mercadoria fora do grupo bolsas/cintos/calçados/carteiras.`,
+    };
+  }
+
+  const specialNcms = new Set(config.special_ncms.map((value) => value.replace(/\D/g, '')).filter(Boolean));
+  if (specialNcms.has(cleanNcm)) return { grupo: 'especial', fonte: 'ncm_exato' };
+
+  const fallbackNcms = new Set(
+    config.description_fallback_ncms.map((value) => value.replace(/\D/g, '')).filter(Boolean),
+  );
+  if (fallbackNcms.has(cleanNcm)) {
+    if (!item.descricaoConfiavel || !description) {
+      return {
+        grupo: 'demais',
+        fonte: 'fallback_sem_descricao_confiavel',
+        aviso: `NCM ${cleanNcm} exige confirmação por descrição para entrar no grupo especial; como a descrição não é confiável, foi usado o grupo 'demais produtos'.`,
+      };
+    }
+    if (anyTerm(description, config.special_keywords)) {
+      return {
+        grupo: 'especial',
+        fonte: 'ncm_fallback_descricao',
+        aviso: `NCM ${cleanNcm} classificado como especial por confirmação da descrição do produto.`,
+      };
+    }
+    return { grupo: 'demais', fonte: 'ncm_fallback_sem_match' };
+  }
+
+  return { grupo: 'demais', fonte: 'padrao' };
+}
+
+export function resolveRevendaMva(
+  config: MvaAntecipacaoTributariaConfig,
+  grupo: RevendaMvaClassification['grupo'],
+  aOri: number,
+  fornecedorSimples: boolean,
+): number {
+  const key = fornecedorSimples
+    ? 'original'
+    : aOri <= 0
+      ? '12'
+      : aOri <= 0.05 || (aOri >= 3.5 && aOri <= 4.5)
+        ? '4'
+        : aOri <= 0.09 || (aOri >= 6.5 && aOri <= 7.5)
+          ? '7'
+          : aOri <= 0.15 || (aOri >= 11.5 && aOri <= 12.5)
+            ? '12'
+            : null;
+  if (!key) throw new Error(`Alíquota de origem '${aOri}' não possui MVA parametrizada para este perfil.`);
+  const value = Number(config.mvas[grupo][key]);
+  if (!Number.isFinite(value)) {
+    throw new Error(`MVA '${key}' não configurada para o grupo '${grupo}'.`);
+  }
+  return value;
+}
 
 export function normalizeDescription(value?: string | null): string {
   return String(value ?? '')

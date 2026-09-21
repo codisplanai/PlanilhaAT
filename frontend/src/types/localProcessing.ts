@@ -14,6 +14,7 @@ import type { RegraExclusaoParcial } from './regraExclusaoParcial';
 import type { RegraReclassificacaoCfop } from './regraReclassificacaoCfop';
 import type { RegraReducao } from './regraReducao';
 import type { DiagnosticRecorder } from '../lib/processingDiagnostics';
+import type { PerfilConfiguracoesExtras } from './perfil';
 
 export interface LocalTemplateDescriptor {
   id: number;
@@ -36,7 +37,7 @@ export interface LocalProcessingProfile {
   id: number;
   nome: string;
   descricao?: string | null;
-  configuracoes_extras: Record<string, unknown>;
+  configuracoes_extras: PerfilConfiguracoesExtras;
 }
 
 export interface LocalProcessingContext {
