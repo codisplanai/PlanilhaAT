@@ -25,7 +25,6 @@ CONFIG_KEY = "mva_revenda_antecipacao_tributaria"
 POLICY_CONFIG = {
     "enabled": True,
     "empresa_cnpj": COMPANY_CNPJ,
-    "empresa_cnpj": COMPANY_CNPJ,
     "special_ncms": [
         "42022100", "42022210", "42022220", "42022900",
         "42023100", "42023200", "42023900", "42033000",
