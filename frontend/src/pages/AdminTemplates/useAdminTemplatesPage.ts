@@ -257,8 +257,8 @@ export function useAdminTemplatesPage() {
     setPromoteError,
     uploadTemplate,
     register: form.register,
-    watch: form.watch,
     errors: form.formState.errors,
+    uploadType: form.watch('tipo'),
     isUploading: form.formState.isSubmitting || uploadMutation.isPending,
   };
 }
