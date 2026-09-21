@@ -52,7 +52,7 @@ export const AdminTemplatesPage: React.FC = () => {
       <PageHeader
         icon={<ShieldAlert className="w-5 h-5 text-amber-600" />}
         title="Administração de Modelos de Planilha (Templates)"
-        description="Gestão restrita de arquivos .xlsx, mapeamento obrigatório de células de entrada e controle de versões"
+        description="Gestão de modelos .xlsx por tipo e capacidade, com seleção automática do menor modelo suficiente para cada processamento"
         badge={<Badge variant="warning" size="sm">Área Restrita</Badge>}
         action={
           <Button
@@ -124,9 +124,14 @@ export const AdminTemplatesPage: React.FC = () => {
                         <h3 className="text-sm font-bold text-slate-900">
                           Versão {template.versao} — {tiposPlanilha.find((t) => t.id === template.tipo)?.nome}
                         </h3>
+                        <Badge variant="neutral" size="sm">
+                          {template.capacidade_linhas
+                            ? `Capacidade: ${template.capacidade_linhas.toLocaleString('pt-BR')} linhas`
+                            : 'Modelo legado'}
+                        </Badge>
                         {isAtivo ? (
                           <Badge variant="success" size="sm" dot>
-                            Versão Vigente (Ativa)
+                            Oficial nesta capacidade
                           </Badge>
                         ) : (
                           <Badge variant="neutral" size="sm">
@@ -150,7 +155,7 @@ export const AdminTemplatesPage: React.FC = () => {
                       disabled={isPromoting}
                       leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                     >
-                      Ativar Esta Versão
+                      Ativar nesta capacidade
                     </Button>
                   )}
                 </div>
@@ -190,8 +195,8 @@ export const AdminTemplatesPage: React.FC = () => {
       <Modal
         isOpen={modalOpen}
         onClose={closeModal}
-        title="Subir Nova Versão de Template Excel"
-        subtitle="O mapeamento de coordenadas de entrada é estritamente obrigatório para não corromper fórmulas."
+        title="Cadastrar Modelo Excel por Capacidade"
+        subtitle="Informe quantas linhas de dados o arquivo comporta. O sistema escolherá automaticamente o menor modelo suficiente para cada processamento."
         maxWidth="2xl"
       >
         {errorMessage && (
@@ -203,7 +208,7 @@ export const AdminTemplatesPage: React.FC = () => {
         )}
 
         <form onSubmit={uploadTemplate} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <Select
                 label="Tipo de Planilha Modelo"
@@ -211,6 +216,20 @@ export const AdminTemplatesPage: React.FC = () => {
                 {...register('tipo')}
                 error={errors.tipo?.message}
               />
+            </div>
+
+            <div>
+              <Input
+                label="Capacidade de linhas"
+                type="number"
+                min={1}
+                placeholder="Ex: 300"
+                {...register('capacidade_linhas', { valueAsNumber: true })}
+                error={errors.capacidade_linhas?.message}
+              />
+              <p className="mt-1 text-[10px] text-slate-500">
+                Quantidade máxima de linhas de dados que este modelo comporta.
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -322,7 +341,7 @@ export const AdminTemplatesPage: React.FC = () => {
               {...register('promover_ativo')}
             />
             <label htmlFor="promover_ativo" className="text-xs text-slate-700 font-medium cursor-pointer select-none">
-              Tornar esta versão imediatamente vigente (ativa) para novos processamentos
+              Tornar esta versão oficial para esta capacidade
             </label>
           </div>
 

@@ -8,7 +8,6 @@ import { solicitacoesApi } from '../../api/solicitacoes';
 import { useEmpresasQuery } from '../../hooks/useApiQueries';
 import type { Empresa } from '../../types/empresa';
 import type {
-  LocalProcessingContext,
   LocalProcessingPersistPayload,
   LocalProcessingResult,
   LocalTemplateDescriptor,
@@ -33,20 +32,19 @@ import { useFiscalInputFiles } from './useFiscalInputFiles';
 
 function buildPersistPayload(
   result: LocalProcessingResult,
-  context: LocalProcessingContext,
 ): LocalProcessingPersistPayload {
   const saidas = (Object.entries(result.rowsByDestination) as Array<
     [TipoPlanilha, NonNullable<LocalProcessingResult['rowsByDestination'][TipoPlanilha]>]
   >)
     .filter(([, rows]) => Boolean(rows?.length))
     .map(([tipo, rows]) => {
-      const template = context.templates_ativos.find((item) => item.tipo === tipo);
+      const artifact = result.artifacts.find((item) => item.tipo === tipo);
       return {
         tipo,
-        template_id: template?.id ?? null,
+        template_id: artifact?.templateId ?? null,
         total_notas: rows.length,
         total_valor_devido: rows.reduce((sum, row) => sum + Number(row.valor_devido), 0),
-        aviso: template ? null : `Nenhum template ativo cadastrado para ${tipo}.`,
+        aviso: artifact ? null : `Nenhum template ativo cadastrado para ${tipo}.`,
       };
     });
 
@@ -217,12 +215,14 @@ export function useNovaSolicitacaoPage() {
           tipo: template.tipo,
           templateId: template.id,
           versao: template.versao,
+          capacidadeLinhas: template.capacidade_linhas ?? null,
         });
         const bytes = await loadOfficialTemplate(template);
         diagnostic?.event('info', 'geracao_planilha', 'Modelo oficial carregado e validado por hash.', {
           tipo: template.tipo,
           templateId: template.id,
           versao: template.versao,
+          capacidadeLinhas: template.capacidade_linhas ?? null,
           tamanhoBytes: bytes.byteLength,
         }, Math.round(performance.now() - startedAt));
         return bytes;
@@ -242,7 +242,7 @@ export function useNovaSolicitacaoPage() {
     const persistenceStartedAt = performance.now();
     const persisted = await localProcessingApi.persistirResultado(
       requestId,
-      buildPersistPayload(localResult, context),
+      buildPersistPayload(localResult),
     );
     diagnostic?.event('info', 'registro', 'Resultado estruturado registrado sem conteúdo fiscal bruto.', {
       solicitacaoId: requestId,

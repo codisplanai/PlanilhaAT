@@ -73,3 +73,103 @@ def test_template_mapeamento_obrigatorio_invalido(db_session, create_sample_exce
             filename="invalido.xlsx",
             mapeamento=invalid_mapping
         )
+
+def test_templates_por_capacidade_selecionam_o_menor_modelo_suficiente(
+    db_session,
+    create_sample_excel_template,
+):
+    template_path = create_sample_excel_template("antecipacao_parcial")
+    with open(template_path, "rb") as handle:
+        file_bytes = handle.read()
+
+    mapping = {
+        "start_row": 4,
+        "sheet_name": "Planilha AT",
+        "columns": {"numero_nota": "A", "v_total": "D"},
+    }
+
+    t100_v1 = TemplateManager.upload_new_template_version(
+        db=db_session,
+        tipo="antecipacao_parcial",
+        file_bytes=file_bytes,
+        filename="parcial_100.xlsx",
+        mapeamento=mapping,
+        capacidade_linhas=100,
+        promover_ativo=True,
+    )
+    t300 = TemplateManager.upload_new_template_version(
+        db=db_session,
+        tipo="antecipacao_parcial",
+        file_bytes=file_bytes,
+        filename="parcial_300.xlsx",
+        mapeamento=mapping,
+        capacidade_linhas=300,
+        promover_ativo=True,
+    )
+
+    assert t100_v1.ativo is True
+    assert t300.ativo is True
+    assert TemplateManager.get_active_template(
+        db_session, "antecipacao_parcial", required_rows=1
+    ).id == t100_v1.id
+    assert TemplateManager.get_active_template(
+        db_session, "antecipacao_parcial", required_rows=100
+    ).id == t100_v1.id
+    assert TemplateManager.get_active_template(
+        db_session, "antecipacao_parcial", required_rows=101
+    ).id == t300.id
+    assert TemplateManager.get_active_template(
+        db_session, "antecipacao_parcial", required_rows=300
+    ).id == t300.id
+
+    with pytest.raises(ValidationException, match="necessita de 301 linhas"):
+        TemplateManager.get_active_template(
+            db_session, "antecipacao_parcial", required_rows=301
+        )
+
+    t100_v2 = TemplateManager.upload_new_template_version(
+        db=db_session,
+        tipo="antecipacao_parcial",
+        file_bytes=file_bytes,
+        filename="parcial_100_v2.xlsx",
+        mapeamento=mapping,
+        capacidade_linhas=100,
+        promover_ativo=False,
+    )
+    assert t100_v2.ativo is False
+
+    TemplateManager.promote_version(db_session, t100_v2.id)
+    db_session.refresh(t100_v1)
+    db_session.refresh(t300)
+    db_session.refresh(t100_v2)
+
+    assert t100_v1.ativo is False
+    assert t100_v2.ativo is True
+    assert t300.ativo is True
+    assert TemplateManager.get_active_template(
+        db_session, "antecipacao_parcial", required_rows=80
+    ).id == t100_v2.id
+
+
+def test_template_legado_continua_funcionando_sem_capacidades(
+    db_session,
+    create_sample_excel_template,
+):
+    template_path = create_sample_excel_template("difal")
+    with open(template_path, "rb") as handle:
+        file_bytes = handle.read()
+
+    legacy = TemplateManager.upload_new_template_version(
+        db=db_session,
+        tipo="difal",
+        file_bytes=file_bytes,
+        filename="difal_legado.xlsx",
+        mapeamento={"start_row": 4, "columns": {"numero_nota": "A"}},
+        promover_ativo=True,
+    )
+
+    assert legacy.capacidade_linhas is None
+    assert TemplateManager.get_active_template(
+        db_session, "difal", required_rows=5000
+    ).id == legacy.id
+

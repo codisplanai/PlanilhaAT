@@ -37,6 +37,7 @@ class TemplateManager:
         file_bytes: bytes,
         filename: str,
         mapeamento: Dict[str, Any],
+        capacidade_linhas: Optional[int] = None,
         observacoes: Optional[str] = None,
         promover_ativo: bool = False
     ) -> TemplateXlsx:
@@ -44,6 +45,8 @@ class TemplateManager:
         clean_tipo = tipo.strip().lower()
         if clean_tipo not in valid_tipos:
             raise ValidationException(f"Tipo de planilha '{tipo}' inválido. Tipos suportados: {valid_tipos}")
+        if capacidade_linhas is not None and capacidade_linhas < 1:
+            raise ValidationException("A capacidade de linhas deve ser maior ou igual a 1.")
 
         # Validação obrigatória da estrutura de mapeamento
         try:
@@ -78,7 +81,8 @@ class TemplateManager:
 
         # Salvar o arquivo no diretório de templates versionados
         ext = os.path.splitext(filename)[1] or ".xlsx"
-        stored_filename = f"template_{clean_tipo}_v{proxima_versao}_{file_hash[:8]}{ext}"
+        capacity_part = f"_cap{capacidade_linhas}" if capacidade_linhas is not None else ""
+        stored_filename = f"template_{clean_tipo}{capacity_part}_v{proxima_versao}_{file_hash[:8]}{ext}"
         stored_path = os.path.join(settings.TEMPLATES_DIR, stored_filename)
 
         try:
@@ -100,21 +104,33 @@ class TemplateManager:
                 proxima_versao,
             )
 
-        # Se for o primeiro template do tipo, ativa por padrão se não houver ativo
+        # Cada capacidade possui sua própria versão oficial. Modelos legados
+        # (capacidade nula) permanecem isolados para compatibilidade.
+        family_filter = [
+            TemplateXlsx.tipo == clean_tipo,
+            (
+                TemplateXlsx.capacidade_linhas == capacidade_linhas
+                if capacidade_linhas is not None
+                else TemplateXlsx.capacidade_linhas.is_(None)
+            ),
+        ]
         template_ativo_existente = (
             db.query(TemplateXlsx)
-            .filter(TemplateXlsx.tipo == clean_tipo, TemplateXlsx.ativo == True)
+            .filter(*family_filter, TemplateXlsx.ativo == True)
             .first()
         )
         deve_ativar = promover_ativo or (template_ativo_existente is None)
 
         if deve_ativar:
-            # Desativa templates anteriores do mesmo tipo
-            db.query(TemplateXlsx).filter(TemplateXlsx.tipo == clean_tipo).update({"ativo": False})
+            db.query(TemplateXlsx).filter(*family_filter).update(
+                {"ativo": False},
+                synchronize_session=False,
+            )
 
         novo_template = TemplateXlsx(
             tipo=clean_tipo,
             versao=proxima_versao,
+            capacidade_linhas=capacidade_linhas,
             arquivo_path=stored_path,
             arquivo_hash=file_hash,
             arquivo_blob=file_bytes,
@@ -146,28 +162,93 @@ class TemplateManager:
             # o arquivo correspondente ao hash registrado.
             cls.resolve_template_path(target)
 
-        # Desativa todos do mesmo tipo
-        db.query(TemplateXlsx).filter(TemplateXlsx.tipo == target.tipo).update({"ativo": False})
+        # Desativa somente versões concorrentes da mesma família (tipo + capacidade).
+        family_filter = [
+            TemplateXlsx.tipo == target.tipo,
+            (
+                TemplateXlsx.capacidade_linhas == target.capacidade_linhas
+                if target.capacidade_linhas is not None
+                else TemplateXlsx.capacidade_linhas.is_(None)
+            ),
+        ]
+        db.query(TemplateXlsx).filter(*family_filter).update(
+            {"ativo": False},
+            synchronize_session=False,
+        )
         target.ativo = True
         db.commit()
         db.refresh(target)
         return target
 
     @classmethod
-    def get_active_template(cls, db: Session, tipo: str) -> TemplateXlsx:
-        """Obtém a versão vigente (ativa) para o tipo de planilha informado"""
+    def get_active_template(
+        cls,
+        db: Session,
+        tipo: str,
+        required_rows: Optional[int] = None,
+    ) -> TemplateXlsx:
+        """Seleciona a versão oficial adequada ao tipo e à quantidade de linhas.
+
+        Quando existem capacidades cadastradas, escolhe sempre a menor capacidade
+        ativa que comporte a quantidade solicitada. Modelos legados (capacidade
+        nula) só são usados quando ainda não existe nenhuma capacidade ativa.
+        """
         clean_tipo = tipo.strip().lower()
-        template = (
-            db.query(TemplateXlsx)
-            .filter(TemplateXlsx.tipo == clean_tipo, TemplateXlsx.ativo == True)
-            .first()
+        base_query = db.query(TemplateXlsx).filter(
+            TemplateXlsx.tipo == clean_tipo,
+            TemplateXlsx.ativo == True,
         )
-        if not template:
-            raise NotFoundException(
-                f"Nenhum template ativo cadastrado para o tipo '{tipo}'. "
-                f"Faça o upload do template com seu mapeamento correspondente antes de processar."
+
+        capacity_templates = (
+            base_query
+            .filter(TemplateXlsx.capacidade_linhas.is_not(None))
+            .order_by(TemplateXlsx.capacidade_linhas.asc(), TemplateXlsx.versao.desc())
+            .all()
+        )
+
+        if required_rows is None:
+            legacy = (
+                base_query
+                .filter(TemplateXlsx.capacidade_linhas.is_(None))
+                .order_by(TemplateXlsx.versao.desc())
+                .first()
             )
-        return template
+            if legacy:
+                return legacy
+            if capacity_templates:
+                return capacity_templates[0]
+        else:
+            if required_rows < 1:
+                raise ValidationException("A quantidade de linhas necessária deve ser maior ou igual a 1.")
+
+            if capacity_templates:
+                for template in capacity_templates:
+                    if int(template.capacidade_linhas or 0) >= required_rows:
+                        return template
+
+                max_capacity = max(
+                    int(template.capacidade_linhas or 0)
+                    for template in capacity_templates
+                )
+                raise ValidationException(
+                    f"O processamento de '{tipo}' necessita de {required_rows} linhas, "
+                    f"mas o maior modelo oficial cadastrado suporta {max_capacity} linhas. "
+                    f"Cadastre um modelo com capacidade igual ou superior a {required_rows}."
+                )
+
+            legacy = (
+                base_query
+                .filter(TemplateXlsx.capacidade_linhas.is_(None))
+                .order_by(TemplateXlsx.versao.desc())
+                .first()
+            )
+            if legacy:
+                return legacy
+
+        raise NotFoundException(
+            f"Nenhum template ativo cadastrado para o tipo '{tipo}'. "
+            f"Faça o upload do template com seu mapeamento correspondente antes de processar."
+        )
 
     @classmethod
     def _path_matches_template_hash(cls, template: TemplateXlsx, path: str) -> bool:

@@ -19,6 +19,7 @@ export interface LocalTemplateDescriptor {
   id: number;
   tipo: TipoPlanilha;
   versao: number;
+  capacidade_linhas?: number | null;
   arquivo_hash: string;
   mapeamento_campos: {
     start_row: number;

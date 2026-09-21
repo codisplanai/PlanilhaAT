@@ -13,6 +13,7 @@ export interface TemplateXlsx {
   id: number;
   tipo: TipoPlanilha;
   versao: number;
+  capacidade_linhas?: number | null;
   arquivo_path: string;
   arquivo_hash: string;
   mapeamento_campos: TemplateMapping;

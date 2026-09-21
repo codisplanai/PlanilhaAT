@@ -142,7 +142,12 @@ def obter_contexto_processamento_local(
     templates = (
         db.query(TemplateXlsx)
         .filter(TemplateXlsx.ativo.is_(True))
-        .order_by(TemplateXlsx.tipo)
+        .order_by(
+            TemplateXlsx.tipo,
+            TemplateXlsx.capacidade_linhas.is_(None),
+            TemplateXlsx.capacidade_linhas,
+            TemplateXlsx.versao.desc(),
+        )
         .all()
     )
 
@@ -255,6 +260,7 @@ def obter_contexto_processamento_local(
                 "id": template.id,
                 "tipo": template.tipo,
                 "versao": template.versao,
+                "capacidade_linhas": template.capacidade_linhas,
                 "arquivo_hash": template.arquivo_hash,
                 "mapeamento_campos": template.mapeamento_campos,
                 "observacoes": template.observacoes,

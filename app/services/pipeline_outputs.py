@@ -192,14 +192,23 @@ class PipelineOutputService:
                         f"Nenhuma NF-e válida encontrada para o tipo de planilha "
                         f"'{destination}' com base nas regras de CFOP cadastradas."
                     )
-                if legacy_template is None:
-                    raise ValidationException("O template da solicitação não está disponível.")
+                try:
+                    template = TemplateManager.get_active_template(
+                        self.db,
+                        destination,
+                        required_rows=len(rows),
+                    )
+                except NotFoundException:
+                    if legacy_template is None:
+                        raise ValidationException("O template da solicitação não está disponível.")
+                    template = legacy_template
+                solicitacao.template_id = template.id
                 output_path = self._create_output(
                     solicitacao=solicitacao,
                     empresa=empresa,
                     destination=destination,
                     rows=rows,
-                    template=legacy_template,
+                    template=template,
                     header_info=header_info,
                     artifacts=artifacts,
                 )
@@ -207,7 +216,11 @@ class PipelineOutputService:
             else:
                 for destination, rows in rows_by_destination.items():
                     try:
-                        template = TemplateManager.get_active_template(self.db, destination)
+                        template = TemplateManager.get_active_template(
+                            self.db,
+                            destination,
+                            required_rows=len(rows),
+                        )
                     except NotFoundException as exc:
                         self._add_output_record(
                             solicitacao=solicitacao,

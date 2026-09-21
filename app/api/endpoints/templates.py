@@ -20,6 +20,11 @@ router = APIRouter(prefix="/templates", tags=["Administração de Templates Exce
 async def upload_template(
     tipo: str = Form(..., description="antecipacao_parcial, antecipacao_tributaria ou difal"),
     mapeamento_json: str = Form(..., description="String JSON contendo {start_row, columns: {v_total: 'A', ...}}"),
+    capacidade_linhas: Optional[int] = Form(
+        None,
+        ge=1,
+        description="Capacidade máxima de linhas de dados do modelo. Obrigatório nos novos cadastros feitos pela interface.",
+    ),
     observacoes: Optional[str] = Form(None),
     promover_ativo: bool = Form(False),
     file: UploadFile = File(..., description="Arquivo .xlsx modelo"),
@@ -47,6 +52,7 @@ async def upload_template(
             file_bytes=file_bytes,
             filename=file.filename,
             mapeamento=mapeamento,
+            capacidade_linhas=capacidade_linhas,
             observacoes=observacoes,
             promover_ativo=promover_ativo
         )
@@ -60,12 +66,23 @@ def listar_templates_ativos_resumo(
     current_user: Profile = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """Retorna resumo dos templates ativos para exibição em banners aos operadores."""
-    ativos = db.query(TemplateXlsx).filter(TemplateXlsx.ativo == True).order_by(TemplateXlsx.tipo).all()
+    ativos = (
+        db.query(TemplateXlsx)
+        .filter(TemplateXlsx.ativo == True)
+        .order_by(
+            TemplateXlsx.tipo,
+            TemplateXlsx.capacidade_linhas.is_(None),
+            TemplateXlsx.capacidade_linhas,
+            TemplateXlsx.versao.desc(),
+        )
+        .all()
+    )
     return [
         {
             "id": t.id,
             "tipo": t.tipo,
             "versao": t.versao,
+            "capacidade_linhas": t.capacidade_linhas,
             "criado_em": t.criado_em.isoformat() if t.criado_em else None,
             "observacoes": t.observacoes
         }
@@ -84,7 +101,12 @@ def listar_templates(
         query = query.filter(TemplateXlsx.tipo == tipo.strip().lower())
     if ativo is not None:
         query = query.filter(TemplateXlsx.ativo == ativo)
-    return query.order_by(TemplateXlsx.tipo, TemplateXlsx.versao.desc()).all()
+    return query.order_by(
+        TemplateXlsx.tipo,
+        TemplateXlsx.capacidade_linhas.is_(None),
+        TemplateXlsx.capacidade_linhas,
+        TemplateXlsx.versao.desc(),
+    ).all()
 
 @router.get("/{id}/arquivo")
 def baixar_template_para_processamento_local(
@@ -100,13 +122,18 @@ def baixar_template_para_processamento_local(
 
     return FileResponse(
         path=resolved_path,
-        filename=f"template_{template.tipo}_v{template.versao}.xlsx",
+        filename=(
+            f"template_{template.tipo}_cap{template.capacidade_linhas}_v{template.versao}.xlsx"
+            if template.capacidade_linhas
+            else f"template_{template.tipo}_v{template.versao}.xlsx"
+        ),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Cache-Control": "private, no-store",
             "ETag": f'"sha256-{template.arquivo_hash}"',
             "X-Template-Id": str(template.id),
             "X-Template-Version": str(template.versao),
+            "X-Template-Capacity": str(template.capacidade_linhas or ""),
         },
     )
 
