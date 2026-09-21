@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -74,11 +74,54 @@ export function useAdminTemplatesPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const templatesQuery = useTemplatesQuery();
   const templates = templatesQuery.data ?? [];
+  const safetyConfigQuery = useQuery({
+    queryKey: queryKeys.templateSelectionConfigs,
+    queryFn: templatesApi.listarConfiguracoesSelecao,
+  });
+  const [safetyMarginInput, setSafetyMarginInput] = useState('0');
+  const [safetyMarginError, setSafetyMarginError] = useState<string | null>(null);
+  const [safetyMarginSaved, setSafetyMarginSaved] = useState(false);
 
   const form = useForm<TemplateUploadFormData>({
     resolver: zodResolver(templateUploadSchema),
     defaultValues: getDefaultMapping('antecipacao_parcial'),
   });
+
+  useEffect(() => {
+    const current = safetyConfigQuery.data?.find((item) => item.tipo === selectedType);
+    setSafetyMarginInput(String(current?.margem_seguranca_linhas ?? 0));
+    setSafetyMarginError(null);
+    setSafetyMarginSaved(false);
+  }, [selectedType, safetyConfigQuery.data]);
+
+  const safetyMarginMutation = useMutation({
+    mutationFn: ({ tipo, margin }: { tipo: TipoPlanilha; margin: number }) =>
+      templatesApi.atualizarConfiguracaoSelecao(tipo, margin),
+    onSuccess: async () => {
+      setSafetyMarginError(null);
+      setSafetyMarginSaved(true);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.templateSelectionConfigs }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.templates }),
+      ]);
+    },
+    onError: (error) => {
+      setSafetyMarginSaved(false);
+      setSafetyMarginError(getErrorMessage(error));
+    },
+  });
+
+  const saveSafetyMargin = () => {
+    const normalized = Number(safetyMarginInput);
+    if (!Number.isInteger(normalized) || normalized < 0 || normalized > 100_000) {
+      setSafetyMarginSaved(false);
+      setSafetyMarginError('Informe um número inteiro entre 0 e 100.000 linhas.');
+      return;
+    }
+    setSafetyMarginError(null);
+    setSafetyMarginSaved(false);
+    safetyMarginMutation.mutate({ tipo: selectedType, margin: normalized });
+  };
 
   const [promotingId, setPromotingId] = useState<number | null>(null);
   const [promoteError, setPromoteError] = useState<string | null>(null);
@@ -179,6 +222,17 @@ export function useAdminTemplatesPage() {
     tiposPlanilha: TIPOS_PLANILHA_OPTIONS,
     selectedType,
     setSelectedType,
+    safetyConfigQuery,
+    safetyMarginInput,
+    setSafetyMarginInput: (value: string) => {
+      setSafetyMarginInput(value);
+      setSafetyMarginSaved(false);
+      setSafetyMarginError(null);
+    },
+    safetyMarginError,
+    safetyMarginSaved,
+    saveSafetyMargin,
+    isSavingSafetyMargin: safetyMarginMutation.isPending,
     modalOpen,
     closeModal: () => setModalOpen(false),
     errorMessage,

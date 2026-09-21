@@ -173,3 +173,78 @@ def test_template_legado_continua_funcionando_sem_capacidades(
         db_session, "difal", required_rows=5000
     ).id == legacy.id
 
+def test_margem_de_seguranca_e_opcional_e_altera_a_capacidade_necessaria(
+    db_session,
+    create_sample_excel_template,
+):
+    template_path = create_sample_excel_template("difal")
+    with open(template_path, "rb") as handle:
+        file_bytes = handle.read()
+
+    mapping = {
+        "start_row": 4,
+        "sheet_name": "Planilha AT",
+        "columns": {"numero_nota": "A", "v_total": "D"},
+    }
+
+    t100 = TemplateManager.upload_new_template_version(
+        db=db_session,
+        tipo="difal",
+        file_bytes=file_bytes,
+        filename="difal_100.xlsx",
+        mapeamento=mapping,
+        capacidade_linhas=100,
+        promover_ativo=True,
+    )
+    t300 = TemplateManager.upload_new_template_version(
+        db=db_session,
+        tipo="difal",
+        file_bytes=file_bytes,
+        filename="difal_300.xlsx",
+        mapeamento=mapping,
+        capacidade_linhas=300,
+        promover_ativo=True,
+    )
+
+    assert TemplateManager.get_safety_margin(db_session, "difal") == 0
+    assert TemplateManager.get_active_template(
+        db_session, "difal", required_rows=96
+    ).id == t100.id
+
+    TemplateManager.set_safety_margin(db_session, "difal", 5)
+    assert TemplateManager.get_safety_margin(db_session, "difal") == 5
+    assert TemplateManager.get_active_template(
+        db_session, "difal", required_rows=95
+    ).id == t100.id
+    assert TemplateManager.get_active_template(
+        db_session, "difal", required_rows=96
+    ).id == t300.id
+
+    with pytest.raises(
+        ValidationException,
+        match=r"296 linhas \+ 5 linhas de segurança = 301.*suporta 300 linhas",
+    ):
+        TemplateManager.get_active_template(
+            db_session, "difal", required_rows=296
+        )
+
+    t100_v2 = TemplateManager.upload_new_template_version(
+        db=db_session,
+        tipo="difal",
+        file_bytes=file_bytes,
+        filename="difal_100_v2.xlsx",
+        mapeamento=mapping,
+        capacidade_linhas=100,
+        promover_ativo=False,
+    )
+    assert (
+        t100_v2.mapeamento_campos["extra_options"]["margem_seguranca_linhas"]
+        == 5
+    )
+
+    TemplateManager.set_safety_margin(db_session, "difal", 0)
+    assert TemplateManager.get_safety_margin(db_session, "difal") == 0
+    assert TemplateManager.get_active_template(
+        db_session, "difal", required_rows=96
+    ).id == t100.id
+

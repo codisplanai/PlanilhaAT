@@ -22,6 +22,8 @@ from app.models.template_xlsx import TemplateXlsx
 from app.schemas.local_processing import LocalProcessingContextOut, LocalProcessingResultIn
 from app.schemas.solicitacao import SolicitacaoOut
 from app.services.rules_engine.mva_resolver import MvaResolver
+from app.services.templates_admin.template_manager import TemplateManager
+from app.constants import TIPOS_PLANILHA
 
 router = APIRouter(prefix="/processamento-local", tags=["Processamento Fiscal Local"])
 
@@ -255,6 +257,10 @@ def obter_contexto_processamento_local(
             }
             for regra in exclusoes
         ],
+        "margens_seguranca_templates": {
+            tipo: TemplateManager.get_safety_margin(db, tipo)
+            for tipo in TIPOS_PLANILHA
+        },
         "templates_ativos": [
             {
                 "id": template.id,

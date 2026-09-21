@@ -62,3 +62,28 @@ test('capacidades cadastradas prevalecem sobre modelo legado', () => {
     /maior modelo oficial cadastrado suporta 100 linhas/,
   );
 });
+
+test('aplica margem opcional antes de selecionar a capacidade', () => {
+  const templates = [
+    template(1, 100),
+    template(2, 300),
+    template(3, 1000),
+  ];
+
+  assert.equal(selectTemplateForRows(templates, 'difal', 95, 5)?.id, 1);
+  assert.equal(selectTemplateForRows(templates, 'difal', 96, 5)?.id, 2);
+  assert.equal(selectTemplateForRows(templates, 'difal', 100, 0)?.id, 1);
+});
+
+test('informa linhas reais, margem e capacidade necessária quando não cabe', () => {
+  assert.throws(
+    () => selectTemplateForRows(
+      [template(1, 100), template(2, 300)],
+      'difal',
+      296,
+      5,
+    ),
+    /296 linhas \+ 5 linhas de segurança = 301.*suporta 300 linhas/,
+  );
+});
+

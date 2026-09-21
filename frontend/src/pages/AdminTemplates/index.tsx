@@ -4,6 +4,7 @@ import {
   Upload,
   ShieldAlert,
   RotateCcw,
+  Settings2,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -29,6 +30,13 @@ export const AdminTemplatesPage: React.FC = () => {
     tiposPlanilha,
     selectedType,
     setSelectedType,
+    safetyConfigQuery,
+    safetyMarginInput,
+    setSafetyMarginInput,
+    safetyMarginError,
+    safetyMarginSaved,
+    saveSafetyMargin,
+    isSavingSafetyMargin,
     modalOpen,
     closeModal,
     errorMessage,
@@ -84,6 +92,67 @@ export const AdminTemplatesPage: React.FC = () => {
         onChange={(id) => setSelectedType(id)}
         ariaLabel="Tipos de Planilha Modelo"
       />
+
+      <Card className="border-blue-200 bg-blue-50/30">
+        <div className="flex flex-col lg:flex-row lg:items-end gap-4 justify-between">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-blue-100 text-blue-700 shrink-0">
+              <Settings2 className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Margem de segurança para {tiposPlanilha.find((t) => t.id === selectedType)?.nome}
+              </h3>
+              <p className="mt-1 text-xs text-slate-600 leading-relaxed max-w-2xl">
+                Opcional. O sistema soma esta reserva à quantidade real de linhas antes de escolher o modelo.
+                Use <strong>0</strong> para desativar. Ex.: 299 linhas + 5 de margem exigem capacidade mínima de 304 linhas.
+              </p>
+            </div>
+          </div>
+
+          <div className="w-full lg:w-auto lg:min-w-[330px]">
+            {safetyConfigQuery.error && (
+              <div className="mb-2">
+                <ErrorAlert message={getErrorMessage(safetyConfigQuery.error)} />
+              </div>
+            )}
+            {safetyMarginError && (
+              <div className="mb-2">
+                <ErrorAlert message={safetyMarginError} onDismiss={() => undefined} />
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+              <div className="flex-1">
+                <Input
+                  label="Linhas de segurança"
+                  type="number"
+                  min={0}
+                  max={100000}
+                  step={1}
+                  value={safetyMarginInput}
+                  onChange={(event) => setSafetyMarginInput(event.target.value)}
+                  helperText="0 = desativado"
+                  disabled={safetyConfigQuery.isLoading}
+                />
+              </div>
+              <Button
+                type="button"
+                onClick={saveSafetyMargin}
+                isLoading={isSavingSafetyMargin}
+                disabled={safetyConfigQuery.isLoading}
+                className="sm:mb-[22px]"
+              >
+                Salvar margem
+              </Button>
+            </div>
+            {safetyMarginSaved && (
+              <p className="mt-2 text-xs font-semibold text-emerald-700">
+                Margem atualizada para este tipo de planilha.
+              </p>
+            )}
+          </div>
+        </div>
+      </Card>
 
       {/* Main Content */}
       {isLoading ? (
