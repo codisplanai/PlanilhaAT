@@ -8,7 +8,6 @@ import { solicitacoesApi } from '../../api/solicitacoes';
 import { useEmpresasQuery } from '../../hooks/useApiQueries';
 import type { Empresa } from '../../types/empresa';
 import type {
-  LocalProcessingContext,
   LocalProcessingPersistPayload,
   LocalProcessingResult,
   LocalTemplateDescriptor,
