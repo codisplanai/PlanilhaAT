@@ -112,9 +112,9 @@ class RevendaAntecipacaoTributariaPolicy:
     ) -> Optional[Dict[str, Any]]:
         """Retorna a política ativa somente para a empresa autorizada.
 
-        Perfis antigos sem empresa_cnpj continuam compatíveis. Quando o campo é
-        informado, ele funciona como trava adicional para impedir que a regra
-        especial seja aplicada caso o perfil seja associado por engano a outra empresa.
+        A configuração precisa declarar empresa_cnpj e ele deve coincidir com o
+        CNPJ da empresa em processamento. Isso impede que a regra especial seja
+        aplicada caso o perfil seja associado por engano a outro cadastro.
         """
         config = cls.config_from_profile(configuracoes)
         if not config:
