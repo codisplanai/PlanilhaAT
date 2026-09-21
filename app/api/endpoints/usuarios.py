@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.api.persistence import get_by_id_or_404
 from app.core.database import get_db
-from app.core.security import LOCAL_USERS_FALLBACK, require_admin
+from app.core.security import (
+    LOCAL_USERS_FALLBACK,
+    known_account_profile,
+    require_admin,
+)
 from app.models.profile import Profile
 from app.schemas.usuario import UsuarioCreate, UsuarioOut, UsuarioStatusUpdate
 from app.services.supabase_admin import (
@@ -135,3 +139,66 @@ def alterar_status(
     db.commit()
     db.refresh(profile)
     return profile
+
+
+@router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_usuario(
+    usuario_id: str,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(require_admin),
+):
+    """Remove a conta em definitivo, no Auth e em ``profiles``.
+
+    ``require_admin`` vem como parâmetro pelo mesmo motivo de ``alterar_status``:
+    é preciso o ``Profile`` de quem chamou para barrar a autoexclusão.
+
+    As solicitações do usuário permanecem: ``solicitacoes.usuario_id`` é
+    ``ON DELETE SET NULL``, então o histórico fica sem autor em vez de sumir.
+    """
+    profile = get_by_id_or_404(db, Profile, usuario_id, "Usuário não encontrado.")
+
+    if str(profile.id) == str(current_user.id):
+        raise HTTPException(
+            status_code=400,
+            detail="Você não pode excluir a sua própria conta.",
+        )
+
+    if known_account_profile(profile.email) is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Esta é uma conta institucional fixa e não pode ser excluída "
+                "por aqui."
+            ),
+        )
+
+    # O DELETE é aplicado sem commit: se o Auth recusar a remoção, o rollback
+    # devolve o perfil e o administrador não fica com um usuário que sumiu da
+    # lista mas continua conseguindo entrar.
+    user_id = str(profile.id)
+    db.delete(profile)
+    try:
+        db.flush()
+        SupabaseAdminService.remove_user(user_id)
+    except SupabaseAdminNaoConfigurado:
+        db.rollback()
+        logger.error("SUPABASE_SERVICE_ROLE_KEY ausente; exclusão de usuários indisponível")
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Exclusão de usuários indisponível: SUPABASE_SERVICE_ROLE_KEY "
+                "não está configurada no servidor."
+            ),
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        logger.exception("Falha ao excluir o usuário %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível concluir a exclusão do usuário.",
+        )
+
+    db.commit()

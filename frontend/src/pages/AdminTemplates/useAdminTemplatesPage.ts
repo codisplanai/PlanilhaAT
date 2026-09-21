@@ -250,6 +250,7 @@ export function useAdminTemplatesPage() {
     setErrorMessage,
     openUploadModal,
     selectFile,
+    selectedFile,
     promoteTemplate: promoteMutation.mutate,
     promotingId,
     isPromoting: promotingId !== null,

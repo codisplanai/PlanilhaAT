@@ -14,4 +14,7 @@ export const usuariosApi = {
     const { data } = await apiClient.patch<Usuario>(`/usuarios/${id}/status`, { ativo });
     return data;
   },
+  excluir: async (id: string): Promise<void> => {
+    await apiClient.delete(`/usuarios/${id}`);
+  },
 };
