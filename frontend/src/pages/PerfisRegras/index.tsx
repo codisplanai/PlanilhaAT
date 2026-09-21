@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Copy,
   Sliders,
@@ -8,6 +8,10 @@ import {
   Sparkles,
   Zap,
   Check,
+  Search,
+  Percent,
+  Layers,
+  Route,
 } from 'lucide-react';
 
 import { getErrorMessage } from '../../api/client';
@@ -22,6 +26,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
+import { SectionEmpty } from '../../components/feedback/SectionEmpty';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { formatPercent } from '../../lib/formatters';
@@ -46,16 +51,45 @@ type SectionKey =
   | 'excecoes'
   | 'cfop';
 
+// Ordem de leitura da página: primeiro a cadeia que resolve a A.DST,
+// depois a antecipação e por fim o roteamento dos itens.
 const SECTION_KEYS: SectionKey[] = [
-  'limiteAori',
-  'aliquotasIguais',
   'reducoes',
-  'exclusoes',
-  'mva',
-  'padrao',
   'excecoes',
+  'padrao',
+  'limiteAori',
+  'exclusoes',
+  'aliquotasIguais',
+  'mva',
   'cfop',
 ];
+
+/** Nível de precedência da regra, na mesma numeração do quadro do topo. */
+const NivelMarker: React.FC<{ nivel: string; descricao: string }> = ({ nivel, descricao }) => (
+  <span
+    title={descricao}
+    className="inline-flex h-5 min-w-[1.375rem] items-center justify-center rounded-md bg-slate-900 px-1.5 font-mono text-[10px] font-bold tabular-nums text-white"
+  >
+    {nivel}
+  </span>
+);
+
+const GroupHeading: React.FC<{ icon: React.ReactNode; title: string; hint: string }> = ({
+  icon,
+  title,
+  hint,
+}) => (
+  <div className="flex items-center gap-3">
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-2xs">
+      {icon}
+    </span>
+    <div className="min-w-0">
+      <h3 className="text-sm font-bold tracking-tight text-slate-900">{title}</h3>
+      <p className="text-xs text-slate-500">{hint}</p>
+    </div>
+    <span className="ml-1 hidden h-px flex-1 bg-slate-200 sm:block" />
+  </div>
+);
 
 const collapsedSections = (): Record<SectionKey, boolean> => ({
   limiteAori: false,
@@ -140,6 +174,7 @@ export const PerfisRegrasPage: React.FC = () => {
   } = usePerfisRegrasPage();
 
   const [cfopTab, setCfopTab] = useState<'geral' | 'reclassificacao'>('geral');
+  const [filtroPerfil, setFiltroPerfil] = useState('');
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(collapsedSections);
 
   useEffect(() => {
@@ -157,6 +192,18 @@ export const PerfisRegrasPage: React.FC = () => {
   const collapseAllSections = () => {
     setOpenSections(collapsedSections());
   };
+
+  // A busca só aparece quando a lista deixa de caber num olhar.
+  const mostrarBuscaPerfis = perfis.length > 6;
+  const perfisVisiveis = useMemo(() => {
+    const termo = filtroPerfil.trim().toLowerCase();
+    if (!termo) return perfis;
+    return perfis.filter(
+      (p) =>
+        p.nome.toLowerCase().includes(termo) ||
+        (p.descricao || '').toLowerCase().includes(termo),
+    );
+  }, [perfis, filtroPerfil]);
 
   const allSectionsOpen = SECTION_KEYS.every((key) => openSections[key]);
   const allSectionsClosed = SECTION_KEYS.every((key) => !openSections[key]);
@@ -213,16 +260,36 @@ export const PerfisRegrasPage: React.FC = () => {
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Coluna Esquerda: Seletor de Perfis */}
-          <div className="lg:col-span-4 space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Perfis Compartilhados ({perfis.length})
-              </h3>
+          {/* Coluna Esquerda: Seletor de Perfis — acompanha a rolagem das seções */}
+          <div className="space-y-3 lg:col-span-4 lg:sticky lg:top-4 lg:self-start">
+            <div className="flex items-baseline justify-between gap-2 px-1">
+              <h2 className="text-sm font-bold tracking-tight text-slate-900">
+                Perfis compartilhados
+              </h2>
+              <span className="font-mono text-xs tabular-nums text-slate-400">{perfis.length}</span>
             </div>
 
-            <div className="space-y-2">
-              {perfis.map((p) => {
+            {mostrarBuscaPerfis && (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={filtroPerfil}
+                  onChange={(e) => setFiltroPerfil(e.target.value)}
+                  placeholder="Buscar perfil"
+                  aria-label="Buscar perfil pelo nome ou descrição"
+                  className="w-full rounded-lg border border-slate-200/90 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 shadow-2xs transition-all duration-150 placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/15"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
+              {perfisVisiveis.length === 0 && (
+                <p className="rounded-xl border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center text-xs text-slate-500">
+                  Nenhum perfil corresponde a &ldquo;{filtroPerfil}&rdquo;.
+                </p>
+              )}
+              {perfisVisiveis.map((p) => {
                 const isSelected = activePerfil?.id === p.id;
                 return (
                   <div
@@ -237,21 +304,32 @@ export const PerfisRegrasPage: React.FC = () => {
                         setSelectedPerfilId(p.id);
                       }
                     }}
-                    className={`p-4 rounded-xl border text-left cursor-pointer transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-blue-600 ${
+                    className={`group relative cursor-pointer rounded-xl border py-3.5 pl-4 pr-3 text-left transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
                       isSelected
-                        ? 'bg-blue-50/80 border-blue-600 shadow-xs ring-2 ring-blue-600/20'
-                        : 'bg-white border-slate-200/80 hover:border-slate-300 hover:bg-slate-50/60'
+                        ? 'border-blue-600 bg-blue-50/70 shadow-xs'
+                        : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/60'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
+                    {isSelected && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-y-2.5 left-0 w-1 rounded-r-full bg-blue-600"
+                      />
+                    )}
+                    <div className="flex items-start justify-between gap-2">
                       <h4
-                        className={`text-xs sm:text-sm font-bold tracking-tight ${
+                        className={`text-sm font-bold tracking-tight ${
                           isSelected ? 'text-blue-950' : 'text-slate-900'
                         }`}
                       >
                         {p.nome}
                       </h4>
-                      <div className="flex items-center gap-1 shrink-0">
+                      {/* Ações ficam quietas até o perfil ser apontado, focado ou selecionado. */}
+                      <div
+                        className={`flex shrink-0 items-center gap-0.5 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 max-lg:opacity-100 ${
+                          isSelected ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      >
                         <button
                           type="button"
                           onClick={(e) => {
@@ -304,280 +382,121 @@ export const PerfisRegrasPage: React.FC = () => {
           {/* Coluna Direita: Detalhes das Regras do Perfil Selecionado */}
           {activePerfil && (
             <div className="lg:col-span-8 space-y-6 animate-fade-in">
-              {/* Card Explicativo de Precedência Fiscal */}
-              <div className="bg-slate-950 text-slate-200 rounded-xl p-4 shadow-xs border border-slate-800 text-xs flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/30 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
-                  <Sparkles className="w-4 h-4" />
+              {/* Cadeia de precedência: o modelo mental que a página inteira serve */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-slate-200 shadow-xs sm:p-5">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-500/15 text-amber-400">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold tracking-tight text-white">
+                      Como o motor decide a alíquota de destino
+                    </p>
+                    <p className="mt-1 max-w-[70ch] text-xs leading-relaxed text-slate-400">
+                      O primeiro nível que casar com o item define a A.DST; não casando, o cálculo
+                      cai para o nível seguinte. A alíquota de origem (A.ORI) vem sempre do XML ou do SPED.
+                    </p>
+                  </div>
                 </div>
-                <div className="leading-relaxed">
-                  <span className="font-bold text-white tracking-tight">Como o motor resolve a alíquota (A.DST): </span>
-                  O sistema resolve a A.DST em três níveis de precedência: <strong>1. Redução por Produto (NCM + Descrição)</strong> &gt; <strong>2. Termo de Acordo da Empresa</strong> &gt; <strong>3. Padrão do Estado (Exceção NCM ou Base UF)</strong>. A alíquota de origem (A.ORI) vem do XML/SPED.
+                <ol className="mt-4 grid gap-2 sm:grid-cols-3">
+                  {[
+                    {
+                      nivel: '1',
+                      titulo: 'Redução por produto',
+                      texto: 'O NCM e a descrição do item conferem com uma regra deste perfil.',
+                      aqui: true,
+                    },
+                    {
+                      nivel: '2',
+                      titulo: 'Termo de acordo',
+                      texto: 'Regime próprio da empresa, definido no cadastro dela.',
+                      aqui: false,
+                    },
+                    {
+                      nivel: '3',
+                      titulo: 'Padrão do estado',
+                      texto: 'Exceção por NCM (3a); sem exceção, a alíquota base da UF (3b).',
+                      aqui: true,
+                    },
+                  ].map((passo) => (
+                    <li
+                      key={passo.nivel}
+                      className={`rounded-lg border p-3 ${
+                        passo.aqui
+                          ? 'border-slate-800 bg-slate-900/60'
+                          : 'border-dashed border-slate-700 bg-transparent'
+                      }`}
+                    >
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-mono text-[11px] font-bold tabular-nums text-amber-400">
+                          {passo.nivel}
+                        </span>
+                        <span className="text-xs font-bold text-white">{passo.titulo}</span>
+                      </div>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{passo.texto}</p>
+                      {!passo.aqui && (
+                        <p className="mt-1.5 text-[11px] font-medium text-slate-500">
+                          Configurado no cadastro da empresa
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* Barra de contexto: lembra qual perfil está sendo editado durante a rolagem */}
+              <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200/80 bg-slate-50/90 px-1 py-2.5 backdrop-blur-sm">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Sliders className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <p className="truncate text-sm font-bold tracking-tight text-slate-900">
+                    {activePerfil.nome}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={expandAllSections}
+                    disabled={allSectionsOpen}
+                  >
+                    Expandir todas
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={collapseAllSections}
+                    disabled={allSectionsClosed}
+                  >
+                    Recolher todas
+                  </Button>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 -mt-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={expandAllSections}
-                  disabled={allSectionsOpen}
-                >
-                  Expandir todas
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={collapseAllSections}
-                  disabled={allSectionsClosed}
-                >
-                  Recolher todas
-                </Button>
-              </div>
-
-              {/* Configuração: Limitação da Alíquota de Origem (A.ORI) a 10% */}
-              {(() => {
-                const limitarAori = Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes);
-                return (
-                  <Card
-                    collapsible
-                    open={openSections.limiteAori}
-                    onOpenChange={(open) => setSectionOpen('limiteAori', open)}
-                    title="Limitar Alíquota de Origem (A.ORI) a 10%"
-                    subtitle="Aplica o limite somente a itens calculados sob Redução por Produto ou Termo de Acordo."
-                    summary={
-                      limitarAori
-                        ? <Badge variant="success" size="sm">Ativo</Badge>
-                        : <Badge variant="neutral" size="sm">Inativo</Badge>
-                    }
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-2 min-w-0">
-                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
-                          Alíquotas interestaduais superiores a 10% (como 12%) são automaticamente
-                          limitadas a <strong>10%</strong> na planilha e no cálculo fiscal. Alíquotas
-                          de 7% ou 4% permanecem conforme a nota.
-                        </p>
-                        <div className="min-h-4">
-                          {aOriFeedback === 'saving' && (
-                            <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
-                          )}
-                          {aOriFeedback === 'saved' && (
-                            <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Salvo
-                            </span>
-                          )}
-                          {aOriFeedback === 'error' && (
-                            <span className="text-[11px] text-rose-600 font-semibold">
-                              {aOriError || 'Erro ao salvar'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={limitarAori}
-                        disabled={isTogglingAliquotaOrigem}
-                        onClick={() => toggleLimitarAliquotaOrigem(activePerfil)}
-                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
-                          limitarAori ? 'bg-blue-600' : 'bg-slate-200'
-                        } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                            limitarAori ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </Card>
-                );
-              })()}
-
-              {/* Configuração: Política de Alíquotas Iguais na Bahia (A.ORI = A.DST) */}
-              {(() => {
-                const extras = activePerfil.configuracoes_extras || {};
-                const aliqIguaisBa = typeof extras.politica_aliquotas_iguais_parcial === 'object' && extras.politica_aliquotas_iguais_parcial !== null
-                  ? Boolean((extras.politica_aliquotas_iguais_parcial as Record<string, boolean>)['BA'])
-                  : extras.politica_aliquotas_iguais_parcial === true;
-                return (
-                  <Card
-                    collapsible
-                    open={openSections.aliquotasIguais}
-                    onOpenChange={(open) => setSectionOpen('aliquotasIguais', open)}
-                    title="Condição Numérica de Alíquotas Iguais (BA)"
-                    subtitle="Trata itens da Antecipação Parcial quando A.ORI e A.DST são iguais."
-                    summary={
-                      aliqIguaisBa
-                        ? <Badge variant="success" size="sm">Ativo (BA)</Badge>
-                        : <Badge variant="neutral" size="sm">Inativo</Badge>
-                    }
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-2 min-w-0">
-                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
-                          Calcula o item individualmente. Se o valor devido final resultar em
-                          <strong> R$ 0,00 ou negativo</strong>, o item é excluído com registro de conferência.
-                          Se houver diferença positiva por IPI, frete ou outras bases, o item permanece na apuração.
-                        </p>
-                        <div className="min-h-4">
-                          {aliqIguaisFeedback === 'saving' && (
-                            <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
-                          )}
-                          {aliqIguaisFeedback === 'saved' && (
-                            <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Salvo
-                            </span>
-                          )}
-                          {aliqIguaisFeedback === 'error' && (
-                            <span className="text-[11px] text-rose-600 font-semibold">
-                              {aliqIguaisError || 'Erro ao salvar'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={aliqIguaisBa}
-                        disabled={isTogglingAliquotaOrigem}
-                        onClick={() => togglePoliticaAliquotasIguais(activePerfil, 'BA')}
-                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
-                          aliqIguaisBa ? 'bg-blue-600' : 'bg-slate-200'
-                        } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                            aliqIguaisBa ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </Card>
-                );
-              })()}
-
-              {/* Seção 0: Reduções por Produto (NCM + Descrição) */}
+              <div className="space-y-8">
+              <section className="space-y-4">
+                <GroupHeading
+                  icon={<Percent className="h-4 w-4" />}
+                  title="Alíquota de destino (A.DST)"
+                  hint="Na ordem em que o motor avalia cada item."
+                />
+              {/* Nível 1 — vence o termo de acordo e as demais regras */}
               <ReducaoProdutoSection
+                marker={<NivelMarker nivel="1" descricao="Nível 1: vence todas as demais regras" />}
                 perfilId={activePerfil.id}
                 open={openSections.reducoes}
                 onOpenChange={(open) => setSectionOpen('reducoes', open)}
               />
 
-              {/* Seção 0.5: Exclusões da Antecipação Parcial (NCM + Descrição) */}
-              <ExclusaoParcialSection
-                perfilId={activePerfil.id}
-                open={openSections.exclusoes}
-                onOpenChange={(open) => setSectionOpen('exclusoes', open)}
-              />
-
-              {/* Seção 0.75: MVA / Antecipação Tributária */}
-              <MvaAntecipacaoSection
-                perfil={activePerfil}
-                open={openSections.mva}
-                onOpenChange={(open) => setSectionOpen('mva', open)}
-              />
-
-              {/* Seção 1: Regras Padrão por Estado */}
-              <Card
-                collapsible
-                open={openSections.padrao}
-                onOpenChange={(open) => setSectionOpen('padrao', open)}
-                summary={<span>{regrasPadrao.length} regra(s)</span>}
-                bodyPadding="none"
-                title={`Alíquotas Padrão por Estado — ${activePerfil.nome}`}
-                subtitle="Alíquota base do estado. Vale quando não há redução por produto, termo de acordo nem exceção de NCM."
-                headerAction={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleOpenCreateRegra('padrao')}
-                    leftIcon={<Plus className="w-3.5 h-3.5" />}
-                  >
-                    Nova Regra Estadual
-                  </Button>
-                }
-              >
-                {isLoadingRegras ? (
-                  <div className="p-5">
-                    <LoadingSpinner size="sm" message="Carregando regras estaduais..." />
-                  </div>
-                ) : regrasPadrao.length === 0 ? (
-                  <div className="p-5">
-                    <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                      Nenhuma alíquota padrão configurada para este perfil. Clique em "Nova Regra Estadual" para definir a alíquota padrão da UF.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs divide-y divide-slate-100">
-                      <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                        <tr>
-                          <th className="py-3 px-4">Estado</th>
-                          <th className="py-3 px-4">Tipo</th>
-                          <th className="py-3 px-4 font-mono text-right">A.DST Padrão</th>
-                          <th className="py-3 px-4">Descrição / Legislação</th>
-                          <th className="py-3 px-4 text-right">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100/80">
-                        {regrasPadrao.map((regra) => (
-                          <tr key={regra.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="py-3 px-4">
-                              <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
-                                {regra.uf}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4">
-                              <Badge variant="info" size="sm">
-                                Padrão Estadual
-                              </Badge>
-                            </td>
-                            <td className="py-3 px-4 font-mono font-bold text-blue-950 text-right tabular-nums">
-                              {formatPercent(regra.aliquota)}
-                            </td>
-                            <td className="py-3 px-4 text-slate-600">
-                              {regra.descricao || '-'}
-                            </td>
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEditRegra(regra)}
-                                  className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                                  title="Editar regra"
-                                  aria-label={`Editar regra padrão de ${regra.uf}`}
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setRegraParaExcluir(regra)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                  title="Remover regra"
-                                  aria-label={`Remover regra padrão de ${regra.uf}`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </Card>
-
-              {/* Seção 2: Exceções por Estado + NCM */}
+              {/* Nível 3a — exceção por NCM, sobrescreve a base da UF */}
               <Card
                 collapsible
                 open={openSections.excecoes}
                 onOpenChange={(open) => setSectionOpen('excecoes', open)}
                 summary={<span>{regrasExcecao.length} exceção(ões)</span>}
                 bodyPadding="none"
+                marker={<NivelMarker nivel="3a" descricao="Nível 3a: exceção por NCM, vence a alíquota base da UF" />}
                 title="Exceções Tributárias por NCM"
                 subtitle="Sobrescreve a alíquota padrão do estado. É superada pelas reduções por produto e pelo termo de acordo da empresa."
                 headerAction={
@@ -597,9 +516,22 @@ export const PerfisRegrasPage: React.FC = () => {
                   </div>
                 ) : regrasExcecao.length === 0 ? (
                   <div className="p-5">
-                    <p className="text-xs text-slate-500 italic py-6 text-center bg-purple-50/20 rounded-xl border border-dashed border-purple-200/80">
-                      Nenhuma exceção por NCM configurada. Itens serão calculados pela alíquota padrão da UF.
-                    </p>
+                    <SectionEmpty
+                      icon={<Zap className="h-6 w-6" />}
+                      title="Nenhuma exceção por NCM"
+                      hint="Os itens seguem a alíquota padrão da UF até que uma exceção seja cadastrada."
+                      className="border-purple-200/80 bg-purple-50/20"
+                      action={
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenCreateRegra('excecao')}
+                          leftIcon={<Plus className="h-3.5 w-3.5" />}
+                        >
+                          Cadastrar exceção por NCM
+                        </Button>
+                      }
+                    />
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -665,15 +597,270 @@ export const PerfisRegrasPage: React.FC = () => {
                 )}
               </Card>
 
-              {/* Seção 3: Roteamento por CFOP -> Planilha */}
+              {/* Nível 3b — alíquota base da UF */}
+              <Card
+                collapsible
+                open={openSections.padrao}
+                onOpenChange={(open) => setSectionOpen('padrao', open)}
+                summary={<span>{regrasPadrao.length} regra(s)</span>}
+                bodyPadding="none"
+                marker={<NivelMarker nivel="3b" descricao="Nível 3b: alíquota base da UF" />}
+                title="Alíquotas Padrão por Estado"
+                subtitle="Alíquota base do estado. Vale quando não há redução por produto, termo de acordo nem exceção de NCM."
+                headerAction={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleOpenCreateRegra('padrao')}
+                    leftIcon={<Plus className="w-3.5 h-3.5" />}
+                  >
+                    Nova Regra Estadual
+                  </Button>
+                }
+              >
+                {isLoadingRegras ? (
+                  <div className="p-5">
+                    <LoadingSpinner size="sm" message="Carregando regras estaduais..." />
+                  </div>
+                ) : regrasPadrao.length === 0 ? (
+                  <div className="p-5">
+                    <SectionEmpty
+                      icon={<Percent className="h-6 w-6" />}
+                      title="Nenhuma alíquota padrão neste perfil"
+                      hint="Sem a alíquota base da UF, itens que não casam com nenhuma regra ficam sem A.DST."
+                      action={
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenCreateRegra('padrao')}
+                          leftIcon={<Plus className="h-3.5 w-3.5" />}
+                        >
+                          Cadastrar alíquota da UF
+                        </Button>
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs divide-y divide-slate-100">
+                      <thead className="bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                        <tr>
+                          <th className="py-3 px-4">Estado</th>
+                          <th className="py-3 px-4">Tipo</th>
+                          <th className="py-3 px-4 font-mono text-right">A.DST Padrão</th>
+                          <th className="py-3 px-4">Descrição / Legislação</th>
+                          <th className="py-3 px-4 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100/80">
+                        {regrasPadrao.map((regra) => (
+                          <tr key={regra.id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-3 px-4">
+                              <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
+                                {regra.uf}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <Badge variant="info" size="sm">
+                                Padrão Estadual
+                              </Badge>
+                            </td>
+                            <td className="py-3 px-4 font-mono font-bold text-blue-950 text-right tabular-nums">
+                              {formatPercent(regra.aliquota)}
+                            </td>
+                            <td className="py-3 px-4 text-slate-600">
+                              {regra.descricao || '-'}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditRegra(regra)}
+                                  className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Editar regra"
+                                  aria-label={`Editar regra padrão de ${regra.uf}`}
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRegraParaExcluir(regra)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Remover regra"
+                                  aria-label={`Remover regra padrão de ${regra.uf}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+
+              {/* Modificador da A.ORI, aplicado depois que o nível é resolvido */}
+              {(() => {
+                const limitarAori = Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes);
+                return (
+                  <Card
+                    collapsible
+                    open={openSections.limiteAori}
+                    onOpenChange={(open) => setSectionOpen('limiteAori', open)}
+                    title="Limitar Alíquota de Origem (A.ORI) a 10%"
+                    subtitle="Aplica o limite somente a itens calculados sob Redução por Produto ou Termo de Acordo."
+                    summary={
+                      limitarAori
+                        ? <Badge variant="success" size="sm">Ativo</Badge>
+                        : <Badge variant="neutral" size="sm">Inativo</Badge>
+                    }
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-2 min-w-0">
+                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                          Alíquotas interestaduais superiores a 10% (como 12%) são automaticamente
+                          limitadas a <strong>10%</strong> na planilha e no cálculo fiscal. Alíquotas
+                          de 7% ou 4% permanecem conforme a nota.
+                        </p>
+                        <div className="min-h-4">
+                          {aOriFeedback === 'saving' && (
+                            <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
+                          )}
+                          {aOriFeedback === 'saved' && (
+                            <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Salvo
+                            </span>
+                          )}
+                          {aOriFeedback === 'error' && (
+                            <span className="text-[11px] text-rose-600 font-semibold">
+                              {aOriError || 'Erro ao salvar'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={limitarAori}
+                        disabled={isTogglingAliquotaOrigem}
+                        onClick={() => toggleLimitarAliquotaOrigem(activePerfil)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                          limitarAori ? 'bg-blue-600' : 'bg-slate-200'
+                        } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            limitarAori ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </Card>
+                );
+              })()}
+              </section>
+
+              <section className="space-y-4">
+                <GroupHeading
+                  icon={<Layers className="h-4 w-4" />}
+                  title="Antecipação"
+                  hint="O que entra e o que fica de fora da apuração."
+                />
+              {/* O que sai da apuração da Parcial */}
+              <ExclusaoParcialSection
+                perfilId={activePerfil.id}
+                open={openSections.exclusoes}
+                onOpenChange={(open) => setSectionOpen('exclusoes', open)}
+              />
+
+              {/* Exclusão por condição numérica, quando A.ORI = A.DST */}
+              {(() => {
+                const extras = activePerfil.configuracoes_extras || {};
+                const aliqIguaisBa = typeof extras.politica_aliquotas_iguais_parcial === 'object' && extras.politica_aliquotas_iguais_parcial !== null
+                  ? Boolean((extras.politica_aliquotas_iguais_parcial as Record<string, boolean>)['BA'])
+                  : extras.politica_aliquotas_iguais_parcial === true;
+                return (
+                  <Card
+                    collapsible
+                    open={openSections.aliquotasIguais}
+                    onOpenChange={(open) => setSectionOpen('aliquotasIguais', open)}
+                    title="Condição Numérica de Alíquotas Iguais (BA)"
+                    subtitle="Trata itens da Antecipação Parcial quando A.ORI e A.DST são iguais."
+                    summary={
+                      aliqIguaisBa
+                        ? <Badge variant="success" size="sm">Ativo (BA)</Badge>
+                        : <Badge variant="neutral" size="sm">Inativo</Badge>
+                    }
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-2 min-w-0">
+                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                          Calcula o item individualmente. Se o valor devido final resultar em
+                          <strong> R$ 0,00 ou negativo</strong>, o item é excluído com registro de conferência.
+                          Se houver diferença positiva por IPI, frete ou outras bases, o item permanece na apuração.
+                        </p>
+                        <div className="min-h-4">
+                          {aliqIguaisFeedback === 'saving' && (
+                            <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
+                          )}
+                          {aliqIguaisFeedback === 'saved' && (
+                            <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Salvo
+                            </span>
+                          )}
+                          {aliqIguaisFeedback === 'error' && (
+                            <span className="text-[11px] text-rose-600 font-semibold">
+                              {aliqIguaisError || 'Erro ao salvar'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={aliqIguaisBa}
+                        disabled={isTogglingAliquotaOrigem}
+                        onClick={() => togglePoliticaAliquotasIguais(activePerfil, 'BA')}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                          aliqIguaisBa ? 'bg-blue-600' : 'bg-slate-200'
+                        } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            aliqIguaisBa ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </Card>
+                );
+              })()}
+
+              {/* MVA da antecipação tributária, vinculada ao CNPJ autorizado */}
+              <MvaAntecipacaoSection
+                perfil={activePerfil}
+                open={openSections.mva}
+                onOpenChange={(open) => setSectionOpen('mva', open)}
+              />
+              </section>
+
+              <section className="space-y-4">
+                <GroupHeading
+                  icon={<Route className="h-4 w-4" />}
+                  title="Roteamento de itens"
+                  hint="Em qual planilha cada item da nota é lançado."
+                />
+              {/* Destino de cada item na planilha */}
               <Card
                 collapsible
                 open={openSections.cfop}
                 onOpenChange={(open) => setSectionOpen('cfop', open)}
                 summary={<span>{regrasCfopEfetivas.length} rota(s)</span>}
                 bodyPadding="none"
-                title="Roteamento por CFOP -> Planilha"
-                subtitle="Define em qual planilha cada item da nota entra a partir do CFOP, e reclassifica produtos específicos por NCM"
+                title="Roteamento por CFOP"
+                subtitle="Define em qual planilha cada item da nota entra a partir do CFOP, e reclassifica produtos específicos por NCM."
                 headerAction={
                   cfopTab === 'geral' ? (
                     <Button
@@ -706,9 +893,21 @@ export const PerfisRegrasPage: React.FC = () => {
                     </div>
                   ) : regrasCfopEfetivas.length === 0 ? (
                     <div className="p-5">
-                      <p className="text-xs text-slate-500 italic py-6 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                        Nenhuma regra de CFOP cadastrada.
-                      </p>
+                      <SectionEmpty
+                        icon={<Route className="h-6 w-6" />}
+                        title="Nenhuma regra de CFOP cadastrada"
+                        hint="Sem regras, todos os itens seguem o roteamento padrão do sistema."
+                        action={
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleOpenCreateRegraCfop}
+                            leftIcon={<Plus className="h-3.5 w-3.5" />}
+                          >
+                            Cadastrar exceção de CFOP
+                          </Button>
+                        }
+                      />
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -785,6 +984,8 @@ export const PerfisRegrasPage: React.FC = () => {
                   </div>
                 )}
               </Card>
+              </section>
+              </div>
             </div>
           )}
         </div>
