@@ -152,6 +152,22 @@ def test_perfil_sem_configuracao_nao_aplica_regra():
     assert RevendaAntecipacaoTributariaPolicy.config_for_empresa({}, "33906322000153") is None
 
 
+def test_configuracao_sem_cnpj_nao_ativa_regra_especial():
+    config_sem_cnpj = {
+        "mva_revenda_antecipacao_tributaria": {
+            **CONFIG["mva_revenda_antecipacao_tributaria"]
+        }
+    }
+    config_sem_cnpj["mva_revenda_antecipacao_tributaria"].pop("empresa_cnpj")
+    assert (
+        RevendaAntecipacaoTributariaPolicy.config_for_empresa(
+            config_sem_cnpj,
+            "33906322000153",
+        )
+        is None
+    )
+
+
 def test_aliquota_origem_fora_da_matriz_falha_sem_assumir_valor():
     with pytest.raises(ValidationException):
         RevendaAntecipacaoTributariaPolicy.resolve_mva(
