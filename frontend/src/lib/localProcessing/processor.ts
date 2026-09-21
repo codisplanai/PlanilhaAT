@@ -527,6 +527,7 @@ export async function processFiscalLocally(
         context.templates_ativos,
         destination,
         rows.length,
+        context.margens_seguranca_templates[destination] ?? 0,
       );
       if (!template) continue;
       let bytes = templateBytes.get(template.id);
@@ -561,6 +562,7 @@ export async function processFiscalLocally(
         tamanhoBytes: output.byteLength,
         templateId: template.id,
         capacidadeLinhas: template.capacidade_linhas ?? null,
+        margemSegurancaLinhas: context.margens_seguranca_templates[destination] ?? 0,
       });
     }
 
