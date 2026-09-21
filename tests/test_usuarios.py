@@ -10,7 +10,7 @@ def supabase_admin_fake(monkeypatch):
     """Substitui a Admin API. Registra as chamadas para as asserções."""
     from app.api.endpoints import usuarios as usuarios_module
 
-    chamadas = {"create": [], "delete": []}
+    chamadas = {"create": [], "delete": [], "remove": []}
 
     def fake_create(email, password, nome):
         chamadas["create"].append({"email": email, "password": password, "nome": nome})
@@ -22,8 +22,14 @@ def supabase_admin_fake(monkeypatch):
     monkeypatch.setattr(
         usuarios_module.SupabaseAdminService, "create_user", staticmethod(fake_create)
     )
+    def fake_remove(user_id):
+        chamadas["remove"].append(user_id)
+
     monkeypatch.setattr(
         usuarios_module.SupabaseAdminService, "delete_user", staticmethod(fake_delete)
+    )
+    monkeypatch.setattr(
+        usuarios_module.SupabaseAdminService, "remove_user", staticmethod(fake_remove)
     )
     return chamadas
 
@@ -272,3 +278,144 @@ def test_guarda_de_autodesativacao_usa_o_perfil_carregado(
     assert res.status_code == 400, res.text
     assert "própria conta" in res.json()["detail"]
     assert db_session.query(Profile).filter(Profile.id == me["id"]).one().ativo is True
+
+
+# --------------------------------------------------------------------------
+# Exclusão definitiva de usuário
+# --------------------------------------------------------------------------
+
+
+def test_admin_exclui_usuario(client, db_session, supabase_admin_fake):
+    criar = client.post("/api/v1/usuarios", json={
+        "nome": "Maria", "email": "maria@codisplan.com",
+        "password": "senhaforte1", "role": "operador",
+    })
+    assert criar.status_code == 201, criar.text
+
+    res = client.delete(f"/api/v1/usuarios/{NOVO_UUID}")
+
+    assert res.status_code == 204, res.text
+    assert supabase_admin_fake["remove"] == [NOVO_UUID]
+    assert db_session.query(Profile).filter(Profile.id == NOVO_UUID).first() is None
+
+
+def test_operador_nao_exclui_usuario(client_operador, db_session, supabase_admin_fake):
+    db_session.add(Profile(
+        id=NOVO_UUID, email="maria@codisplan.com",
+        nome="Maria", cargo="Analista Fiscal", role="operador", ativo=True,
+    ))
+    db_session.commit()
+
+    res = client_operador.delete(f"/api/v1/usuarios/{NOVO_UUID}")
+
+    assert res.status_code == 403
+    assert supabase_admin_fake["remove"] == []
+    assert db_session.query(Profile).filter(Profile.id == NOVO_UUID).first() is not None
+
+
+def test_admin_nao_exclui_a_si_mesmo(client, db_session, supabase_admin_fake):
+    me = client.get("/api/v1/auth/me").json()
+
+    res = client.delete(f"/api/v1/usuarios/{me['id']}")
+
+    assert res.status_code == 400
+    assert "própria conta" in res.json()["detail"]
+    assert supabase_admin_fake["remove"] == []
+
+
+def test_conta_institucional_fixa_nao_e_excluida(client, db_session, supabase_admin_fake):
+    """O e-mail do mapa fixo volta a existir no próximo login, então excluí-lo
+    removeria a conta do Auth sem tirar o acesso de fato."""
+    db_session.add(Profile(
+        id=NOVO_UUID, email="operador@contabilidade.com",
+        nome="Operador Institucional", cargo="Analista Fiscal",
+        role="operador", ativo=True,
+    ))
+    db_session.commit()
+
+    res = client.delete(f"/api/v1/usuarios/{NOVO_UUID}")
+
+    assert res.status_code == 400
+    assert supabase_admin_fake["remove"] == []
+    assert db_session.query(Profile).filter(Profile.id == NOVO_UUID).first() is not None
+
+
+def test_exclusao_de_id_inexistente_da_404(client, supabase_admin_fake):
+    res = client.delete("/api/v1/usuarios/00000000-0000-0000-0000-000000000404")
+
+    assert res.status_code == 404
+    assert supabase_admin_fake["remove"] == []
+
+
+def test_auth_que_recusa_remocao_mantem_o_perfil(client, db_session, monkeypatch):
+    """Sem o rollback, o usuário sumiria da lista e continuaria entrando."""
+    from fastapi import HTTPException
+
+    from app.api.endpoints import usuarios as usuarios_module
+
+    db_session.add(Profile(
+        id=NOVO_UUID, email="maria@codisplan.com",
+        nome="Maria", cargo="Analista Fiscal", role="operador", ativo=True,
+    ))
+    db_session.commit()
+
+    def recusa(user_id):
+        raise HTTPException(status_code=502, detail="Auth recusou")
+
+    monkeypatch.setattr(
+        usuarios_module.SupabaseAdminService, "remove_user", staticmethod(recusa)
+    )
+
+    res = client.delete(f"/api/v1/usuarios/{NOVO_UUID}")
+
+    assert res.status_code == 502
+    assert db_session.query(Profile).filter(Profile.id == NOVO_UUID).first() is not None
+
+
+def test_exclusao_preserva_solicitacoes_sem_autor(client, db_session, supabase_admin_fake):
+    """O histórico é o registro fiscal do que foi gerado: some o autor, não a
+    solicitação."""
+    import datetime
+
+    from app.models.empresa import Empresa
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.solicitacao import Solicitacao
+
+    db_session.add(Profile(
+        id=NOVO_UUID, email="maria@codisplan.com",
+        nome="Maria", cargo="Analista Fiscal", role="operador", ativo=True,
+    ))
+    perfil = PerfilRegras(nome="Perfil exclusão de usuário")
+    db_session.add(perfil)
+    db_session.flush()
+    empresa = Empresa(
+        cnpj="12345678000195",
+        razao_social="Empresa Teste",
+        uf="BA",
+        perfil_regras_id=perfil.id,
+    )
+    db_session.add(empresa)
+    db_session.flush()
+    solicitacao = Solicitacao(
+        empresa_id=empresa.id,
+        usuario_id=NOVO_UUID,
+        periodo_inicio=datetime.date(2026, 7, 1),
+        periodo_fim=datetime.date(2026, 7, 31),
+        tipo_planilha="multi",
+        status="concluido",
+        total_notas_processadas=3,
+    )
+    db_session.add(solicitacao)
+    db_session.commit()
+    solicitacao_id = solicitacao.id
+
+    res = client.delete(f"/api/v1/usuarios/{NOVO_UUID}")
+
+    assert res.status_code == 204, res.text
+    db_session.expire_all()
+    persistida = db_session.query(Solicitacao).filter(
+        Solicitacao.id == solicitacao_id
+    ).first()
+    assert persistida is not None
+    assert persistida.usuario_id is None
+    assert persistida.total_notas_processadas == 3

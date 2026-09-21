@@ -61,6 +61,18 @@ export function useUsuariosPage() {
     onError: (error) => setPageError(getErrorMessage(error)),
   });
 
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => {
+      setDeletingUserId(id);
+      return usuariosApi.excluir(id);
+    },
+    onSettled: () => setDeletingUserId(null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.usuarios }),
+    onError: (error) => setPageError(getErrorMessage(error)),
+  });
+
   function openModal() {
     setFormError(null);
     form.reset(EMPTY_USER);
@@ -87,6 +99,13 @@ export function useUsuariosPage() {
     statusMutation.mutate({ id: user.id, ativo: !user.ativo });
   };
 
+  /** ``onDone`` fecha a confirmação em qualquer desfecho: com erro, o alerta da
+   *  página precisa ficar visível, e o modal o cobriria. */
+  const deleteUser = (user: Usuario, onDone?: () => void) => {
+    setPageError(null);
+    deleteMutation.mutate(user.id, { onSettled: () => onDone?.() });
+  };
+
   return {
     usuarios: usersQuery.data ?? [],
     isLoading: usersQuery.isLoading,
@@ -101,6 +120,8 @@ export function useUsuariosPage() {
     createUser,
     toggleStatus,
     togglingUserId,
+    deleteUser,
+    deletingUserId,
     register: form.register,
     control: form.control,
     errors: form.formState.errors,

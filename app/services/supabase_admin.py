@@ -111,6 +111,41 @@ class SupabaseAdminService:
             )
 
     @classmethod
+    def remove_user(cls, user_id: str) -> None:
+        """Remoção deliberada de uma conta. Ao contrário de ``delete_user``, falha alto.
+
+        A compensação de uma criação pode engolir o erro porque ali a conta órfã
+        é o mal menor. Aqui foi um administrador que pediu a exclusão: se o Auth
+        recusar, quem pediu precisa saber que aquela conta continua entrando.
+        """
+        if not cls.is_configured():
+            raise SupabaseAdminNaoConfigurado()
+
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.delete(
+                    f"{cls._base_url()}/{user_id}", headers=cls._get_headers()
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Auth indisponível ao remover usuário: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Serviço de autenticação temporariamente indisponível.",
+            )
+
+        # 404 é sucesso: a conta já não existe no Auth, que era o objetivo.
+        if response.status_code >= 400 and response.status_code != 404:
+            logger.warning(
+                "Supabase Auth recusou a remoção do usuário %s (HTTP %s)",
+                user_id,
+                response.status_code,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="O serviço de autenticação recusou a remoção da conta.",
+            )
+
+    @classmethod
     def update_password(cls, user_id: str, new_password: str) -> None:
         if not cls.is_configured():
             raise SupabaseAdminNaoConfigurado()
