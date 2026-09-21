@@ -60,6 +60,20 @@ class TemplateMapping(BaseModel):
     class Config:
         extra = "forbid"
 
+
+class TemplateSelectionConfigUpdate(BaseModel):
+    margem_seguranca_linhas: int = Field(
+        0,
+        ge=0,
+        le=100_000,
+        description="Quantidade opcional de linhas reservadas além das linhas reais do processamento.",
+    )
+
+
+class TemplateSelectionConfigOut(BaseModel):
+    tipo: str
+    margem_seguranca_linhas: int = 0
+
 class TemplateXlsxBase(BaseModel):
     tipo: str = Field(..., example="antecipacao_parcial", description="antecipacao_parcial, antecipacao_tributaria ou difal")
     versao: int = Field(..., example=1)
