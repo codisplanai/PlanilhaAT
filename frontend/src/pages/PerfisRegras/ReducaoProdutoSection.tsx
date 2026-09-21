@@ -20,9 +20,11 @@ const percentual = (aliquota: number): string => `${(aliquota * 100).toFixed(2)}
 
 interface Props {
   perfilId: number;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
+export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenChange }) => {
   const { regras, criarRegra, deletarRegra, criarExcecao, deletarExcecao, erro, setErro } =
     useReducaoProdutoSection(perfilId);
 
@@ -90,8 +92,12 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId }) => {
   return (
     <>
       <Card
+        collapsible
+        open={open}
+        onOpenChange={onOpenChange}
         title="Reduções por Produto (NCM + Descrição) — Prioridade Máxima"
         subtitle="Aplicada quando o NCM E a descrição do item conferem. Vence o termo de acordo da empresa e as demais regras."
+        summary={<span>{regras.data?.length ?? 0} regra(s)</span>}
         headerAction={
           <Button
             size="sm"
