@@ -98,7 +98,7 @@ class RevendaAntecipacaoTributariaPolicy:
 
     @staticmethod
     def _clean_ncm(ncm: Optional[str]) -> str:
-        return re.sub(r"\\D", "", str(ncm or ""))
+        return re.sub(r"\D", "", str(ncm or ""))
 
     @classmethod
     def classify(
