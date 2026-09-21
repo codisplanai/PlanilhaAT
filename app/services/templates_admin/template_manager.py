@@ -19,6 +19,8 @@ from app.services.local_files import atomic_write, remove_file_if_exists
 logger = logging.getLogger(__name__)
 
 STRICT_OFFICIAL_TEMPLATE_TYPES = {"antecipacao_tributaria", "difal"}
+SAFETY_MARGIN_KEY = "margem_seguranca_linhas"
+MAX_SAFETY_MARGIN_LINES = 100_000
 
 class TemplateManager:
     """
@@ -127,6 +129,11 @@ class TemplateManager:
                 synchronize_session=False,
             )
 
+        mapping_payload = validated_mapping.dict()
+        extra_options = dict(mapping_payload.get("extra_options") or {})
+        extra_options[SAFETY_MARGIN_KEY] = cls.get_safety_margin(db, clean_tipo)
+        mapping_payload["extra_options"] = extra_options
+
         novo_template = TemplateXlsx(
             tipo=clean_tipo,
             versao=proxima_versao,
@@ -134,7 +141,7 @@ class TemplateManager:
             arquivo_path=stored_path,
             arquivo_hash=file_hash,
             arquivo_blob=file_bytes,
-            mapeamento_campos=validated_mapping.dict(),
+            mapeamento_campos=mapping_payload,
             ativo=deve_ativar,
             observacoes=observacoes
         )
@@ -181,6 +188,75 @@ class TemplateManager:
         return target
 
     @classmethod
+    def get_safety_margin(cls, db: Session, tipo: str) -> int:
+        """Retorna a margem opcional de linhas configurada para um tipo de planilha."""
+        clean_tipo = tipo.strip().lower()
+        if clean_tipo not in TIPOS_PLANILHA:
+            raise ValidationException(
+                f"Tipo de planilha '{tipo}' inválido. Tipos suportados: {TIPOS_PLANILHA}"
+            )
+
+        templates = (
+            db.query(TemplateXlsx)
+            .filter(TemplateXlsx.tipo == clean_tipo)
+            .order_by(TemplateXlsx.ativo.desc(), TemplateXlsx.versao.desc())
+            .all()
+        )
+        for template in templates:
+            mapping = template.mapeamento_campos or {}
+            extra_options = mapping.get("extra_options") or {}
+            raw_margin = extra_options.get(SAFETY_MARGIN_KEY)
+            if raw_margin is None:
+                continue
+            try:
+                margin = int(raw_margin)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Margem de segurança inválida ignorada no template %s v%s: %r",
+                    template.tipo,
+                    template.versao,
+                    raw_margin,
+                )
+                continue
+            if 0 <= margin <= MAX_SAFETY_MARGIN_LINES:
+                return margin
+        return 0
+
+    @classmethod
+    def set_safety_margin(cls, db: Session, tipo: str, margin: int) -> int:
+        """Sincroniza a margem de segurança em todos os modelos do mesmo tipo."""
+        clean_tipo = tipo.strip().lower()
+        if clean_tipo not in TIPOS_PLANILHA:
+            raise ValidationException(
+                f"Tipo de planilha '{tipo}' inválido. Tipos suportados: {TIPOS_PLANILHA}"
+            )
+        if margin < 0 or margin > MAX_SAFETY_MARGIN_LINES:
+            raise ValidationException(
+                f"A margem de segurança deve ficar entre 0 e {MAX_SAFETY_MARGIN_LINES} linhas."
+            )
+
+        templates = (
+            db.query(TemplateXlsx)
+            .filter(TemplateXlsx.tipo == clean_tipo)
+            .all()
+        )
+        if not templates:
+            raise NotFoundException(
+                f"Nenhum template cadastrado para o tipo '{tipo}'. "
+                "Cadastre ao menos um modelo antes de configurar a margem de segurança."
+            )
+
+        for template in templates:
+            mapping = dict(template.mapeamento_campos or {})
+            extra_options = dict(mapping.get("extra_options") or {})
+            extra_options[SAFETY_MARGIN_KEY] = int(margin)
+            mapping["extra_options"] = extra_options
+            template.mapeamento_campos = mapping
+
+        db.commit()
+        return int(margin)
+
+    @classmethod
     def get_active_template(
         cls,
         db: Session,
@@ -221,19 +297,27 @@ class TemplateManager:
             if required_rows < 1:
                 raise ValidationException("A quantidade de linhas necessária deve ser maior ou igual a 1.")
 
+            safety_margin = cls.get_safety_margin(db, clean_tipo)
+            required_capacity = required_rows + safety_margin
+
             if capacity_templates:
                 for template in capacity_templates:
-                    if int(template.capacidade_linhas or 0) >= required_rows:
+                    if int(template.capacidade_linhas or 0) >= required_capacity:
                         return template
 
                 max_capacity = max(
                     int(template.capacidade_linhas or 0)
                     for template in capacity_templates
                 )
+                margin_detail = (
+                    f" + {safety_margin} linhas de segurança = {required_capacity}"
+                    if safety_margin
+                    else ""
+                )
                 raise ValidationException(
-                    f"O processamento de '{tipo}' necessita de {required_rows} linhas, "
-                    f"mas o maior modelo oficial cadastrado suporta {max_capacity} linhas. "
-                    f"Cadastre um modelo com capacidade igual ou superior a {required_rows}."
+                    f"O processamento de '{tipo}' necessita de {required_rows} linhas"
+                    f"{margin_detail}, mas o maior modelo oficial cadastrado suporta {max_capacity} linhas. "
+                    f"Cadastre um modelo com capacidade igual ou superior a {required_capacity}."
                 )
 
             legacy = (

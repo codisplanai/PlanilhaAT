@@ -8,11 +8,17 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
 from app.models.profile import Profile
 from app.models.template_xlsx import TemplateXlsx
-from app.schemas.template_xlsx import TemplateXlsxOut, TemplateMapping
+from app.schemas.template_xlsx import (
+    TemplateMapping,
+    TemplateSelectionConfigOut,
+    TemplateSelectionConfigUpdate,
+    TemplateXlsxOut,
+)
 from app.services.templates_admin.template_manager import TemplateManager
 from app.api.persistence import get_by_id_or_404
 from app.core.config import settings
 from app.core.exceptions import PlanilhaATException
+from app.constants import TIPOS_PLANILHA
 
 router = APIRouter(prefix="/templates", tags=["Administração de Templates Excel"])
 
@@ -107,6 +113,47 @@ def listar_templates(
         TemplateXlsx.capacidade_linhas,
         TemplateXlsx.versao.desc(),
     ).all()
+
+@router.get(
+    "/configuracoes-selecao",
+    response_model=List[TemplateSelectionConfigOut],
+)
+def listar_configuracoes_selecao(
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return [
+        {
+            "tipo": tipo,
+            "margem_seguranca_linhas": TemplateManager.get_safety_margin(db, tipo),
+        }
+        for tipo in TIPOS_PLANILHA
+    ]
+
+
+@router.put(
+    "/configuracoes-selecao/{tipo}",
+    response_model=TemplateSelectionConfigOut,
+)
+def atualizar_configuracao_selecao(
+    tipo: str,
+    payload: TemplateSelectionConfigUpdate,
+    admin_user: Profile = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        margin = TemplateManager.set_safety_margin(
+            db,
+            tipo,
+            payload.margem_seguranca_linhas,
+        )
+        return {
+            "tipo": tipo.strip().lower(),
+            "margem_seguranca_linhas": margin,
+        }
+    except PlanilhaATException as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
 
 @router.get("/{id}/arquivo")
 def baixar_template_para_processamento_local(

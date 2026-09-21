@@ -79,5 +79,6 @@ class LocalProcessingContextOut(BaseModel):
     regras_reducao: List[Dict[str, Any]]
     regras_reclassificacao: List[Dict[str, Any]]
     regras_exclusao_parcial: List[Dict[str, Any]]
+    margens_seguranca_templates: Dict[str, int]
     templates_ativos: List[Dict[str, Any]]
     mva_anexo: List[Dict[str, Any]]
