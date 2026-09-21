@@ -51,6 +51,7 @@ export const AdminTemplatesPage: React.FC = () => {
     uploadTemplate,
     register,
     errors,
+    uploadType,
     isUploading,
   } = useAdminTemplatesPage();
 
@@ -364,6 +365,17 @@ export const AdminTemplatesPage: React.FC = () => {
                 error={errors.col_ipi_despesas?.message}
               />
             </div>
+
+            {uploadType === 'antecipacao_tributaria' && (
+              <div>
+                <Input
+                  label="MVA"
+                  placeholder="Ex: H"
+                  {...register('col_mva')}
+                  error={errors.col_mva?.message}
+                />
+              </div>
+            )}
 
             <div>
               <Input
