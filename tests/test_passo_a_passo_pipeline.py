@@ -10,15 +10,14 @@ from app.services.pipeline_service import ProcessingPipelineService
 
 PASSO_CNPJ = "33906322000153"
 PASSO_CONFIG = {
-    "antecipacao_tributaria_revenda": {
+    "mva_revenda_antecipacao_tributaria": {
         "enabled": True,
         "empresa_cnpj": PASSO_CNPJ,
-        "destinos_revenda": ["antecipacao_parcial"],
         "special_ncms": ["64039990"],
         "description_fallback_ncms": ["62171000"],
-        "description_fallback_terms": ["CINTO", "CINTOS"],
-        "special_exclusion_terms": ["MOCHILA", "MALA", "NECESSAIRE", "PALMILHA", "CALCANHEIRA"],
-        "mva": {
+        "special_keywords": ["CINTO", "CINTOS"],
+        "exclusion_keywords": ["MOCHILA", "MALA", "NECESSAIRE", "PALMILHA", "CALCANHEIRA"],
+        "mvas": {
             "especial": {"4": "61.81", "7": "56.75", "12": "48.33", "original": "34.00"},
             "demais": {"4": "69.06", "7": "63.77", "12": "54.97", "original": "40.00"},
         },
@@ -98,6 +97,7 @@ def test_passo_a_passo_revenda_vai_para_tributaria_sem_alterar_filtro_interestad
     assert notas[0].numero_nota == "1001"
     assert notas[0].destino_planilha == ANTECIPACAO_TRIBUTARIA
     assert Decimal(str(notas[0].metadados_extras["mva"])) == Decimal("56.75")
+    assert notas[0].metadados_extras["mva_grupo"] == "especial"
 
     db_session.refresh(solicitacao)
     assert any(
@@ -106,14 +106,15 @@ def test_passo_a_passo_revenda_vai_para_tributaria_sem_alterar_filtro_interestad
     )
 
 
-def test_empresa_sem_config_especial_continua_com_roteamento_normal(
+def test_mesmo_perfil_em_outro_cnpj_nao_ativa_regra_especial(
     db_session, cenario_janeiro, monkeypatch
 ):
     solicitacao = cenario_janeiro(tipos=("antecipacao_parcial",))
     empresa = db_session.query(Empresa).filter_by(id=solicitacao.empresa_id).one()
+    empresa.perfil_regras.configuracoes_extras = PASSO_CONFIG
+    db_session.commit()
 
     nf = _nf(numero="2001", uf_emitente="SP", cnpj_destinatario=empresa.cnpj)
-    nf.cnpj_destinatario = empresa.cnpj
 
     pipeline = ProcessingPipelineService(db_session)
     monkeypatch.setattr(
