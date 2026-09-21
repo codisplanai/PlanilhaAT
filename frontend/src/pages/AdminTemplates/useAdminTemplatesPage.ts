@@ -29,12 +29,21 @@ const templateUploadSchema = z.object({
   col_v_total: z.string().min(1, 'Informe a coluna').toUpperCase(),
   col_base_calculo: z.string().optional(),
   col_ipi_despesas: z.string().optional(),
+  col_mva: z.string().optional(),
   col_a_dst: z.string().min(1, 'Informe a coluna').toUpperCase(),
   col_a_ori: z.string().min(1, 'Informe a coluna').toUpperCase(),
   header_cell: z.string().optional(),
   aliquota_format: z.enum(['percent_number', 'decimal']),
   observacoes: z.string().optional(),
   promover_ativo: z.boolean(),
+}).superRefine((data, ctx) => {
+  if (data.tipo === 'antecipacao_tributaria' && !data.col_mva?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['col_mva'],
+      message: 'Informe a coluna do MVA para Antecipação Tributária',
+    });
+  }
 });
 
 type TemplateUploadFormData = z.infer<typeof templateUploadSchema>;
@@ -57,6 +66,7 @@ function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
     col_v_total: 'E',
     col_base_calculo: isAntecipado || isTributaria || isParcial ? 'F' : '',
     col_ipi_despesas: isDifal ? 'F' : 'G',
+    col_mva: isTributaria ? 'H' : '',
     col_a_dst: isTributaria ? 'J' : isDifal ? 'I' : 'H',
     col_a_ori: isTributaria ? 'K' : isDifal ? 'J' : 'I',
     header_cell: 'A2',
@@ -188,6 +198,7 @@ export function useAdminTemplatesPage() {
     };
     if (data.col_base_calculo) columns.base_calculo = data.col_base_calculo.toUpperCase();
     if (data.col_ipi_despesas) columns.ipi_despesas = data.col_ipi_despesas.toUpperCase();
+    if (data.col_mva) columns.mva = data.col_mva.toUpperCase();
 
     const headerCell = data.header_cell || 'A2';
     const mapping: TemplateMapping = {
@@ -247,6 +258,7 @@ export function useAdminTemplatesPage() {
     uploadTemplate,
     register: form.register,
     errors: form.formState.errors,
+    uploadType: form.watch('tipo'),
     isUploading: form.formState.isSubmitting || uploadMutation.isPending,
   };
 }
