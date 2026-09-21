@@ -15,11 +15,15 @@ import type {
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import { calculateTax } from './calculations';
 import {
+  classifyRevendaMva,
   evaluatePartialMerchandiseExclusion,
+  getRevendaAntecipacaoConfig,
   normalizeDescription,
+  redirectRevendaToAntecipacaoTributaria,
   resolveCfop,
   resolveDestinationRate,
   resolveMva,
+  resolveRevendaMva,
   shouldExcludeEqualRates,
 } from './rules';
 import {
@@ -115,12 +119,20 @@ interface Group {
   cfopResolutions: CfopResolution[];
   aOriLimited: boolean;
   aOriOriginal: number;
+  mvaPolicyGroup: 'especial' | 'demais' | '';
+  mvaPolicySource: string;
 }
 
-function groupKey(destination: TipoPlanilha, aOri: number, aDst: number, item: ExtractedItem): string {
+function groupKey(
+  destination: TipoPlanilha,
+  aOri: number,
+  aDst: number,
+  item: ExtractedItem,
+  mvaPolicyGroup: Group['mvaPolicyGroup'],
+): string {
   const ncm = destination === 'antecipacao_tributaria' ? item.ncm : '';
   const cest = destination === 'antecipacao_tributaria' ? item.cest : '';
-  return JSON.stringify([destination, aOri, aDst, ncm, cest]);
+  return JSON.stringify([destination, aOri, aDst, ncm, cest, mvaPolicyGroup]);
 }
 
 function sortRows(rows: LocalOutputRow[]): void {
@@ -193,6 +205,7 @@ export async function processFiscalLocally(
   diagnostic?.stage('transformacao', 'Validação fiscal, aplicação de regras e cálculos iniciados.');
 
   const hasEntrySource = Boolean(request.input.spedFile) || sources.entryRecords.length > 0;
+  const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
 
   for (const note of sources.notes) {
     if (cleanDigits(note.cnpjDestinatario) !== cleanDigits(context.empresa.cnpj)) {
@@ -233,6 +246,8 @@ export async function processFiscalLocally(
 
     for (const originalItem of note.itens) {
       const item = { ...originalItem };
+      let mvaPolicyGroup: Group['mvaPolicyGroup'] = '';
+      let mvaPolicySource = '';
       if (auxiliaryCfop && isUsoConsumoAtivo(auxiliaryCfop)) item.cfop = auxiliaryCfop;
 
       const cfopResolution = resolveCfop(context, item);
@@ -253,6 +268,21 @@ export async function processFiscalLocally(
       }
 
       if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
+      destination = redirectRevendaToAntecipacaoTributaria(revendaAntecipacaoConfig, destination);
+      if (revendaAntecipacaoConfig && destination === 'antecipacao_tributaria') {
+        const classification = classifyRevendaMva(revendaAntecipacaoConfig, item);
+        mvaPolicyGroup = classification.grupo;
+        mvaPolicySource = classification.fonte;
+        if (classification.aviso) {
+          warnings.push({
+            numero_nota: note.numeroNota,
+            serie: note.serie,
+            item_numero: item.itemNumero,
+            arquivo: note.filename,
+            aviso: classification.aviso,
+          });
+        }
+      }
       if (destination === 'antecipacao_parcial' && paidEarly) destination = 'antecipacao_parcial_antecipado';
       if (context.empresa.optante_simples_nacional) {
         if (destination === 'antecipacao_parcial') destination = 'antecipacao_parcial_simples';
@@ -353,7 +383,7 @@ export async function processFiscalLocally(
         }
       }
 
-      const key = groupKey(destination, aOri, rate.aliquota, item);
+      const key = groupKey(destination, aOri, rate.aliquota, item, mvaPolicyGroup);
       const group = groups.get(key) ?? {
         destination,
         aOri,
@@ -363,6 +393,8 @@ export async function processFiscalLocally(
         cfopResolutions: [],
         aOriLimited: false,
         aOriOriginal: originalAOri,
+        mvaPolicyGroup,
+        mvaPolicySource,
       };
       group.items.push(item);
       group.rateResolutions.push(rate);
@@ -402,10 +434,18 @@ export async function processFiscalLocally(
       const description = group.items.length === 1
         ? first?.descricao ?? ''
         : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
-      const mva = group.destination === 'antecipacao_tributaria'
-        ? resolveMva(context, ncm, group.aOri, first?.cest)
-        : 0;
       const crt = String(note.rawMetadata.crt ?? '').trim();
+      const supplierIsSimples = ['1', '2'].includes(crt);
+      const mva = group.destination === 'antecipacao_tributaria'
+        ? revendaAntecipacaoConfig
+          ? resolveRevendaMva(
+            revendaAntecipacaoConfig,
+            group.mvaPolicyGroup || 'demais',
+            group.aOri,
+            supplierIsSimples,
+          )
+          : resolveMva(context, ncm, group.aOri, first?.cest)
+        : 0;
       const aliqSimples = group.destination === 'difal' && ['1', '2'].includes(crt) ? 'S' : 'N';
 
       const calculation = calculateTax(group.destination, {
@@ -453,6 +493,11 @@ export async function processFiscalLocally(
           subitem_index: splitIndex,
           total_subitens_destino: group.items.length,
           mva: String(mva),
+          mva_grupo: group.mvaPolicyGroup || null,
+          mva_fonte: group.mvaPolicySource || null,
+          fornecedor_simples_nacional: group.destination === 'antecipacao_tributaria'
+            ? supplierIsSimples
+            : null,
           aliq_simples: aliqSimples,
           origem_a_dst: rateOrigins,
           detalhe_a_dst: rateDetails.join('; '),
