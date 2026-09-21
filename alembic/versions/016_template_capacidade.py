@@ -17,7 +17,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def _index_names(inspector: sa.Inspector) -> set[str]:
+def _index_names(inspector) -> set[str]:
     return {
         index["name"]
         for index in inspector.get_indexes("templates_xlsx")
