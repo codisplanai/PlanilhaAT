@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Copy,
   Sliders,
@@ -34,6 +34,39 @@ import { usePerfisRegrasPage } from './usePerfisRegrasPage';
 import { ReducaoProdutoSection } from './ReducaoProdutoSection';
 import { ReclassificacaoCfopSection } from './ReclassificacaoCfopSection';
 import { ExclusaoParcialSection } from './ExclusaoParcialSection';
+import { MvaAntecipacaoSection } from './MvaAntecipacaoSection';
+
+type SectionKey =
+  | 'limiteAori'
+  | 'aliquotasIguais'
+  | 'reducoes'
+  | 'exclusoes'
+  | 'mva'
+  | 'padrao'
+  | 'excecoes'
+  | 'cfop';
+
+const SECTION_KEYS: SectionKey[] = [
+  'limiteAori',
+  'aliquotasIguais',
+  'reducoes',
+  'exclusoes',
+  'mva',
+  'padrao',
+  'excecoes',
+  'cfop',
+];
+
+const collapsedSections = (): Record<SectionKey, boolean> => ({
+  limiteAori: false,
+  aliquotasIguais: false,
+  reducoes: false,
+  exclusoes: false,
+  mva: false,
+  padrao: false,
+  excecoes: false,
+  cfop: false,
+});
 
 export const PerfisRegrasPage: React.FC = () => {
   const {
@@ -107,6 +140,26 @@ export const PerfisRegrasPage: React.FC = () => {
   } = usePerfisRegrasPage();
 
   const [cfopTab, setCfopTab] = useState<'geral' | 'reclassificacao'>('geral');
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(collapsedSections);
+
+  useEffect(() => {
+    setOpenSections(collapsedSections());
+  }, [activePerfil?.id]);
+
+  const setSectionOpen = (key: SectionKey, open: boolean) => {
+    setOpenSections((current) => ({ ...current, [key]: open }));
+  };
+
+  const expandAllSections = () => {
+    setOpenSections(Object.fromEntries(SECTION_KEYS.map((key) => [key, true])) as Record<SectionKey, boolean>);
+  };
+
+  const collapseAllSections = () => {
+    setOpenSections(collapsedSections());
+  };
+
+  const allSectionsOpen = SECTION_KEYS.every((key) => openSections[key]);
+  const allSectionsClosed = SECTION_KEYS.every((key) => !openSections[key]);
 
   return (
     <div className="space-y-6">
