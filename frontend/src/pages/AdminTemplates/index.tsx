@@ -50,9 +50,11 @@ export const AdminTemplatesPage: React.FC = () => {
     setPromoteError,
     uploadTemplate,
     register,
+    watch,
     errors,
     isUploading,
   } = useAdminTemplatesPage();
+  const tipoUpload = watch('tipo');
 
   return (
     <div className="space-y-6">
@@ -364,6 +366,17 @@ export const AdminTemplatesPage: React.FC = () => {
                 error={errors.col_ipi_despesas?.message}
               />
             </div>
+
+            {tipoUpload === 'antecipacao_tributaria' && (
+              <div>
+                <Input
+                  label="MVA"
+                  placeholder="Ex: H"
+                  {...register('col_mva')}
+                  error={errors.col_mva?.message}
+                />
+              </div>
+            )}
 
             <div>
               <Input
