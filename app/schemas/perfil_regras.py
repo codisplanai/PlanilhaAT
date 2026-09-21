@@ -1,6 +1,90 @@
 from typing import Optional, Dict, Any
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
+import re
 from pydantic import BaseModel, Field, validator
+
+
+def _normalizar_lista_textos(value: Any, campo: str, *, ncm: bool = False) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{campo} deve ser uma lista")
+    resultado: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{campo} deve conter apenas textos")
+        clean = re.sub(r"\D", "", item) if ncm else item.strip().upper()
+        if ncm and len(clean) != 8:
+            raise ValueError(f"NCM inválido '{item}' em {campo}; informe 8 dígitos")
+        if not clean:
+            raise ValueError(f"{campo} não pode conter valores vazios")
+        if clean not in resultado:
+            resultado.append(clean)
+    return resultado
+
+
+def _normalizar_mva(value: Any, campo: str) -> str:
+    try:
+        percentual = Decimal(str(value).replace(",", "."))
+    except (InvalidOperation, ValueError):
+        raise ValueError(f"{campo} deve ser um percentual numérico válido")
+    if percentual < 0 or percentual > 500:
+        raise ValueError(f"{campo} deve estar entre 0% e 500%")
+    return str(percentual.quantize(Decimal("0.01")))
+
+
+def _validar_config_mva(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("mva_revenda_antecipacao_tributaria deve ser um objeto")
+
+    enabled = value.get("enabled")
+    if type(enabled) is not bool:
+        raise ValueError("mva_revenda_antecipacao_tributaria.enabled deve ser booleano")
+
+    cnpj = re.sub(r"\D", "", str(value.get("empresa_cnpj") or ""))
+    if len(cnpj) != 14:
+        raise ValueError("mva_revenda_antecipacao_tributaria.empresa_cnpj deve conter 14 dígitos")
+
+    mvas = value.get("mvas")
+    if not isinstance(mvas, dict):
+        raise ValueError("mva_revenda_antecipacao_tributaria.mvas deve ser um objeto")
+
+    normalized_mvas: Dict[str, Dict[str, str]] = {}
+    for grupo in ("especial", "demais"):
+        grupo_values = mvas.get(grupo)
+        if not isinstance(grupo_values, dict):
+            raise ValueError(f"mva_revenda_antecipacao_tributaria.mvas.{grupo} deve ser um objeto")
+        normalized_mvas[grupo] = {}
+        for faixa in ("4", "7", "12", "original"):
+            if faixa not in grupo_values:
+                raise ValueError(f"MVA '{faixa}' ausente no grupo '{grupo}'")
+            normalized_mvas[grupo][faixa] = _normalizar_mva(
+                grupo_values[faixa],
+                f"mvas.{grupo}.{faixa}",
+            )
+
+    res = dict(value)
+    res["enabled"] = enabled
+    res["empresa_cnpj"] = cnpj
+    res["special_ncms"] = _normalizar_lista_textos(
+        value.get("special_ncms", []),
+        "special_ncms",
+        ncm=True,
+    )
+    res["description_fallback_ncms"] = _normalizar_lista_textos(
+        value.get("description_fallback_ncms", []),
+        "description_fallback_ncms",
+        ncm=True,
+    )
+    res["special_keywords"] = _normalizar_lista_textos(
+        value.get("special_keywords", []),
+        "special_keywords",
+    )
+    res["exclusion_keywords"] = _normalizar_lista_textos(
+        value.get("exclusion_keywords", []),
+        "exclusion_keywords",
+    )
+    res["mvas"] = normalized_mvas
+    return res
 
 
 def _validar_e_normalizar_configuracoes_extras(value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -9,8 +93,10 @@ def _validar_e_normalizar_configuracoes_extras(value: Optional[Dict[str, Any]]) 
     if not isinstance(value, dict):
         raise ValueError("configuracoes_extras deve ser um objeto JSON (dicionário)")
 
-    if "politica_aliquotas_iguais_parcial" in value:
-        politica = value["politica_aliquotas_iguais_parcial"]
+    res = dict(value)
+
+    if "politica_aliquotas_iguais_parcial" in res:
+        politica = res["politica_aliquotas_iguais_parcial"]
         if not isinstance(politica, dict):
             raise ValueError("politica_aliquotas_iguais_parcial deve ser um mapeamento de UF para booleano")
 
@@ -22,13 +108,20 @@ def _validar_e_normalizar_configuracoes_extras(value: Optional[Dict[str, Any]]) 
             if len(uf_clean) != 2 or not uf_clean.isalpha():
                 raise ValueError(f"UF inválida '{uf_k}' em politica_aliquotas_iguais_parcial")
             if type(val) is not bool:
-                raise ValueError(f"Valor para UF '{uf_k}' em politica_aliquotas_iguais_parcial deve ser booleano estrito (true/false)")
+                raise ValueError(
+                    f"Valor para UF '{uf_k}' em politica_aliquotas_iguais_parcial "
+                    "deve ser booleano estrito (true/false)"
+                )
             normalized_politica[uf_clean] = val
 
-        res = dict(value)
         res["politica_aliquotas_iguais_parcial"] = normalized_politica
-        return res
-    return value
+
+    if "mva_revenda_antecipacao_tributaria" in res:
+        res["mva_revenda_antecipacao_tributaria"] = _validar_config_mva(
+            res["mva_revenda_antecipacao_tributaria"]
+        )
+
+    return res
 
 
 class PerfilRegrasBase(BaseModel):

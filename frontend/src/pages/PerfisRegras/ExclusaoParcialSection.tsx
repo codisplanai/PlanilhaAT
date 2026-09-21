@@ -42,9 +42,11 @@ const MOTIVO_BADGE_VARIANTS: Record<MotivoExclusaoParcial, 'info' | 'warning' | 
 
 interface Props {
   perfilId: number;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export const ExclusaoParcialSection: React.FC<Props> = ({ perfilId }) => {
+export const ExclusaoParcialSection: React.FC<Props> = ({ perfilId, open, onOpenChange }) => {
   const {
     ufSelecionada,
     setUfSelecionada,
@@ -160,8 +162,12 @@ export const ExclusaoParcialSection: React.FC<Props> = ({ perfilId }) => {
   return (
     <>
       <Card
+        collapsible
+        open={open}
+        onOpenChange={onOpenChange}
         title="Exclusões da Antecipação Parcial (NCM + Descrição & Condição Numérica)"
         subtitle="Configuração de mercadorias desconsideradas da apuração na Parcial por isenção, imposto pago na entrada ou alíquotas iguais."
+        summary={<span>{regras.data?.length ?? 0} regra(s) em {ufSelecionada}</span>}
         headerAction={
           <div className="flex items-center gap-2 flex-wrap">
             <div className="w-28">
