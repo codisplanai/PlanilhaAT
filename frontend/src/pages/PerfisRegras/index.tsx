@@ -315,22 +315,51 @@ export const PerfisRegrasPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Card de Configuração: Limitação da Alíquota de Origem (A.ORI) a 10% */}
+              <div className="flex items-center justify-end gap-2 -mt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={expandAllSections}
+                  disabled={allSectionsOpen}
+                >
+                  Expandir todas
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={collapseAllSections}
+                  disabled={allSectionsClosed}
+                >
+                  Recolher todas
+                </Button>
+              </div>
+
+              {/* Configuração: Limitação da Alíquota de Origem (A.ORI) a 10% */}
               {(() => {
                 const limitarAori = Boolean(activePerfil.configuracoes_extras?.limitar_a_ori_reducoes);
                 return (
-                  <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs transition-all hover:border-slate-300">
+                  <Card
+                    collapsible
+                    open={openSections.limiteAori}
+                    onOpenChange={(open) => setSectionOpen('limiteAori', open)}
+                    title="Limitar Alíquota de Origem (A.ORI) a 10%"
+                    subtitle="Aplica o limite somente a itens calculados sob Redução por Produto ou Termo de Acordo."
+                    summary={
+                      limitarAori
+                        ? <Badge variant="success" size="sm">Ativo</Badge>
+                        : <Badge variant="neutral" size="sm">Inativo</Badge>
+                    }
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 text-sm">
-                            Limitar Alíquota de Origem (A.ORI) a 10%
-                          </span>
-                          {limitarAori ? (
-                            <Badge variant="success" size="sm">Ativo neste Perfil</Badge>
-                          ) : (
-                            <Badge variant="neutral" size="sm">Inativo</Badge>
-                          )}
+                      <div className="space-y-2 min-w-0">
+                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                          Alíquotas interestaduais superiores a 10% (como 12%) são automaticamente
+                          limitadas a <strong>10%</strong> na planilha e no cálculo fiscal. Alíquotas
+                          de 7% ou 4% permanecem conforme a nota.
+                        </p>
+                        <div className="min-h-4">
                           {aOriFeedback === 'saving' && (
                             <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
                           )}
@@ -345,53 +374,55 @@ export const PerfisRegrasPage: React.FC = () => {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
-                          Para itens calculados sob <strong>Redução por Produto</strong> ou <strong>Termo de Acordo</strong>,
-                          alíquotas interestaduais superiores a 10% (como 12%) são automaticamente limitadas a <strong>10%</strong> na planilha e no cálculo fiscal (Crédito e Valor Devido). Alíquotas de 7% ou 4% permanecem conforme a nota.
-                        </p>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0 self-start sm:self-center">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={limitarAori}
-                          disabled={isTogglingAliquotaOrigem}
-                          onClick={() => toggleLimitarAliquotaOrigem(activePerfil)}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
-                            limitarAori ? 'bg-blue-600' : 'bg-slate-200'
-                          } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                              limitarAori ? 'translate-x-5' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={limitarAori}
+                        disabled={isTogglingAliquotaOrigem}
+                        onClick={() => toggleLimitarAliquotaOrigem(activePerfil)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                          limitarAori ? 'bg-blue-600' : 'bg-slate-200'
+                        } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            limitarAori ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
                     </div>
-                  </div>
+                  </Card>
                 );
               })()}
 
-              {/* Card de Configuração: Política de Alíquotas Iguais na Bahia (A.ORI = A.DST) */}
+              {/* Configuração: Política de Alíquotas Iguais na Bahia (A.ORI = A.DST) */}
               {(() => {
                 const extras = activePerfil.configuracoes_extras || {};
                 const aliqIguaisBa = typeof extras.politica_aliquotas_iguais_parcial === 'object' && extras.politica_aliquotas_iguais_parcial !== null
                   ? Boolean((extras.politica_aliquotas_iguais_parcial as Record<string, boolean>)['BA'])
                   : extras.politica_aliquotas_iguais_parcial === true;
                 return (
-                  <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs transition-all hover:border-slate-300">
+                  <Card
+                    collapsible
+                    open={openSections.aliquotasIguais}
+                    onOpenChange={(open) => setSectionOpen('aliquotasIguais', open)}
+                    title="Condição Numérica de Alíquotas Iguais (BA)"
+                    subtitle="Trata itens da Antecipação Parcial quando A.ORI e A.DST são iguais."
+                    summary={
+                      aliqIguaisBa
+                        ? <Badge variant="success" size="sm">Ativo (BA)</Badge>
+                        : <Badge variant="neutral" size="sm">Inativo</Badge>
+                    }
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 text-sm">
-                            Condição Numérica de Alíquotas Iguais (BA)
-                          </span>
-                          {aliqIguaisBa ? (
-                            <Badge variant="success" size="sm">Ativo (BA)</Badge>
-                          ) : (
-                            <Badge variant="neutral" size="sm">Inativo</Badge>
-                          )}
+                      <div className="space-y-2 min-w-0">
+                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                          Calcula o item individualmente. Se o valor devido final resultar em
+                          <strong> R$ 0,00 ou negativo</strong>, o item é excluído com registro de conferência.
+                          Se houver diferença positiva por IPI, frete ou outras bases, o item permanece na apuração.
+                        </p>
+                        <div className="min-h-4">
                           {aliqIguaisFeedback === 'saving' && (
                             <span className="text-[11px] text-blue-600 font-semibold animate-pulse">Salvando...</span>
                           )}
@@ -406,31 +437,25 @@ export const PerfisRegrasPage: React.FC = () => {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
-                          Quando A.ORI = A.DST em operações de Antecipação Parcial para a Bahia, calcula o item individualmente.
-                          Se o valor devido final resultar em <strong>R$ 0,00 ou negativo</strong>, o item é automaticamente excluído com registro de conferência. Se houver <strong>diferença positiva</strong> (IPI, frete ou outras bases), o item é mantido na apuração.
-                        </p>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0 self-start sm:self-center">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={aliqIguaisBa}
-                          disabled={isTogglingAliquotaOrigem}
-                          onClick={() => togglePoliticaAliquotasIguais(activePerfil, 'BA')}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
-                            aliqIguaisBa ? 'bg-blue-600' : 'bg-slate-200'
-                          } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                              aliqIguaisBa ? 'translate-x-5' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={aliqIguaisBa}
+                        disabled={isTogglingAliquotaOrigem}
+                        onClick={() => togglePoliticaAliquotasIguais(activePerfil, 'BA')}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+                          aliqIguaisBa ? 'bg-blue-600' : 'bg-slate-200'
+                        } ${isTogglingAliquotaOrigem ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            aliqIguaisBa ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
                     </div>
-                  </div>
+                  </Card>
                 );
               })()}
 
