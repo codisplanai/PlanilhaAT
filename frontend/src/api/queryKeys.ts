@@ -3,6 +3,7 @@ export const queryKeys = {
   perfis: ['perfis-regras'] as const,
   templates: ['templates'] as const,
   templatesAtivos: ['templates-ativos-resumo'] as const,
+  templateSelectionConfigs: ['template-selection-configs'] as const,
   usuarios: ['usuarios'] as const,
   solicitacoesRoot: ['solicitacoes'] as const,
   solicitacoes: (empresaId?: number, status?: string) =>
