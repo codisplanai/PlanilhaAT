@@ -87,6 +87,34 @@ DEFAULT_ANTECIPACAO_TRIBUTARIA_MAPPING = {
     }
 }
 
+DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_TEMPLATE_PATH = os.path.join(
+    settings.TEMPLATES_DIR, "modelo_padrao_antecipacao_tributaria_antecipado.xlsx"
+)
+
+DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_MAPPING = {
+    "start_row": 4,
+    "columns": {
+        "item_index": "A",
+        "data_entrada": "B",
+        "data_emissao": "C",
+        "numero_nota": "D",
+        "v_total": "E",
+        "base_calculo": "F",
+        "ipi_despesas": "G",
+        "mva": "H",
+        "reducao": "I",
+        "a_dst": "J",
+        "a_ori": "K",
+        "red": "L"
+    },
+    "sheet_name": "4",
+    "header_cell": "A2",
+    "extra_options": {
+        "header_cell": "A2",
+        "aliquota_format": "percent_number"
+    }
+}
+
 DEFAULT_ANTECIPACAO_PARCIAL_ANTECIPADO_TEMPLATE_PATH = os.path.join(
     settings.TEMPLATES_DIR, "modelo_padrao_antecipacao_parcial_antecipado.xlsx"
 )
@@ -238,7 +266,39 @@ def seed_default_templates(db: Session) -> None:
             promover_ativo=True
         )
 
-    # 3. DIFAL (RP-158)
+    # 3. Antecipação Tributária / ST — Pago Antecipadamente (RP-151 / Anexo 88)
+    template_tributaria_antecipado_ativo = (
+        db.query(TemplateXlsx)
+        .filter(
+            TemplateXlsx.tipo == "antecipacao_tributaria_antecipado",
+            TemplateXlsx.capacidade_linhas == 35,
+            TemplateXlsx.ativo == True,
+        )
+        .first()
+    )
+
+    if (
+        template_tributaria_antecipado_ativo is None
+        and os.path.exists(DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_TEMPLATE_PATH)
+    ):
+        with open(DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_TEMPLATE_PATH, "rb") as f:
+            file_bytes = f.read()
+
+        TemplateManager.upload_new_template_version(
+            db=db,
+            tipo="antecipacao_tributaria_antecipado",
+            file_bytes=file_bytes,
+            filename="modelo_padrao_antecipacao_tributaria_antecipado.xlsx",
+            mapeamento=DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_MAPPING,
+            capacidade_linhas=35,
+            observacoes=(
+                "Modelo oficial de Antecipação Tributária — DAE pago antecipadamente "
+                "(RP-151 / Anexo 88), capacidade de 35 linhas"
+            ),
+            promover_ativo=True,
+        )
+
+    # 4. DIFAL (RP-158)
     template_difal_ativo = (
         db.query(TemplateXlsx)
         .filter(TemplateXlsx.tipo == "difal", TemplateXlsx.ativo == True)
@@ -259,7 +319,7 @@ def seed_default_templates(db: Session) -> None:
             promover_ativo=True
         )
 
-    # 4. Antecipação Parcial — Pago Antecipadamente (RP-155)
+    # 5. Antecipação Parcial — Pago Antecipadamente (RP-155)
     template_antecipado_ativo = (
         db.query(TemplateXlsx)
         .filter(TemplateXlsx.tipo == "antecipacao_parcial_antecipado", TemplateXlsx.ativo == True)
@@ -291,7 +351,7 @@ def seed_default_templates(db: Session) -> None:
             promover_ativo=True
         )
 
-    # 5. Antecipação Parcial — Simples Nacional (RP-154)
+    # 6. Antecipação Parcial — Simples Nacional (RP-154)
     template_parcial_simples_ativo = (
         db.query(TemplateXlsx)
         .filter(TemplateXlsx.tipo == "antecipacao_parcial_simples", TemplateXlsx.ativo == True)
@@ -312,7 +372,7 @@ def seed_default_templates(db: Session) -> None:
             promover_ativo=True
         )
 
-    # 6. Antecipação Parcial Pago Antecipadamente — Simples Nacional (RP-156)
+    # 7. Antecipação Parcial Pago Antecipadamente — Simples Nacional (RP-156)
     template_antecipado_simples_ativo = (
         db.query(TemplateXlsx)
         .filter(TemplateXlsx.tipo == "antecipacao_parcial_antecipado_simples", TemplateXlsx.ativo == True)
@@ -332,4 +392,3 @@ def seed_default_templates(db: Session) -> None:
             observacoes="Modelo oficial pré-definido de Antecipação Parcial Pago Antecipadamente — Simples Nacional (RP-156)",
             promover_ativo=True
         )
-

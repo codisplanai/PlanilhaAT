@@ -38,6 +38,7 @@ from app.constants import (
     ANTECIPACAO_PARCIAL_SIMPLES,
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA,
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
     TIPOS_PLANILHA_LEGADO,
 )
@@ -347,6 +348,8 @@ class ProcessingPipelineService:
 
                     if destino_item == ANTECIPACAO_PARCIAL and pago_antecipadamente:
                         destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO
+                    elif destino_item == ANTECIPACAO_TRIBUTARIA and pago_antecipadamente:
+                        destino_item = ANTECIPACAO_TRIBUTARIA_ANTECIPADO
 
                     if empresa.optante_simples_nacional:
                         if destino_item == ANTECIPACAO_PARCIAL:
@@ -477,9 +480,9 @@ class ProcessingPipelineService:
                         destino_item,
                         a_ori,
                         a_dst,
-                        item.ncm if destino_item == ANTECIPACAO_TRIBUTARIA else "",
-                        item.cest if destino_item == ANTECIPACAO_TRIBUTARIA else "",
-                        mva_policy_group if destino_item == ANTECIPACAO_TRIBUTARIA else "",
+                        item.ncm if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) else "",
+                        item.cest if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) else "",
+                        mva_policy_group if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) else "",
                     )
                     if key not in grupos:
                         grupos[key] = []
@@ -574,7 +577,7 @@ class ProcessingPipelineService:
                     mva_grupo = Decimal("0.00")
                     aliq_simples = "N"
                     fornecedor_simples = False
-                    if destino_grupo == ANTECIPACAO_TRIBUTARIA:
+                    if destino_grupo in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO):
                         if revenda_tributaria_config:
                             crt_fornecedor = (nf_data.raw_metadata.get("crt") or "").strip()
                             fornecedor_simples = crt_fornecedor in ("1", "2")
@@ -635,12 +638,20 @@ class ProcessingPipelineService:
                     #    Nunca deduzir ou utilizar data de emissão como fallback.
                     data_entrada_efetiva = (
                         None
-                        if destino_grupo in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
+                        if destino_grupo in (
+                            ANTECIPACAO_PARCIAL_ANTECIPADO,
+                            ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
+                            ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+                        )
                         else data_entrada_resolvida
                     )
                     origem_data_efetiva = (
                         None
-                        if destino_grupo in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
+                        if destino_grupo in (
+                            ANTECIPACAO_PARCIAL_ANTECIPADO,
+                            ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
+                            ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+                        )
                         else origem_data
                     )
 

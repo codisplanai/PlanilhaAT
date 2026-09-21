@@ -75,6 +75,7 @@ export type TipoPlanilha =
   | 'antecipacao_parcial_simples'
   | 'antecipacao_parcial_antecipado_simples'
   | 'antecipacao_tributaria'
+  | 'antecipacao_tributaria_antecipado'
   | 'difal';
 export type StatusSolicitacao = 'pendente' | 'processando' | 'concluido' | 'erro';
 
@@ -145,4 +146,3 @@ export interface SolicitacoesBatchDeleteResponse {
   deleted_count: number;
   ids: string[];
 }
-

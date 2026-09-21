@@ -20,11 +20,13 @@ const templateUploadSchema = z.object({
     'antecipacao_parcial_simples',
     'antecipacao_parcial_antecipado_simples',
     'antecipacao_tributaria',
+    'antecipacao_tributaria_antecipado',
     'difal',
   ]),
   capacidade_linhas: z.number().int().min(1, 'A capacidade deve ser maior ou igual a 1 linha'),
   start_row: z.number().min(1, 'Linha inicial deve ser maior ou igual a 1'),
   col_numero_nota: z.string().min(1, 'Informe a coluna').toUpperCase(),
+  col_data_entrada: z.string().optional(),
   col_data_emissao: z.string().min(1, 'Informe a coluna').toUpperCase(),
   col_v_total: z.string().min(1, 'Informe a coluna').toUpperCase(),
   col_base_calculo: z.string().optional(),
@@ -37,7 +39,10 @@ const templateUploadSchema = z.object({
   observacoes: z.string().optional(),
   promover_ativo: z.boolean(),
 }).superRefine((data, ctx) => {
-  if (data.tipo === 'antecipacao_tributaria' && !data.col_mva?.trim()) {
+  if (
+    ['antecipacao_tributaria', 'antecipacao_tributaria_antecipado'].includes(data.tipo)
+    && !data.col_mva?.trim()
+  ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['col_mva'],
@@ -55,13 +60,16 @@ function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
   const isParcial =
     tipo === 'antecipacao_parcial' ||
     tipo === 'antecipacao_parcial_simples';
-  const isTributaria = tipo === 'antecipacao_tributaria';
+  const isTributaria =
+    tipo === 'antecipacao_tributaria'
+    || tipo === 'antecipacao_tributaria_antecipado';
   const isDifal = tipo === 'difal';
   return {
     tipo,
-    capacidade_linhas: 100,
+    capacidade_linhas: tipo === 'antecipacao_tributaria_antecipado' ? 35 : 100,
     start_row: 4,
     col_numero_nota: 'D',
+    col_data_entrada: 'B',
     col_data_emissao: 'C',
     col_v_total: 'E',
     col_base_calculo: isAntecipado || isTributaria || isParcial ? 'F' : '',
@@ -196,6 +204,7 @@ export function useAdminTemplatesPage() {
       a_dst: data.col_a_dst.toUpperCase(),
       a_ori: data.col_a_ori.toUpperCase(),
     };
+    if (data.col_data_entrada) columns.data_entrada = data.col_data_entrada.toUpperCase();
     if (data.col_base_calculo) columns.base_calculo = data.col_base_calculo.toUpperCase();
     if (data.col_ipi_despesas) columns.ipi_despesas = data.col_ipi_despesas.toUpperCase();
     if (data.col_mva) columns.mva = data.col_mva.toUpperCase();

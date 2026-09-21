@@ -13,6 +13,7 @@ ANTECIPACAO_PARCIAL_ANTECIPADO: Final = "antecipacao_parcial_antecipado"
 ANTECIPACAO_PARCIAL_SIMPLES: Final = "antecipacao_parcial_simples"
 ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES: Final = "antecipacao_parcial_antecipado_simples"
 ANTECIPACAO_TRIBUTARIA: Final = "antecipacao_tributaria"
+ANTECIPACAO_TRIBUTARIA_ANTECIPADO: Final = "antecipacao_tributaria_antecipado"
 DIFAL: Final = "difal"
 IGNORAR: Final = "ignorar"
 MULTI: Final = "multi"
@@ -29,6 +30,7 @@ TIPOS_PLANILHA: Final = (
     ANTECIPACAO_PARCIAL_SIMPLES,
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA,
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
 )
 

@@ -36,6 +36,16 @@ export function redirectRevendaToAntecipacaoTributaria(
     : destination;
 }
 
+export function routePaidEarlyDestination(
+  destination: TipoPlanilha,
+  paidEarly: boolean,
+): TipoPlanilha {
+  if (!paidEarly) return destination;
+  if (destination === 'antecipacao_parcial') return 'antecipacao_parcial_antecipado';
+  if (destination === 'antecipacao_tributaria') return 'antecipacao_tributaria_antecipado';
+  return destination;
+}
+
 export function classifyRevendaMva(
   config: MvaAntecipacaoTributariaConfig,
   item: ExtractedItem,

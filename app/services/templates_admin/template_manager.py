@@ -18,7 +18,11 @@ from app.services.local_files import atomic_write, remove_file_if_exists
 
 logger = logging.getLogger(__name__)
 
-STRICT_OFFICIAL_TEMPLATE_TYPES = {"antecipacao_tributaria", "difal"}
+STRICT_OFFICIAL_TEMPLATE_TYPES = {
+    "antecipacao_tributaria",
+    "antecipacao_tributaria_antecipado",
+    "difal",
+}
 SAFETY_MARGIN_KEY = "margem_seguranca_linhas"
 MAX_SAFETY_MARGIN_LINES = 100_000
 
