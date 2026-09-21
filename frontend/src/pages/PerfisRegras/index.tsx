@@ -460,13 +460,32 @@ export const PerfisRegrasPage: React.FC = () => {
               })()}
 
               {/* Seção 0: Reduções por Produto (NCM + Descrição) */}
-              <ReducaoProdutoSection perfilId={activePerfil.id} />
+              <ReducaoProdutoSection
+                perfilId={activePerfil.id}
+                open={openSections.reducoes}
+                onOpenChange={(open) => setSectionOpen('reducoes', open)}
+              />
 
               {/* Seção 0.5: Exclusões da Antecipação Parcial (NCM + Descrição) */}
-              <ExclusaoParcialSection perfilId={activePerfil.id} />
+              <ExclusaoParcialSection
+                perfilId={activePerfil.id}
+                open={openSections.exclusoes}
+                onOpenChange={(open) => setSectionOpen('exclusoes', open)}
+              />
+
+              {/* Seção 0.75: MVA / Antecipação Tributária */}
+              <MvaAntecipacaoSection
+                perfil={activePerfil}
+                open={openSections.mva}
+                onOpenChange={(open) => setSectionOpen('mva', open)}
+              />
 
               {/* Seção 1: Regras Padrão por Estado */}
               <Card
+                collapsible
+                open={openSections.padrao}
+                onOpenChange={(open) => setSectionOpen('padrao', open)}
+                summary={<span>{regrasPadrao.length} regra(s)</span>}
                 bodyPadding="none"
                 title={`Alíquotas Padrão por Estado — ${activePerfil.nome}`}
                 subtitle="Alíquota base do estado. Vale quando não há redução por produto, termo de acordo nem exceção de NCM."
@@ -554,6 +573,10 @@ export const PerfisRegrasPage: React.FC = () => {
 
               {/* Seção 2: Exceções por Estado + NCM */}
               <Card
+                collapsible
+                open={openSections.excecoes}
+                onOpenChange={(open) => setSectionOpen('excecoes', open)}
+                summary={<span>{regrasExcecao.length} exceção(ões)</span>}
                 bodyPadding="none"
                 title="Exceções Tributárias por NCM"
                 subtitle="Sobrescreve a alíquota padrão do estado. É superada pelas reduções por produto e pelo termo de acordo da empresa."
@@ -644,6 +667,10 @@ export const PerfisRegrasPage: React.FC = () => {
 
               {/* Seção 3: Roteamento por CFOP -> Planilha */}
               <Card
+                collapsible
+                open={openSections.cfop}
+                onOpenChange={(open) => setSectionOpen('cfop', open)}
+                summary={<span>{regrasCfopEfetivas.length} rota(s)</span>}
                 bodyPadding="none"
                 title="Roteamento por CFOP -> Planilha"
                 subtitle="Define em qual planilha cada item da nota entra a partir do CFOP, e reclassifica produtos específicos por NCM"
