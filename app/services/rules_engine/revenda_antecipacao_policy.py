@@ -100,6 +100,31 @@ class RevendaAntecipacaoTributariaPolicy:
     def _clean_ncm(ncm: Optional[str]) -> str:
         return re.sub(r"\D", "", str(ncm or ""))
 
+    @staticmethod
+    def _clean_cnpj(cnpj: Optional[str]) -> str:
+        return re.sub(r"\D", "", str(cnpj or ""))
+
+    @classmethod
+    def config_for_empresa(
+        cls,
+        configuracoes: Optional[Mapping[str, Any]],
+        empresa_cnpj: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Ativa a política apenas para o CNPJ explicitamente configurado.
+
+        O perfil dedicado continua sendo a primeira trava. O CNPJ é uma segunda
+        proteção contra associação acidental desse perfil a outra empresa.
+        """
+        config = cls.config_from_profile(configuracoes)
+        if not config:
+            return None
+
+        expected_cnpj = cls._clean_cnpj(config.get("empresa_cnpj"))
+        actual_cnpj = cls._clean_cnpj(empresa_cnpj)
+        if not expected_cnpj or expected_cnpj != actual_cnpj:
+            return None
+        return config
+
     @classmethod
     def classify(
         cls,
