@@ -13,9 +13,39 @@ from app.core.seeds import (
     seed_default_templates,
     DEFAULT_ANTECIPACAO_PARCIAL_TEMPLATE_PATH,
     DEFAULT_ANTECIPACAO_PARCIAL_ANTECIPADO_TEMPLATE_PATH,
+    DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_TEMPLATE_PATH,
 )
 from app.services.pipeline_service import ProcessingPipelineService
 from app.services.excel.formula_guard import FormulaGuard
+
+
+def test_modelo_oficial_predefinido_tributaria_pago_antecipadamente(db_session):
+    assert os.path.exists(DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_TEMPLATE_PATH)
+    seed_default_templates(db_session)
+
+    template = (
+        db_session.query(TemplateXlsx)
+        .filter(
+            TemplateXlsx.tipo == "antecipacao_tributaria_antecipado",
+            TemplateXlsx.ativo == True,
+        )
+        .one()
+    )
+    assert template.capacidade_linhas == 35
+    assert template.mapeamento_campos["sheet_name"] == "4"
+    assert template.mapeamento_campos["columns"]["data_entrada"] == "B"
+    assert template.mapeamento_campos["columns"]["mva"] == "H"
+
+    wb = openpyxl.load_workbook(template.arquivo_path, data_only=False)
+    assert "4" in wb.sheetnames
+    ws = wb["4"]
+    assert "PAGOS ANTECIPADAMENTE" in ws["F1"].value
+    assert ws["N4"].value == '=IF(L4="N",E4*H4%+E4,(E4+E4*H4%)-((E4+E4*H4%)*I4%))'
+    assert ws["O4"].value == "=N4*J4%"
+    assert ws["P4"].value == "=R4*K4%"
+    assert ws["Q4"].value == "=O4-P4"
+    assert ws["T4"].value == "=Q4-S4"
+    wb.close()
 
 def test_modelo_oficial_predefinido_antecipacao_parcial(db_session, sample_xml_nfe):
     # 1. Semear template oficial

@@ -43,7 +43,10 @@ export function calculateTax(
     };
   }
 
-  if (destination === 'antecipacao_tributaria') {
+  if (
+    destination === 'antecipacao_tributaria'
+    || destination === 'antecipacao_tributaria_antecipado'
+  ) {
     let mva = Number(input.mva ?? 0);
     if (mva > 1) mva /= 100;
     const baseSt = mva > 0

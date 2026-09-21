@@ -29,6 +29,7 @@ import { useAdminTemplatesPage } from './useAdminTemplatesPage';
 /** Nomes dos campos do mapeamento como o administrador os conhece. */
 const CAMPO_LABELS: Record<string, string> = {
   numero_nota: 'Nº da nota',
+  data_entrada: 'Data de entrada',
   data_emissao: 'Data de emissão',
   v_total: 'Valor total',
   base_calculo: 'Base de cálculo',
@@ -496,6 +497,12 @@ export const AdminTemplatesPage: React.FC = () => {
                 error={errors.col_data_emissao?.message}
               />
               <Input
+                label="Data de entrada"
+                placeholder="Ex: B"
+                {...register('col_data_entrada')}
+                error={errors.col_data_entrada?.message}
+              />
+              <Input
                 label="Valor total"
                 placeholder="Ex: E"
                 {...register('col_v_total')}
@@ -507,7 +514,10 @@ export const AdminTemplatesPage: React.FC = () => {
                 {...register('col_ipi_despesas')}
                 error={errors.col_ipi_despesas?.message}
               />
-              {tipoUpload === 'antecipacao_tributaria' && (
+              {(
+                tipoUpload === 'antecipacao_tributaria'
+                || tipoUpload === 'antecipacao_tributaria_antecipado'
+              ) && (
                 <Input
                   label="MVA"
                   placeholder="Ex: H"
