@@ -19,6 +19,7 @@ from app.services.extraction.data_entrada_matcher import (
 from app.services.rules_engine.aliquota_resolver import AliquotaResolver, ResolucaoAliquota
 from app.services.rules_engine.cfop_resolver import CfopResolver, ResolucaoCfop
 from app.services.rules_engine.mva_resolver import MvaResolver
+from app.services.rules_engine.company_special_tax_rules import CompanySpecialTaxRules
 from app.services.rules_engine.parcial_decision import ParcialExclusionService, DESTINOS_PARCIAL
 from app.services.rules_engine.descricao_matcher import normalizar
 from app.services.calculation.factory import CalculatorFactory
@@ -261,10 +262,11 @@ class ProcessingPipelineService:
                         planilha_records=planilha_records,
                     )
 
-                grupos: Dict[Tuple[str, Decimal, Decimal, str, str], List[Any]] = {}
-                resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoAliquota]] = {}
-                resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str], List[ResolucaoCfop]] = {}
-                info_a_ori: Dict[Tuple[str, Decimal, Decimal, str, str], Dict[str, Any]] = {}
+                grupos: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[Any]] = {}
+                resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[ResolucaoAliquota]] = {}
+                resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[ResolucaoCfop]] = {}
+                info_a_ori: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
+                info_mva_especial: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
                 itens_bonificacao_desconsiderados: List[Any] = []
 
                 for item in nf_data.itens:
@@ -297,6 +299,13 @@ class ProcessingPipelineService:
                                 destino_item = ANTECIPACAO_PARCIAL
                             else:
                                 destino_item = DIFAL
+
+                    # Regra empresarial isolada: quando o perfil explicitamente habilita
+                    # a política e o CNPJ configurado coincide com a empresa, toda revenda
+                    # que normalmente iria para Parcial passa para Antecipação Tributária.
+                    # DIFAL/uso-consumo/ativo e demais empresas permanecem intocados.
+                    if CompanySpecialTaxRules.route_revenda_to_tributaria(empresa, destino_item):
+                        destino_item = ANTECIPACAO_TRIBUTARIA
 
                     if destino_item is None:
                         if sufixo_item not in CFOP_SUFFIXES_REQUIRING_DESTINATION or (decisoes_bonificacao is None):
@@ -441,18 +450,51 @@ class ProcessingPipelineService:
                             )
                             continue
 
+                    special_mva_value = ""
+                    special_mva_group = None
+                    special_mva_source = None
+                    if destino_item == ANTECIPACAO_TRIBUTARIA:
+                        special_mva = CompanySpecialTaxRules.resolve_mva(
+                            empresa=empresa,
+                            ncm=item.ncm,
+                            descricao=item.descricao if item.descricao_confiavel else None,
+                            descricao_confiavel=item.descricao_confiavel,
+                            a_ori=a_ori,
+                            fornecedor_crt=nf_data.raw_metadata.get("crt"),
+                        )
+                        if special_mva.applicable and special_mva.value is not None:
+                            special_mva_value = str(special_mva.value)
+                            special_mva_group = special_mva.group
+                            special_mva_source = special_mva.source
+                            if special_mva.source and special_mva.source.startswith("descricao_cinto_fallback"):
+                                avisos_avaliacao.append({
+                                    "numero_nota": nf_data.numero_nota,
+                                    "serie": nf_data.serie,
+                                    "item_numero": item.item_numero,
+                                    "arquivo": filename,
+                                    "aviso": (
+                                        f"MVA especial aplicada por fallback controlado de descrição "
+                                        f"para o NCM {item.ncm}: grupo {special_mva.group}."
+                                    ),
+                                })
+
                     key = (
                         destino_item,
                         a_ori,
                         a_dst,
                         item.ncm if destino_item == ANTECIPACAO_TRIBUTARIA else "",
                         item.cest if destino_item == ANTECIPACAO_TRIBUTARIA else "",
+                        special_mva_value,
                     )
                     if key not in grupos:
                         grupos[key] = []
                         resolucoes[key] = []
                         resolucoes_cfop[key] = []
                         info_a_ori[key] = {"limitada": False, "original": str(item.a_ori)}
+                        info_mva_especial[key] = {
+                            "grupo": special_mva_group,
+                            "fonte": special_mva_source,
+                        }
                     grupos[key].append(item)
                     resolucoes[key].append(resolucao)
                     resolucoes_cfop[key].append(resolucao_cfop)
@@ -489,7 +531,7 @@ class ProcessingPipelineService:
                 split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
 
                 for grupo_key, itens_objs in grupos.items():
-                    destino_grupo, a_ori, a_dst, _group_ncm, _group_cest = grupo_key
+                    destino_grupo, a_ori, a_dst, _group_ncm, _group_cest, _group_special_mva = grupo_key
                     split_index = split_index_por_destino[destino_grupo]
 
                     # Se a nota inteira produziu exatamente 1 bucket/grupo (nenhum item descartado e
@@ -537,11 +579,14 @@ class ProcessingPipelineService:
                     mva_grupo = Decimal("0.00")
                     aliq_simples = "N"
                     if destino_grupo == ANTECIPACAO_TRIBUTARIA:
-                        mva_grupo = MvaResolver.resolve_mva(
-                            ncm=ncm_grupo,
-                            a_ori=a_ori,
-                            cest=itens_objs[0].cest if itens_objs else None,
-                        )
+                        if _group_special_mva:
+                            mva_grupo = Decimal(_group_special_mva)
+                        else:
+                            mva_grupo = MvaResolver.resolve_mva(
+                                ncm=ncm_grupo,
+                                a_ori=a_ori,
+                                cest=itens_objs[0].cest if itens_objs else None,
+                            )
                     elif destino_grupo == DIFAL:
                         crt = (nf_data.raw_metadata.get("crt") or "").strip()
                         if crt in ("1", "2"):
@@ -626,6 +671,8 @@ class ProcessingPipelineService:
                             "subitem_index": split_index,
                             "total_subitens_destino": len(itens_objs),
                             "mva": str(mva_grupo),
+                            "mva_grupo_especial": info_mva_especial.get(grupo_key, {}).get("grupo"),
+                            "mva_origem_especial": info_mva_especial.get(grupo_key, {}).get("fonte"),
                             "aliq_simples": aliq_simples,
                             "origem_a_dst": sorted({r.origem for r in resolucoes.get(grupo_key, [])}),
                             "detalhe_a_dst": "; ".join(
