@@ -455,7 +455,7 @@ export const MvaAntecipacaoSection: React.FC<Props> = ({ perfil, open, onOpenCha
                 variant="outline"
                 disabled={!dirty || saveMutation.isPending}
                 onClick={() => {
-                  setDraft(cloneConfig(config));
+                  if (config) setDraft(cloneConfig(config));
                   setSaved(false);
                   setError(null);
                 }}
