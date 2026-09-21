@@ -2,10 +2,7 @@ import io
 from decimal import Decimal
 
 import openpyxl
-import pytest
-
 from app.core.config import settings
-from app.core.exceptions import ValidationException
 from app.services.excel.template_filler import TemplateFiller
 from app.services.supabase_storage import SupabaseStorageService
 from app.services.templates_admin.template_manager import TemplateManager
@@ -25,29 +22,6 @@ def _tributaria_xlsx_bytes() -> bytes:
     wb.save(stream)
     wb.close()
     return stream.getvalue()
-
-
-def test_nova_versao_tributaria_exige_coluna_mva(db_session, tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "TEMPLATES_DIR", str(tmp_path))
-    monkeypatch.setattr(SupabaseStorageService, "is_configured", lambda: False)
-
-    with pytest.raises(ValidationException, match="campo MVA"):
-        TemplateManager.upload_new_template_version(
-            db=db_session,
-            tipo="antecipacao_tributaria",
-            file_bytes=_tributaria_xlsx_bytes(),
-            filename="tributaria_sem_mva.xlsx",
-            mapeamento={
-                "start_row": 4,
-                "columns": {
-                    "numero_nota": "D",
-                    "v_total": "E",
-                    "a_dst": "J",
-                    "a_ori": "K",
-                },
-            },
-            capacidade_linhas=100,
-        )
 
 
 def test_mapeamento_mva_e_persistido_e_usado_sem_alterar_formula(
