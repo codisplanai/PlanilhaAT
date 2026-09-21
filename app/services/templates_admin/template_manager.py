@@ -56,14 +56,6 @@ class TemplateManager:
         except Exception as e:
             raise ValidationException(f"Declaração de mapeamento de campos inválida ou incompleta: {str(e)}")
 
-        # Para novos modelos de Antecipação Tributária, MVA é dado fiscal obrigatório.
-        # Modelos antigos já cadastrados continuam compatíveis; a exigência vale apenas
-        # para novas versões enviadas a partir daqui.
-        if clean_tipo == "antecipacao_tributaria" and not validated_mapping.columns.get("mva"):
-            raise ValidationException(
-                "O mapeamento da Antecipação Tributária deve informar a coluna do campo MVA."
-            )
-
         # Validar integralmente antes de persistir localmente ou na nuvem.
         try:
             workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=False, read_only=True)
