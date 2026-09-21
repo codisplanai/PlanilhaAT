@@ -121,7 +121,8 @@ class RevendaAntecipacaoTributariaPolicy:
             return None
 
         expected = cls._clean_cnpj(config.get("empresa_cnpj"))
-        if expected and expected != cls._clean_cnpj(empresa_cnpj):
+        actual = cls._clean_cnpj(empresa_cnpj)
+        if not expected or expected != actual:
             return None
         return config
 
