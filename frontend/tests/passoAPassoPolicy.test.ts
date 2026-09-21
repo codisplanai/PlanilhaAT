@@ -5,6 +5,7 @@ import {
   classifyRevendaMva,
   getRevendaAntecipacaoConfig,
   redirectRevendaToAntecipacaoTributaria,
+  routePaidEarlyDestination,
   resolveRevendaMva,
 } from '../src/lib/localProcessing/rules.ts';
 import type { ExtractedItem } from '../src/lib/localProcessing/domain.ts';
@@ -78,6 +79,18 @@ test('redireciona toda revenda da Passo a Passo para Antecipação Tributária',
     'antecipacao_tributaria',
   );
   assert.equal(redirectRevendaToAntecipacaoTributaria(active, 'difal'), 'difal');
+});
+
+test('separa a antecipação tributária paga antecipadamente', () => {
+  assert.equal(
+    routePaidEarlyDestination('antecipacao_tributaria', true),
+    'antecipacao_tributaria_antecipado',
+  );
+  assert.equal(
+    routePaidEarlyDestination('antecipacao_tributaria', false),
+    'antecipacao_tributaria',
+  );
+  assert.equal(routePaidEarlyDestination('difal', true), 'difal');
 });
 
 test('classifica o produto e usa as MVAs exclusivas inclusive para fornecedor Simples', () => {

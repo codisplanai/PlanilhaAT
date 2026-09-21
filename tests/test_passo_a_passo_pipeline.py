@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from app.constants import ANTECIPACAO_TRIBUTARIA
+from app.constants import ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO
 from app.models.empresa import Empresa
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.services.extraction.base import ExtractedItemNF, ExtractedNFData
@@ -143,3 +143,54 @@ def test_mesmo_perfil_em_outro_cnpj_nao_ativa_regra_especial(
         .one()
     )
     assert nota.destino_planilha == "antecipacao_parcial"
+
+
+def test_passo_a_passo_sem_entrada_no_periodo_vai_para_tributaria_antecipada(
+    db_session, cenario_janeiro, monkeypatch
+):
+    solicitacao = cenario_janeiro(
+        tipos=(ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO)
+    )
+    empresa = db_session.query(Empresa).filter_by(id=solicitacao.empresa_id).one()
+    empresa.cnpj = PASSO_CNPJ
+    empresa.razao_social = "Passo a Passo Calçados"
+    empresa.perfil_regras.configuracoes_extras = PASSO_CONFIG
+    db_session.commit()
+
+    nf = _nf(numero="3001", uf_emitente="SP", cnpj_destinatario=PASSO_CNPJ)
+    pipeline = ProcessingPipelineService(db_session)
+    monkeypatch.setattr(
+        pipeline.source_loader,
+        "load",
+        lambda **kw: type(
+            "Sources",
+            (),
+            {
+                "notes": [("sem_entrada.xml", nf)],
+                "entry_records": {},
+                "sped_company_info": None,
+                "ignored_notes": [],
+            },
+        )(),
+    )
+
+    resultado = pipeline.process_solicitacao(
+        solicitacao.id,
+        xml_files_bytes=[("dummy.xml", b"<xml></xml>")],
+        sped_file_bytes=b"sped-presente-sem-a-nota",
+    )
+
+    nota = (
+        db_session.query(NotaFiscalProcessada)
+        .filter_by(solicitacao_id=solicitacao.id)
+        .one()
+    )
+    assert nota.destino_planilha == ANTECIPACAO_TRIBUTARIA_ANTECIPADO
+    assert nota.data_entrada is None
+    assert Decimal(str(nota.metadados_extras["mva"])) == Decimal("56.75")
+
+    db_session.refresh(resultado)
+    saidas = {saida.tipo: saida for saida in resultado.saidas}
+    assert set(saidas) == {ANTECIPACAO_TRIBUTARIA_ANTECIPADO}
+    assert saidas[ANTECIPACAO_TRIBUTARIA_ANTECIPADO].arquivo_path is not None
+    assert saidas[ANTECIPACAO_TRIBUTARIA_ANTECIPADO].total_notas == 1

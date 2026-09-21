@@ -20,6 +20,7 @@ import {
   getRevendaAntecipacaoConfig,
   normalizeDescription,
   redirectRevendaToAntecipacaoTributaria,
+  routePaidEarlyDestination,
   resolveCfop,
   resolveDestinationRate,
   resolveMva,
@@ -45,6 +46,12 @@ const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
 const EARLY_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_parcial_antecipado',
   'antecipacao_parcial_antecipado_simples',
+  'antecipacao_tributaria_antecipado',
+]);
+
+const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
+  'antecipacao_tributaria',
+  'antecipacao_tributaria_antecipado',
 ]);
 
 function cleanDigits(value: string): string {
@@ -130,8 +137,8 @@ function groupKey(
   item: ExtractedItem,
   mvaPolicyGroup: Group['mvaPolicyGroup'],
 ): string {
-  const ncm = destination === 'antecipacao_tributaria' ? item.ncm : '';
-  const cest = destination === 'antecipacao_tributaria' ? item.cest : '';
+  const ncm = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.ncm : '';
+  const cest = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.cest : '';
   return JSON.stringify([destination, aOri, aDst, ncm, cest, mvaPolicyGroup]);
 }
 
@@ -283,7 +290,7 @@ export async function processFiscalLocally(
           });
         }
       }
-      if (destination === 'antecipacao_parcial' && paidEarly) destination = 'antecipacao_parcial_antecipado';
+      destination = routePaidEarlyDestination(destination, paidEarly);
       if (context.empresa.optante_simples_nacional) {
         if (destination === 'antecipacao_parcial') destination = 'antecipacao_parcial_simples';
         if (destination === 'antecipacao_parcial_antecipado') destination = 'antecipacao_parcial_antecipado_simples';
@@ -436,7 +443,7 @@ export async function processFiscalLocally(
         : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
       const crt = String(note.rawMetadata.crt ?? '').trim();
       const supplierIsSimples = ['1', '2'].includes(crt);
-      const mva = group.destination === 'antecipacao_tributaria'
+      const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)
         ? revendaAntecipacaoConfig
           ? resolveRevendaMva(
             revendaAntecipacaoConfig,
@@ -495,7 +502,7 @@ export async function processFiscalLocally(
           mva: String(mva),
           mva_grupo: group.mvaPolicyGroup || null,
           mva_fonte: group.mvaPolicySource || null,
-          fornecedor_simples_nacional: group.destination === 'antecipacao_tributaria'
+          fornecedor_simples_nacional: TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)
             ? supplierIsSimples
             : null,
           aliq_simples: aliqSimples,

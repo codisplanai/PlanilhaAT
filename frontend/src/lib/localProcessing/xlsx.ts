@@ -252,6 +252,7 @@ const SINGLE_PERIOD_SHEET_TYPES = new Set<LocalTemplateDescriptor['tipo']>([
   'antecipacao_parcial_simples',
   'antecipacao_parcial_antecipado_simples',
   'antecipacao_tributaria',
+  'antecipacao_tributaria_antecipado',
   'difal',
 ]);
 

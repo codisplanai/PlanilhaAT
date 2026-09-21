@@ -9,6 +9,7 @@ from app.constants import (
     ANTECIPACAO_PARCIAL_SIMPLES,
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA,
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
 )
 
@@ -25,6 +26,7 @@ class CalculatorFactory:
         ANTECIPACAO_PARCIAL_SIMPLES: _parcial,
         ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES: _parcial,
         ANTECIPACAO_TRIBUTARIA: AntecipacaoTributariaCalculator(),
+        ANTECIPACAO_TRIBUTARIA_ANTECIPADO: AntecipacaoTributariaCalculator(),
         DIFAL: DifalCalculator(),
     }
 
