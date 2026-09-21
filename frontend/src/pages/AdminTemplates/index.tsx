@@ -50,10 +50,11 @@ export const AdminTemplatesPage: React.FC = () => {
     setPromoteError,
     uploadTemplate,
     register,
+    watch,
     errors,
-    uploadType,
     isUploading,
   } = useAdminTemplatesPage();
+  const tipoUpload = watch('tipo');
 
   return (
     <div className="space-y-6">
@@ -366,7 +367,7 @@ export const AdminTemplatesPage: React.FC = () => {
               />
             </div>
 
-            {uploadType === 'antecipacao_tributaria' && (
+            {tipoUpload === 'antecipacao_tributaria' && (
               <div>
                 <Input
                   label="MVA"
