@@ -62,6 +62,7 @@ export interface LocalProcessingContext {
   regras_reducao: RegraReducao[];
   regras_reclassificacao: RegraReclassificacaoCfop[];
   regras_exclusao_parcial: RegraExclusaoParcial[];
+  margens_seguranca_templates: Partial<Record<TipoPlanilha, number>>;
   templates_ativos: LocalTemplateDescriptor[];
   mva_anexo: LocalMvaEntry[];
 }
