@@ -22,6 +22,7 @@ const templateUploadSchema = z.object({
     'antecipacao_tributaria',
     'difal',
   ]),
+  capacidade_linhas: z.number().int().min(1, 'A capacidade deve ser maior ou igual a 1 linha'),
   start_row: z.number().min(1, 'Linha inicial deve ser maior ou igual a 1'),
   col_numero_nota: z.string().min(1, 'Informe a coluna').toUpperCase(),
   col_data_emissao: z.string().min(1, 'Informe a coluna').toUpperCase(),
@@ -49,6 +50,7 @@ function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
   const isDifal = tipo === 'difal';
   return {
     tipo,
+    capacidade_linhas: 100,
     start_row: 4,
     col_numero_nota: 'D',
     col_data_emissao: 'C',
@@ -156,6 +158,7 @@ export function useAdminTemplatesPage() {
     };
     const payload = new FormData();
     payload.append('tipo', data.tipo);
+    payload.append('capacidade_linhas', String(data.capacidade_linhas));
     payload.append('file', selectedFile);
     payload.append('mapeamento_json', JSON.stringify(mapping));
     if (data.observacoes) payload.append('observacoes', data.observacoes);

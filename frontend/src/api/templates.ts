@@ -5,6 +5,7 @@ export interface TemplateAtivoResumo {
   id: number;
   tipo: string;
   versao: number;
+  capacidade_linhas: number | null;
   criado_em: string | null;
   observacoes: string | null;
 }

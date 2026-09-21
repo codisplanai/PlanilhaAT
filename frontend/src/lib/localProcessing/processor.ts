@@ -28,6 +28,7 @@ import {
   matchEntryCfop,
   matchEntryDate,
 } from './sources';
+import { selectTemplateForRows } from './templateSelection';
 import { fillTemplateLocally } from './xlsx';
 
 const BONUS_SUFFIXES = new Set(['910', '911', '949']);
@@ -522,7 +523,11 @@ export async function processFiscalLocally(
 
     for (const [destination, rows] of Object.entries(rowsByDestination) as Array<[TipoPlanilha, LocalOutputRow[]]>) {
       if (!rows?.length) continue;
-      const template = context.templates_ativos.find((item) => item.tipo === destination);
+      const template = selectTemplateForRows(
+        context.templates_ativos,
+        destination,
+        rows.length,
+      );
       if (!template) continue;
       let bytes = templateBytes.get(template.id);
       if (!bytes && loadTemplate) {
@@ -555,6 +560,7 @@ export async function processFiscalLocally(
         linhas: rows.length,
         tamanhoBytes: output.byteLength,
         templateId: template.id,
+        capacidadeLinhas: template.capacidade_linhas ?? null,
       });
     }
 

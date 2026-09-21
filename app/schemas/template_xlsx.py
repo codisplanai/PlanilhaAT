@@ -63,6 +63,11 @@ class TemplateMapping(BaseModel):
 class TemplateXlsxBase(BaseModel):
     tipo: str = Field(..., example="antecipacao_parcial", description="antecipacao_parcial, antecipacao_tributaria ou difal")
     versao: int = Field(..., example=1)
+    capacidade_linhas: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Quantidade máxima de linhas de dados suportada pelo modelo. Nulo apenas para modelos legados.",
+    )
     mapeamento_campos: TemplateMapping
     ativo: bool = False
     observacoes: Optional[str] = None
@@ -80,6 +85,7 @@ class TemplateXlsxOut(BaseModel):
     id: int
     tipo: str
     versao: int
+    capacidade_linhas: Optional[int] = None
     arquivo_path: str
     arquivo_hash: str
     mapeamento_campos: Dict[str, Any]
