@@ -38,6 +38,15 @@ async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+/**
+ * Limites do mesmo espírito dos aplicados no servidor (MAX_ZIP_ENTRIES,
+ * MAX_ZIP_UNCOMPRESSED_BYTES). Como a leitura dos arquivos fiscais passou a
+ * acontecer no navegador, um ZIP corrompido ou malicioso conseguia expandir
+ * sem teto e derrubar a aba antes de qualquer validação.
+ */
+const MAX_ZIP_ENTRIES = 20_000;
+const MAX_ZIP_UNCOMPRESSED_BYTES = 300 * 1024 * 1024;
+
 function findEndOfCentralDirectory(bytes: Uint8Array): number {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const minOffset = Math.max(0, bytes.byteLength - 65557);
@@ -53,11 +62,36 @@ export async function readZip(input: ArrayBuffer | Uint8Array): Promise<Map<stri
   const endOffset = findEndOfCentralDirectory(bytes);
   const entryCount = u16(view, endOffset + 10);
   const centralOffset = u32(view, endOffset + 16);
+
+  // Os marcadores 0xFFFF/0xFFFFFFFF significam que os valores reais vivem no
+  // registro ZIP64. Sem detectá-los, a leitura seguiria com deslocamentos
+  // inválidos e falharia com "diretório central corrompido".
+  if (entryCount === 0xffff || centralOffset === 0xffffffff) {
+    throw new Error(
+      'Arquivo ZIP no formato ZIP64 não é suportado. Compacte os XMLs em pacotes menores.',
+    );
+  }
+  if (entryCount > MAX_ZIP_ENTRIES) {
+    throw new Error(
+      `O arquivo ZIP contém ${entryCount} itens, acima do limite de ${MAX_ZIP_ENTRIES}. `
+      + 'Divida os XMLs em pacotes menores.',
+    );
+  }
+  if (centralOffset >= bytes.byteLength) {
+    throw new Error('Arquivo ZIP inválido: diretório central aponta para fora do arquivo.');
+  }
+
   const decoder = new TextDecoder('utf-8');
   const entries = new Map<string, Uint8Array>();
+  let uncompressedBytes = 0;
 
   let cursor = centralOffset;
   for (let index = 0; index < entryCount; index += 1) {
+    // Um diretório central menor que o anunciado faria u32 ler fora do buffer
+    // e lançar um RangeError sem contexto para quem enviou o arquivo.
+    if (cursor + 46 > bytes.byteLength) {
+      throw new Error('Arquivo ZIP inválido: diretório central incompleto.');
+    }
     if (u32(view, cursor) !== ZIP_CENTRAL_FILE) {
       throw new Error('Arquivo ZIP inválido: entrada do diretório central corrompida.');
     }
@@ -83,6 +117,11 @@ export async function readZip(input: ArrayBuffer | Uint8Array): Promise<Map<stri
       const localNameLength = u16(view, localOffset + 26);
       const localExtraLength = u16(view, localOffset + 28);
       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+      // subarray trunca em silêncio quando o intervalo excede o buffer, e a
+      // falha só reaparecia mais tarde como um erro opaco de descompactação.
+      if (dataStart + compressedSize > bytes.byteLength) {
+        throw new Error(`Arquivo ZIP truncado ou corrompido na entrada ${filename}.`);
+      }
       const compressed = bytes.subarray(dataStart, dataStart + compressedSize);
 
       let data: Uint8Array;
@@ -92,6 +131,15 @@ export async function readZip(input: ArrayBuffer | Uint8Array): Promise<Map<stri
         data = await inflateRaw(compressed);
       } else {
         throw new Error(`Método de compressão ZIP não suportado (${method}) em ${filename}.`);
+      }
+
+      uncompressedBytes += data.byteLength;
+      if (uncompressedBytes > MAX_ZIP_UNCOMPRESSED_BYTES) {
+        throw new Error(
+          'O conteúdo descompactado do ZIP excede o limite seguro de '
+          + `${Math.round(MAX_ZIP_UNCOMPRESSED_BYTES / (1024 * 1024))} MB. `
+          + 'Divida os XMLs em pacotes menores.',
+        );
       }
       entries.set(filename, data);
     }

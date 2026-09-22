@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.persistence import get_by_id_or_404
+from app.api.persistence import get_by_id_or_404, save_changes
 from app.core.database import get_db
 from app.core.security import (
     LOCAL_USERS_FALLBACK,
@@ -136,7 +136,7 @@ def alterar_status(
         )
 
     profile.ativo = payload.ativo
-    db.commit()
+    save_changes(db, "Não foi possível atualizar a situação do usuário.")
     db.refresh(profile)
     return profile
 

@@ -1,6 +1,6 @@
 import type { EntrySheetRecord } from './domain';
 import type { LocalOutputRow, LocalTemplateDescriptor } from '../../types/localProcessing';
-import { readZip, writeZip } from './zip';
+import { readZip, writeZip } from './zip.ts';
 
 const XML_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -23,18 +23,23 @@ function serializeXml(doc: XMLDocument): Uint8Array {
   return encode(new XMLSerializer().serializeToString(doc));
 }
 
+function cleanCellText(value: unknown): string {
+  return String(value ?? '').replace(/^['"]+|['"]+$/g, '').trim();
+}
+
 function digits(value: unknown): string {
-  return String(value ?? '').replace(/\D/g, '');
+  return cleanCellText(value).replace(/\D/g, '');
 }
 
 function normalizeNumber(value: unknown): string {
-  const raw = String(value ?? '').trim();
+  const raw = cleanCellText(value);
   if (!raw) return '';
-  return raw.replace(/\.0$/, '').replace(/^0+(?=\d)/, '');
+  const digitsOnly = raw.replace(/\.0$/, '').replace(/\D/g, '');
+  return digitsOnly.replace(/^0+(?=\d)/, '');
 }
 
 function normalizeSeries(value: unknown): string {
-  return String(value ?? '').trim().replace(/\.0$/, '');
+  return cleanCellText(value).replace(/\.0$/, '');
 }
 
 function normalizeCfop(value: unknown): string {
@@ -153,11 +158,28 @@ function findHeader(
   rows: Map<number, Map<string, string>>,
 ): { row: number; columns: Map<string, string> } {
   const aliases: Record<string, string[]> = {
-    numero: ['número nota', 'numero nota', 'nº nota', 'num nota', 'n. fiscal', 'nota'],
-    data: ['dt.escritur.', 'dt.escritur', 'data escrituração', 'data entrada', 'dt.entrada', 'data de entrada'],
+    numero: [
+      'número nota', 'numero nota', 'nº nota', 'num nota', 'n. fiscal', 'nota fiscal',
+      'nº documento', 'numero documento', 'num documento', 'documento', 'nº doc', 'num doc',
+      'nf', 'nfe', 'nf-e', 'nr. nota', 'nr nota', 'nota',
+    ],
+    data: [
+      'dt.escritur.', 'dt.escritur', 'data escrituração', 'data escrituracao',
+      'data entrada', 'dt.entrada', 'dt entrada', 'data de entrada',
+      'data entrada/saída', 'data entrada/saida', 'dt. entrada/saída', 'dt entrada/saida',
+      'data movimento', 'data mov.', 'data mov', 'dt. movimento', 'dt movimento',
+      'data da entrada', 'data de lancamento', 'data lancamento', 'dt. lancamento', 'data',
+    ],
     serie: ['série', 'serie', 'ser'],
-    cnpj: ['terceiro', 'cnpj do emitente', 'cnpj emitente', 'cnpj/cpf', 'cnpj'],
-    chave: ['chave da nota fiscal eletrônica', 'chave nfe', 'chave de acesso', 'chave'],
+    cnpj: [
+      'terceiro', 'cnpj do emitente', 'cnpj emitente', 'cnpj/cpf', 'cpf/cnpj',
+      'cnpj', 'cpf', 'emitente', 'fornecedor', 'cnpj/cpf do emitente',
+    ],
+    chave: [
+      'chave da nota fiscal eletrônica', 'chave da nota fiscal eletronica',
+      'chave da nfe', 'chave nfe', 'chave de acesso', 'chave eletronica', 'chave eletrônica',
+      'chave de acesso nfe', 'chave nfe / cte', 'chave',
+    ],
     cfop: ['cfop', 'c.f.o.p.', 'cód. fiscal', 'cod. fiscal', 'código fiscal', 'natureza da operação', 'natureza'],
   };
 
@@ -167,7 +189,7 @@ function findHeader(
   for (const [rowIndex, values] of [...rows.entries()].filter(([index]) => index <= 16)) {
     const columns = new Map<string, string>();
     for (const [column, value] of values) {
-      const normalized = normalize(value);
+      const normalized = normalize(cleanCellText(value));
       for (const [field, names] of Object.entries(aliases)) {
         if (names.map(normalize).some((name) => normalized === name || (field === 'cfop' && normalized.includes('cfop')))) {
           if (!columns.has(field)) columns.set(field, column);
@@ -180,23 +202,120 @@ function findHeader(
   throw new Error('A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração.');
 }
 
+function decodeTextBuffer(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
+function parseDelimitedEntrySheet(text: string): EntrySheetRecord[] {
+  const lines = text.split(/\r?\n/);
+  let delimiter = '\t';
+  for (const line of lines.slice(0, 16)) {
+    if (line.includes('\t')) {
+      delimiter = '\t';
+      break;
+    }
+    if (line.includes(';')) {
+      delimiter = ';';
+      break;
+    }
+  }
+
+  const rows = new Map<number, Map<string, string>>();
+  lines.slice(0, 16).forEach((line, index) => {
+    if (!line.trim()) return;
+    const values = new Map<string, string>();
+    const cells = line.split(delimiter);
+    cells.forEach((val, colIdx) => {
+      values.set(String(colIdx), val);
+    });
+    rows.set(index, values);
+  });
+
+  const header = findHeader(rows);
+  const records: EntrySheetRecord[] = [];
+
+  for (let i = header.row + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+    const cells = line.split(delimiter);
+
+    const getCol = (field: string): string => {
+      const colStr = header.columns.get(field);
+      if (!colStr) return '';
+      const colIdx = Number.parseInt(colStr, 10);
+      return Number.isFinite(colIdx) && colIdx < cells.length ? cleanCellText(cells[colIdx]) : '';
+    };
+
+    const numero = getCol('numero');
+    if (!numero) continue;
+    const rawDate = getCol('data');
+    const dataEntrada = parseDateString(rawDate);
+
+    records.push({
+      numeroNormalizado: normalizeNumber(numero),
+      serieNormalizada: normalizeSeries(getCol('serie')),
+      cnpjEmitenteNormalizado: digits(getCol('cnpj')),
+      chaveAcessoNormalizada: digits(getCol('chave')),
+      dataEntrada,
+      cfopNormalizado: normalizeCfop(getCol('cfop')),
+    });
+  }
+
+  return records;
+}
+
 export async function parseEntrySheet(buffer: ArrayBuffer): Promise<EntrySheetRecord[]> {
-  const signature = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
-  if (signature[0] !== 0x50 || signature[1] !== 0x4b) {
-    throw new Error('A planilha auxiliar deve estar no formato .xlsx. Converta arquivos .xls antes de selecionar.');
+  const bytes = new Uint8Array(buffer);
+  const isZip = bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+  const isBiff8 = bytes.length >= 4 && bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0;
+
+  if (isBiff8) {
+    throw new Error(
+      'A planilha contábil está no formato binário legado do Excel (.xls BIFF8). ' +
+      'Por favor, abra-a no Excel e salve como Pasta de Trabalho do Excel (.xlsx), ou exporte em formato de texto (.tsv / .txt).'
+    );
+  }
+
+  if (!isZip) {
+    const text = decodeTextBuffer(bytes);
+    return parseDelimitedEntrySheet(text);
   }
 
   const entries = await readZip(buffer);
-  const sheet = workbookSheets(entries)[0];
-  if (!sheet) throw new Error('A planilha auxiliar não contém abas legíveis.');
-  const rows = rowsFromWorksheet(entries, sheet.path);
-  const header = findHeader(rows);
+  const sheets = workbookSheets(entries);
+  if (sheets.length === 0) throw new Error('A planilha auxiliar não contém abas legíveis.');
+
+  let header: { row: number; columns: Map<string, string> } | null = null;
+  let rows: Map<number, Map<string, string>> | null = null;
+
+  for (const sheet of sheets) {
+    try {
+      const candidateRows = rowsFromWorksheet(entries, sheet.path);
+      const candidateHeader = findHeader(candidateRows);
+      if (candidateHeader) {
+        header = candidateHeader;
+        rows = candidateRows;
+        break;
+      }
+    } catch {
+      // Tenta próxima aba se esta não contiver o cabeçalho
+    }
+  }
+
+  if (!header || !rows) {
+    throw new Error('A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração.');
+  }
+
   const records: EntrySheetRecord[] = [];
 
   for (const [rowIndex, values] of rows) {
     if (rowIndex <= header.row) continue;
     const numero = values.get(header.columns.get('numero') ?? '') ?? '';
-    if (!String(numero).trim()) continue;
+    if (!cleanCellText(numero)) continue;
     const rawDate = values.get(header.columns.get('data') ?? '') ?? '';
     const numericDate = Number(rawDate);
     const dataEntrada = parseDateString(rawDate) || (Number.isFinite(numericDate) ? excelSerialToIso(numericDate) : null);

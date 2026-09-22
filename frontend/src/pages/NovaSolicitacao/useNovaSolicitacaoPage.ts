@@ -124,6 +124,17 @@ export function useNovaSolicitacaoPage() {
   const files = useFiscalInputFiles();
   const [isProcessing, setIsProcessing] = useState(false);
   const [solicitacaoIdAtiva, setSolicitacaoIdAtiva] = useState<string | null>(null);
+  // Protege contra clique duplo: ``isProcessing`` só vale a partir do próximo
+  // render e não impede duas chamadas disparadas no mesmo quadro.
+  const processingGuardRef = useRef(false);
+  // Identifica a solicitação já criada para o mesmo contexto. Sem isso, cada
+  // nova tentativa deixava uma solicitação "pendente" órfã no histórico.
+  const pendingRequestRef = useRef<{
+    id: string;
+    empresaId: number;
+    periodoInicio: string;
+    periodoFim: string;
+  } | null>(null);
   const [pendenciasBonificacao, setPendenciasBonificacao] = useState<NotaBonificacaoPendencia[]>([]);
   const [showModalBonificacao, setShowModalBonificacao] = useState(false);
   const [resultadoSolicitacao, setResultadoSolicitacao] = useState<Solicitacao | null>(null);
@@ -244,6 +255,9 @@ export function useNovaSolicitacaoPage() {
       requestId,
       buildPersistPayload(localResult),
     );
+    // A solicitação deixou de ser pendente: um cancelamento posterior não pode
+    // mais apagar um resultado já registrado.
+    if (pendingRequestRef.current?.id === requestId) pendingRequestRef.current = null;
     diagnostic?.event('info', 'registro', 'Resultado estruturado registrado sem conteúdo fiscal bruto.', {
       solicitacaoId: requestId,
     }, Math.round(performance.now() - persistenceStartedAt));
@@ -298,7 +312,55 @@ export function useNovaSolicitacaoPage() {
     }
   };
 
+  /** Remove, em melhor esforço, uma solicitação criada mas nunca concluída. */
+  const discardPendingRequest = async (): Promise<void> => {
+    const pending = pendingRequestRef.current;
+    pendingRequestRef.current = null;
+    if (!pending) return;
+    try {
+      await solicitacoesApi.excluir(pending.id);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
+    } catch {
+      // O registro pode já ter sido concluído ou removido; nada a compensar.
+    }
+  };
+
+  /**
+   * Reaproveita a solicitação já criada para a mesma empresa e período. O
+   * endpoint de resultado substitui notas e saídas anteriores, então repetir a
+   * tentativa sobre o mesmo registro é seguro e evita acumular solicitações
+   * "pendentes" que nunca serão concluídas.
+   */
+  const ensureRequestId = async (empresaId: number): Promise<string> => {
+    const reusable = pendingRequestRef.current;
+    if (
+      reusable
+      && reusable.empresaId === empresaId
+      && reusable.periodoInicio === periodoInicio
+      && reusable.periodoFim === periodoFim
+    ) {
+      return reusable.id;
+    }
+
+    if (reusable) await discardPendingRequest();
+
+    const request = await solicitacoesApi.criar({
+      empresa_id: empresaId,
+      periodo_inicio: periodoInicio,
+      periodo_fim: periodoFim,
+    });
+    pendingRequestRef.current = {
+      id: request.id,
+      empresaId,
+      periodoInicio,
+      periodoFim,
+    };
+    setSolicitacaoIdAtiva(request.id);
+    return request.id;
+  };
+
   const generateSpreadsheet = async () => {
+    if (processingGuardRef.current) return;
     if (!selectedEmpresa) return;
     if (!validatePeriod()) return;
     if (files.xmlFiles.length === 0 && !files.spedFile) {
@@ -306,6 +368,7 @@ export function useNovaSolicitacaoPage() {
       return;
     }
 
+    processingGuardRef.current = true;
     setErrorMessage(null);
     setDownloadError(null);
     setIsProcessing(true);
@@ -317,26 +380,24 @@ export function useNovaSolicitacaoPage() {
     activeDiagnosticRef.current = diagnostic;
     try {
       diagnostic.stage('solicitacao', 'Criação da solicitação iniciada.');
-      const request = await solicitacoesApi.criar({
-        empresa_id: selectedEmpresa.id,
-        periodo_inicio: periodoInicio,
-        periodo_fim: periodoFim,
-      });
-      diagnostic.attempt.requestId = request.id;
-      diagnostic.event('info', 'solicitacao', 'Solicitação criada.', { solicitacaoId: request.id });
-      setSolicitacaoIdAtiva(request.id);
-      await executeLocalProcessing(request.id, undefined, diagnostic);
+      const requestId = await ensureRequestId(selectedEmpresa.id);
+      diagnostic.attempt.requestId = requestId;
+      diagnostic.event('info', 'solicitacao', 'Solicitação criada.', { solicitacaoId: requestId });
+      await executeLocalProcessing(requestId, undefined, diagnostic);
     } catch (error) {
       diagnostic.error(diagnostic.attempt.currentStage, error, 'O processamento não pôde ser concluído.');
       diagnostic.finish('falhou', 'Tentativa encerrada com falha.');
       setErrorMessage(getErrorMessage(error));
     } finally {
+      processingGuardRef.current = false;
       setIsProcessing(false);
     }
   };
 
   const confirmarBonificacoesEProcessar = async (decisoes: Record<string, boolean>) => {
+    if (processingGuardRef.current) return;
     if (!solicitacaoIdAtiva) return;
+    processingGuardRef.current = true;
     setIsProcessing(true);
     setErrorMessage(null);
     try {
@@ -354,14 +415,25 @@ export function useNovaSolicitacaoPage() {
       activeDiagnosticRef.current?.finish('falhou', 'Tentativa encerrada com falha.');
       setErrorMessage(getErrorMessage(error));
     } finally {
+      processingGuardRef.current = false;
       setIsProcessing(false);
     }
   };
 
   const cancelarModalBonificacao = () => {
+    // O botão "Cancelar" já fica desabilitado durante o processamento, mas o
+    // mesmo ``onClose`` também chega por Esc e pelo clique no fundo do modal:
+    // descartar a solicitação no meio da apuração faria o registro do
+    // resultado falhar com 404.
+    if (processingGuardRef.current) return;
     activeDiagnosticRef.current?.finish('cancelado', 'Processamento cancelado durante a confirmação de bonificações.');
     setShowModalBonificacao(false);
+    setPendenciasBonificacao([]);
     setIsProcessing(false);
+    setSolicitacaoIdAtiva(null);
+    // Nada foi apurado: manter o registro deixaria o histórico com uma
+    // solicitação eternamente pendente para cada cancelamento.
+    void discardPendingRequest();
   };
 
   const downloadSpreadsheet = async (tipo?: TipoPlanilha) => {
@@ -381,8 +453,10 @@ export function useNovaSolicitacaoPage() {
   };
 
   const startNewRequest = () => {
+    void discardPendingRequest();
     setResultadoSolicitacao(null);
     setDownloadError(null);
+    setErrorMessage(null);
     setSolicitacaoIdAtiva(null);
     setPendenciasBonificacao([]);
     setShowModalBonificacao(false);

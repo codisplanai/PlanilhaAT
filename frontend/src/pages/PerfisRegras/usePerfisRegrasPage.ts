@@ -10,6 +10,7 @@ import { queryKeys } from '../../api/queryKeys';
 import { regrasApi } from '../../api/regras';
 import { regrasCfopApi } from '../../api/regrasCfop';
 import { usePerfisQuery } from '../../hooks/useApiQueries';
+import { useManagedTimeout } from '../../hooks/useManagedTimeout';
 import type { PerfilRegras, PerfilRegrasCreate } from '../../types/perfil';
 import type { RegraAliquota, RegraAliquotaCreate } from '../../types/regra';
 import type { RegraCfopCreate, RegraCfopEfetiva } from '../../types/regraCfop';
@@ -66,6 +67,8 @@ export function usePerfisRegrasPage() {
   const [aOriFeedback, setAOriFeedback] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [aOriError, setAOriError] = useState<string | null>(null);
   const [aliqIguaisFeedback, setAliqIguaisFeedback] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const aOriFeedbackTimeout = useManagedTimeout();
+  const aliqIguaisFeedbackTimeout = useManagedTimeout();
   const [aliqIguaisError, setAliqIguaisError] = useState<string | null>(null);
 
   const perfisQuery = usePerfisQuery();
@@ -266,7 +269,7 @@ export function usePerfisRegrasPage() {
         },
       });
       setAOriFeedback('saved');
-      setTimeout(() => {
+      aOriFeedbackTimeout.schedule(() => {
         setAOriFeedback((prev) => (prev === 'saved' ? 'idle' : prev));
       }, 3000);
     } catch (err) {
@@ -303,7 +306,7 @@ export function usePerfisRegrasPage() {
         },
       });
       setAliqIguaisFeedback('saved');
-      setTimeout(() => {
+      aliqIguaisFeedbackTimeout.schedule(() => {
         setAliqIguaisFeedback((prev) => (prev === 'saved' ? 'idle' : prev));
       }, 3000);
     } catch (err) {

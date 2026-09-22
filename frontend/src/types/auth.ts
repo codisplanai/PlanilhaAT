@@ -11,6 +11,8 @@ export interface User {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
+  /** Segundos até expirar. Nulo no fallback local, cujo token não expira. */
+  expires_in?: number | null;
   user: User;
 }
 

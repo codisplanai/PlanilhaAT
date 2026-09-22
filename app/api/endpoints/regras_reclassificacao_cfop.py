@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 from app.core.database import get_db
@@ -72,7 +72,10 @@ def listar_regras_reclassificacao(
     ncm: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(RegraReclassificacaoCfop)
+    # Mesma razão de ``regras_reducao_produto``: as exceções entram na resposta.
+    query = db.query(RegraReclassificacaoCfop).options(
+        selectinload(RegraReclassificacaoCfop.excecoes)
+    )
     if perfil_id:
         query = query.filter(RegraReclassificacaoCfop.perfil_regras_id == perfil_id)
     if ncm:

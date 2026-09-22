@@ -5,6 +5,10 @@ import { parseNfeXml } from './xml';
 import { parseSped } from './sped';
 import { parseEntrySheet } from './xlsx';
 import { readZip } from './zip';
+import { crossingKeys, matchEntryCfop, matchEntryDate, matchEntryRecords } from './entryMatching';
+
+// Reexportado para preservar os pontos de importação já existentes.
+export { crossingKeys, matchEntryCfop, matchEntryDate, matchEntryRecords };
 
 const USO_CONSUMO_CFOPS = new Set(['2556', '2407', '2551', '1556', '1407', '1551']);
 const USO_CONSUMO_SUFFIXES = new Set(['556', '407', '551']);
@@ -12,30 +16,6 @@ const USO_CONSUMO_SUFFIXES = new Set(['556', '407', '551']);
 export function isUsoConsumoAtivo(cfop?: string | null): boolean {
   const clean = String(cfop ?? '').replace(/\D/g, '');
   return USO_CONSUMO_CFOPS.has(clean) || (clean.length >= 3 && USO_CONSUMO_SUFFIXES.has(clean.slice(-3)));
-}
-
-function normalizeCnpj(value: string): string {
-  return value.replace(/\D/g, '');
-}
-
-function normalizeNumber(value: string): string {
-  return value.trim().replace(/^0+(?=\d)/, '');
-}
-
-function normalizeSeries(value: string): string {
-  return value.trim();
-}
-
-export function crossingKeys(note: ExtractedNote): string[] {
-  const keys: string[] = [];
-  const access = note.chaveAcesso.replace(/\D/g, '');
-  if (access) keys.push(`chave:${access}`);
-
-  const cnpj = normalizeCnpj(note.cnpjEmitente);
-  const number = normalizeNumber(note.numeroNota);
-  const series = normalizeSeries(note.serie).replace(/^0+/, '');
-  if (cnpj && number) keys.push(`tupla:${cnpj}|${series}|${number}`);
-  return keys;
 }
 
 function cloneNote(note: ExtractedNote): ExtractedNote {
@@ -201,42 +181,4 @@ export async function loadLocalFiscalSources(
     spedCompanyInfo,
     ignoredNotes,
   };
-}
-
-export function matchEntryRecords(
-  note: ExtractedNote,
-  records: EntrySheetRecord[],
-): EntrySheetRecord[] {
-  const access = note.chaveAcesso.replace(/\D/g, '');
-  if (access.length === 44) {
-    const byAccess = records.filter((record) => record.chaveAcessoNormalizada === access);
-    if (byAccess.length > 0) return byAccess;
-  }
-
-  const cnpj = normalizeCnpj(note.cnpjEmitente);
-  const number = normalizeNumber(note.numeroNota);
-  const series = normalizeSeries(note.serie);
-  if (!cnpj || !number) return [];
-
-  return records.filter((record) => {
-    const recordSeries = record.serieNormalizada;
-    return record.cnpjEmitenteNormalizado === cnpj
-      && record.numeroNormalizado === number
-      && (
-        recordSeries === series
-        || recordSeries.replace(/^0+/, '') === series.replace(/^0+/, '')
-        || !recordSeries
-        || !series
-      );
-  });
-}
-
-export function matchEntryDate(note: ExtractedNote, records: EntrySheetRecord[]): string | null {
-  const dates = new Set(matchEntryRecords(note, records).map((record) => record.dataEntrada).filter(Boolean));
-  return dates.size === 1 ? [...dates][0] ?? null : null;
-}
-
-export function matchEntryCfop(note: ExtractedNote, records: EntrySheetRecord[]): string | null {
-  const cfops = new Set(matchEntryRecords(note, records).map((record) => record.cfopNormalizado).filter(Boolean));
-  return cfops.size === 1 ? [...cfops][0] ?? null : null;
 }

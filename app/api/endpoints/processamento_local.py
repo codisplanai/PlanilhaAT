@@ -1,8 +1,10 @@
 import json
+import logging
 from decimal import Decimal
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -24,6 +26,8 @@ from app.schemas.solicitacao import SolicitacaoOut
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.templates_admin.template_manager import TemplateManager
 from app.constants import TIPOS_PLANILHA
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/processamento-local", tags=["Processamento Fiscal Local"])
 
@@ -369,6 +373,26 @@ def registrar_resultado_processamento_local(
     solicitacao.avisos_avaliacao = payload.avisos_avaliacao
     solicitacao.cfops_sem_regra = payload.cfops_sem_regra
 
-    db.commit()
+    # O registro é uma única transação: um lote inteiro de notas é gravado de
+    # uma vez. Sem tratar a falha, uma violação de restrição virava HTTP 500 com
+    # o erro cru do banco no corpo e deixava a solicitação presa em "pendente".
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "O resultado enviado conflita com os dados já registrados para esta "
+                "solicitação. Gere a planilha novamente."
+            ),
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Falha ao registrar o resultado da solicitação %s", id)
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível registrar o resultado do processamento.",
+        )
     db.refresh(solicitacao)
     return solicitacao

@@ -17,6 +17,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
+import { useManagedTimeout } from '../../hooks/useManagedTimeout';
 import type {
   MvaAntecipacaoTributariaConfig,
   MvaGrupoConfig,
@@ -191,6 +192,7 @@ export const MvaAntecipacaoSection: React.FC<Props> = ({ perfil, open, onOpenCha
   );
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const savedFlagTimeout = useManagedTimeout();
 
   useEffect(() => {
     setDraft(config ? cloneConfig(config) : null);
@@ -234,7 +236,7 @@ export const MvaAntecipacaoSection: React.FC<Props> = ({ perfil, open, onOpenCha
       await queryClient.invalidateQueries({ queryKey: queryKeys.perfis });
       setSaved(true);
       setError(null);
-      window.setTimeout(() => setSaved(false), 3000);
+      savedFlagTimeout.schedule(() => setSaved(false), 3000);
     },
     onError: (err) => {
       setSaved(false);
