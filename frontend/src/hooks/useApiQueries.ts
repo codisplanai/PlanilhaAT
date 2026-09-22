@@ -5,6 +5,7 @@ import { perfisApi } from '../api/perfis';
 import { queryKeys } from '../api/queryKeys';
 import { solicitacoesApi } from '../api/solicitacoes';
 import { templatesApi } from '../api/templates';
+import { usuariosApi } from '../api/usuarios';
 
 export function useEmpresasQuery() {
   return useQuery({
@@ -27,13 +28,22 @@ export function useTemplatesQuery() {
   });
 }
 
-export function useSolicitacoesQuery(empresaId?: number, status?: string) {
+export function useSolicitacoesQuery(empresaId?: number, status?: string, usuarioId?: string) {
   return useQuery({
-    queryKey: queryKeys.solicitacoes(empresaId, status),
+    queryKey: queryKeys.solicitacoes(empresaId, status, usuarioId),
     queryFn: () =>
       solicitacoesApi.listar({
         empresa_id: empresaId,
         status_filter: status || undefined,
+        usuario_id: usuarioId || undefined,
       }),
+  });
+}
+
+export function useUsuariosQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.usuarios,
+    queryFn: () => usuariosApi.listar(),
+    enabled,
   });
 }

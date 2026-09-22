@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.persistence import (
     commit_and_refresh,
@@ -9,9 +9,9 @@ from app.api.persistence import (
     get_by_id_or_404,
     save_changes,
 )
-from app.constants import ROLE_ADMIN, STATUS_PENDENTE
+from app.constants import STATUS_PENDENTE
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, is_admin_or_senior
 from app.models.empresa import Empresa
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.profile import Profile
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/solicitacoes", tags=["Solicitações de Processament
 
 
 def _authorize_solicitacao(solicitacao: Solicitacao, current_user: Profile) -> None:
-    if current_user.role != ROLE_ADMIN and str(solicitacao.usuario_id or "") != str(current_user.id):
+    if not is_admin_or_senior(current_user) and str(solicitacao.usuario_id or "") != str(current_user.id):
         raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")
 
 
@@ -113,13 +113,16 @@ def atualizar_data_entrada_nota(
 def listar_solicitacoes(
     empresa_id: Optional[int] = None,
     status_filter: Optional[str] = None,
+    usuario_id: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    query = db.query(Solicitacao)
+    query = db.query(Solicitacao).options(joinedload(Solicitacao.usuario))
 
-    if current_user.role != ROLE_ADMIN:
+    if not is_admin_or_senior(current_user):
         query = query.filter(Solicitacao.usuario_id == current_user.id)
+    elif usuario_id:
+        query = query.filter(Solicitacao.usuario_id == usuario_id)
 
     if empresa_id:
         query = query.filter(Solicitacao.empresa_id == empresa_id)

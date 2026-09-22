@@ -30,9 +30,13 @@ import { StatusBadge } from '../../components/domain/StatusBadge';
 import { ItensExcluidosSection } from '../../components/domain/ItensExcluidosSection';
 import { AvisosAvaliacaoSection } from '../../components/domain/AvisosAvaliacaoSection';
 import { getEntryOriginLabel, getPlanilhaLabel } from '../../constants/domain';
+import { useOutletContext } from 'react-router-dom';
+import type { User } from '../../types/auth';
 import { useHistoricoPage } from './useHistoricoPage';
 
 export const HistoricoPage: React.FC = () => {
+  const outlet = useOutletContext<{ user?: User }>();
+  const currentUser = outlet?.user ?? null;
   const {
     solicitacoesQuery: { data: solicitacoes = [], isLoading, error },
     empresasQuery: { error: empresasError },
@@ -47,6 +51,11 @@ export const HistoricoPage: React.FC = () => {
     setEmpresaFilter,
     statusFilter,
     setStatusFilter,
+    usuarioFilter,
+    setUsuarioFilter,
+    isAdminOrSenior,
+    usuarios,
+    availableLocalIds,
     selectedSolicitacaoId,
     setSelectedSolicitacaoId,
     editingNota,
@@ -77,7 +86,7 @@ export const HistoricoPage: React.FC = () => {
     downloadRequest: handleDownload,
     closeDetails,
     getEmpresa,
-  } = useHistoricoPage();
+  } = useHistoricoPage(currentUser);
 
   const headerCheckboxRef = React.useRef<HTMLInputElement>(null);
   const visibleIds = React.useMemo(() => solicitacoes.map((s) => s.id), [solicitacoes]);
@@ -99,8 +108,16 @@ export const HistoricoPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         icon={<History className="w-5 h-5 text-blue-700" />}
-        title="Histórico de Solicitações e Planilhas Geradas"
-        description="Consulte o histórico estruturado e baixe as planilhas ainda disponíveis nesta sessão"
+        title={
+          isAdminOrSenior
+            ? 'Histórico Geral de Solicitações e Planilhas'
+            : 'Histórico das Minhas Planilhas Geradas'
+        }
+        description={
+          isAdminOrSenior
+            ? 'Painel de gestão com todas as planilhas geradas pelos usuários da equipe'
+            : 'Consulte o histórico estruturado e baixe as planilhas geradas por você nesta sessão'
+        }
       />
       {empresasError && <ErrorAlert message={getErrorMessage(empresasError)} />}
       {downloadError && (
@@ -141,7 +158,29 @@ export const HistoricoPage: React.FC = () => {
             </select>
           </div>
 
-          <div className="w-full sm:w-52">
+          {isAdminOrSenior && (
+            <div className="w-full sm:w-56">
+              <label htmlFor="filtro-usuario" className="block text-xs font-semibold text-slate-700 mb-1">
+                Usuário
+              </label>
+              <select
+                id="filtro-usuario"
+                aria-label="Filtrar por Usuário"
+                value={usuarioFilter}
+                onChange={(e) => setUsuarioFilter(e.target.value)}
+                className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-slate-50/70 border border-slate-200/90 rounded-lg focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-700 cursor-pointer transition-all"
+              >
+                <option value="">Todos os Usuários</option>
+                {usuarios.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nome} ({u.cargo || u.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="w-full sm:w-48">
             <label htmlFor="filtro-status" className="block text-xs font-semibold text-slate-700 mb-1">
               Status
             </label>
@@ -191,6 +230,7 @@ export const HistoricoPage: React.FC = () => {
                     />
                   </th>
                   <th className="py-3.5 px-4">Empresa</th>
+                  {isAdminOrSenior && <th className="py-3.5 px-4">Gerado por</th>}
                   <th className="py-3.5 px-4">Competência / Período</th>
                   <th className="py-3.5 px-4">Tipo de Planilha</th>
                   <th className="py-3.5 px-4 text-center">Status</th>
@@ -227,6 +267,24 @@ export const HistoricoPage: React.FC = () => {
                           </div>
                         )}
                       </td>
+                      {isAdminOrSenior && (
+                        <td className="py-3.5 px-4">
+                          <span
+                            className="font-semibold text-slate-900 block truncate max-w-[150px]"
+                            title={sol.usuario_nome || sol.usuario_email || 'Usuário'}
+                          >
+                            {sol.usuario_nome || sol.usuario_email || '—'}
+                          </span>
+                          {sol.usuario_email && (
+                            <span
+                              className="text-[10px] text-slate-400 block truncate max-w-[150px]"
+                              title={sol.usuario_email}
+                            >
+                              {sol.usuario_email}
+                            </span>
+                          )}
+                        </td>
+                      )}
                       <td className="py-3.5 px-4 text-slate-600">
                         <span className="font-semibold text-slate-800">
                           {formatCompetencia(sol.periodo_inicio)}
@@ -259,14 +317,24 @@ export const HistoricoPage: React.FC = () => {
                           </Button>
 
                           {sol.status === 'concluido' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDownload(sol)}
-                              leftIcon={<Download className="w-3.5 h-3.5 text-blue-700" />}
-                            >
-                              Baixar local
-                            </Button>
+                            availableLocalIds.has(sol.id) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDownload(sol)}
+                                leftIcon={<Download className="w-3.5 h-3.5 text-blue-700" />}
+                              >
+                                Baixar local
+                              </Button>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-400 bg-slate-100 rounded-lg border border-slate-200/80 cursor-not-allowed select-none"
+                                title="Planilha gerada em outro navegador ou sessão não disponível neste dispositivo."
+                              >
+                                <Download className="w-3 h-3 text-slate-400" />
+                                Indisponível local
+                              </span>
+                            )
                           )}
 
                           <Button

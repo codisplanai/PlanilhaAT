@@ -252,6 +252,23 @@ export async function listLocalArtifacts(requestId: string): Promise<StoredArtif
   );
 }
 
+export async function getStoredRequestIds(): Promise<Set<string>> {
+  return runReadTransaction<Set<string>>(
+    (store, resolve, reject) => {
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const set = new Set<string>();
+        for (const record of (request.result as StoredArtifact[])) {
+          if (record?.requestId) set.add(record.requestId);
+        }
+        resolve(set);
+      };
+      request.onerror = () => reject(request.error);
+    },
+    'Não foi possível consultar os arquivos armazenados.',
+  );
+}
+
 export async function hasLocalArtifact(requestId: string, tipo?: TipoPlanilha): Promise<boolean> {
   if (tipo) {
     return runReadTransaction<boolean>(

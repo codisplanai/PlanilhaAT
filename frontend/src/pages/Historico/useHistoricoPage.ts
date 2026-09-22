@@ -5,12 +5,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { solicitacoesApi } from '../../api/solicitacoes';
-import { useEmpresasQuery, useSolicitacoesQuery } from '../../hooks/useApiQueries';
+import { useEmpresasQuery, useSolicitacoesQuery, useUsuariosQuery } from '../../hooks/useApiQueries';
 import {
   deleteLocalArtifacts,
   deleteMultipleLocalArtifacts,
   downloadLocalArtifacts,
+  getStoredRequestIds,
 } from '../../lib/localProcessing/artifactStore';
+import { isAdminOrSenior } from '../../lib/permissions';
+import type { User } from '../../types/auth';
 import type { NotaFiscalProcessada, Solicitacao } from '../../types/solicitacao';
 
 type DetailTotals = {
@@ -32,14 +35,17 @@ function calculateTotals(notes: NotaFiscalProcessada[] | undefined): DetailTotal
   );
 }
 
-export function useHistoricoPage() {
+export function useHistoricoPage(currentUser?: User | null) {
   const queryClient = useQueryClient();
+  const isAdminOrSeniorUser = isAdminOrSenior(currentUser);
   const [empresaFilter, setEmpresaFilter] = useState<number | undefined>();
   const [statusFilter, setStatusFilter] = useState('');
+  const [usuarioFilter, setUsuarioFilter] = useState('');
   const [selectedSolicitacaoId, setSelectedSolicitacaoId] = useState<string | null>(null);
   const [editingNota, setEditingNota] = useState<NotaFiscalProcessada | null>(null);
   const [manualDateInput, setManualDateInput] = useState('');
   const [solicitacaoParaExcluir, setSolicitacaoParaExcluir] = useState<Solicitacao | null>(null);
+  const [availableLocalIds, setAvailableLocalIds] = useState<Set<string>>(new Set());
 
   // Seleção múltipla para exclusão em lote
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -52,12 +58,31 @@ export function useHistoricoPage() {
   // Limpa a seleção sempre que os filtros mudarem para evitar exclusão acidental de itens ocultos
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [empresaFilter, statusFilter]);
+  }, [empresaFilter, statusFilter, usuarioFilter]);
 
-
-  const solicitacoesQuery = useSolicitacoesQuery(empresaFilter, statusFilter);
+  const solicitacoesQuery = useSolicitacoesQuery(
+    empresaFilter,
+    statusFilter,
+    isAdminOrSeniorUser ? (usuarioFilter || undefined) : undefined,
+  );
   const empresasQuery = useEmpresasQuery();
   const empresas = empresasQuery.data ?? [];
+  const usuariosQuery = useUsuariosQuery(isAdminOrSeniorUser);
+  const usuarios = usuariosQuery.data ?? [];
+
+  // Consulta IDs dos artefatos disponíveis localmente neste navegador
+  useEffect(() => {
+    let active = true;
+    getStoredRequestIds()
+      .then((ids) => {
+        if (active) setAvailableLocalIds(ids);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [solicitacoesQuery.data]);
+
   const detailQuery = useQuery({
     queryKey: queryKeys.solicitacao(selectedSolicitacaoId),
     queryFn: () => solicitacoesApi.obter(selectedSolicitacaoId!),
@@ -206,6 +231,11 @@ export function useHistoricoPage() {
     setEmpresaFilter,
     statusFilter,
     setStatusFilter,
+    usuarioFilter,
+    setUsuarioFilter,
+    isAdminOrSenior: isAdminOrSeniorUser,
+    usuarios,
+    availableLocalIds,
     selectedSolicitacaoId,
     setSelectedSolicitacaoId,
     editingNota,

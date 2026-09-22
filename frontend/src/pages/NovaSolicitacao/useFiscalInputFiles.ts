@@ -117,6 +117,24 @@ export function useFiscalInputFiles() {
     event.target.value = '';
   };
 
+  const handlePlanilhaEntradaDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+
+    const filename = file.name.toLowerCase();
+    if (!filename.endsWith('.xlsx') && !filename.endsWith('.xls')) {
+      setFileError('Selecione uma planilha no formato .xlsx ou .xls.');
+      return;
+    }
+    if (file.size === 0 || file.size > MAX_FILE_BYTES) {
+      setFileError('A planilha de entrada deve ser não vazia e ter no máximo 20 MB.');
+      return;
+    }
+    setPlanilhaEntradaFile(file);
+    setFileError(null);
+  };
+
   const resetFiles = () => {
     setXmlFiles([]);
     setSpedFile(null);
@@ -137,6 +155,7 @@ export function useFiscalInputFiles() {
     handleSpedInput,
     handleSpedDrop,
     handlePlanilhaEntradaInput,
+    handlePlanilhaEntradaDrop,
     resetFiles,
     fileError,
     clearFileError: () => setFileError(null),

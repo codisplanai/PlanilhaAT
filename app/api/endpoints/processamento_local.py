@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, is_admin_or_senior
 from app.models.empresa import Empresa
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.perfil_regras import PerfilRegras
@@ -87,7 +87,7 @@ def _reject_raw_file_payload(value: Any, path: str = "payload") -> None:
 
 
 def _authorize_request(solicitacao: Solicitacao, current_user: Profile) -> None:
-    if current_user.role != "admin" and str(solicitacao.usuario_id or "") != str(current_user.id):
+    if not is_admin_or_senior(current_user) and str(solicitacao.usuario_id or "") != str(current_user.id):
         raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")
 
 
