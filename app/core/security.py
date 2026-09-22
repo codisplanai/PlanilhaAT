@@ -205,12 +205,27 @@ def get_optional_user(
     return get_current_user(authorization=authorization, db=db)
 
 
+def is_admin_or_senior(user: Profile) -> bool:
+    """Verifica se o perfil tem privilégios de Administrador ou Contador Sênior."""
+    if not user:
+        return False
+    role = (getattr(user, "role", "") or "").lower().strip()
+    cargo = (getattr(user, "cargo", "") or "").lower().strip()
+    return (
+        role in (ROLE_ADMIN, "admin", "administrador", "senior")
+        or "sênior" in cargo
+        or "senior" in cargo
+        or cargo == "contador sênior"
+        or cargo == "contador senior"
+    )
+
+
 def require_admin(
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ) -> Profile:
     current_user = get_current_user(authorization=authorization, db=db)
-    if current_user.role != ROLE_ADMIN:
+    if not is_admin_or_senior(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acesso restrito. Esta funcionalidade é exclusiva para o Contador Sênior / Administrador.",
