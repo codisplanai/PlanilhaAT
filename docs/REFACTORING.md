@@ -1,5 +1,50 @@
 # Relatório da refatoração estrutural
 
+## Rodada incremental de 22/09/2026
+
+A revisão partiu das fronteiras de `ARCHITECTURE.md` e do histórico das duas rodadas
+anteriores. O repositório já incorporava funcionalidades posteriores a 17/09; por isso o
+baseline efetivamente encontrado foi de **340 testes aprovados e 1 ignorado**, superior aos
+275 testes informados como referência. As divisões anteriores do pipeline, os hooks privados
+por feature, as constantes centralizadas e o adiamento deliberado da migração de timezone
+foram preservados.
+
+### Análise e tratamento por domínio
+
+- **Services de cálculo, Excel, extração, regras e validação:** cálculos, geração de
+  Excel, motor de regras e validadores permaneciam adequados. A pendência confirmada estava
+  nos leitores `.xls` e `.xlsx` da planilha contábil, que repetiam aliases de colunas,
+  parsing de datas e montagem de registros; esses trechos puros foram centralizados em
+  `data_entrada_matcher.py`, preservando as diferenças aceitas por cada formato.
+- **Endpoints e persistência:** o CRUD compartilhado continuava adequado. O endpoint de
+  contexto do processamento local, introduzido após a rodada anterior, misturava consultas e
+  uma serialização extensa; a montagem do contrato foi dividida em serializers privados e o
+  handler voltou a coordenar autenticação, consultas e resposta.
+- **Componentes e hooks do frontend:** os hooks compartilhados permaneceram adequados. O
+  modal de bonificação passou a reutilizar o formatador monetário existente, e a navegação
+  administrativa do `Sidebar` passou a ser descrita por uma única coleção estática, sem
+  alterar classes, links ou interações.
+- **Páginas restantes:** `NovaSolicitacao`, `Historico`, `AdminTemplates`, `Empresas`,
+  `Usuarios`, `Dashboard` e `Login` mantinham separação suficiente entre apresentação e
+  estado. Em `PerfisRegras`, o seletor pesquisável adicionado depois de 17/09 ainda estava
+  embutido na rota; ele foi isolado em `PerfilList.tsx`, componente privado da feature.
+- **Tipagem TypeScript/Pydantic:** a resposta nova de contexto local ainda era quase toda
+  declarada como `Dict[str, Any]`. Modelos Pydantic específicos agora descrevem empresa,
+  perfil, regras, templates e entradas de MVA. O contrato TypeScript de CEST foi alinhado ao
+  array realmente fornecido pelo Anexo I. Metadados JSON deliberadamente extensíveis
+  continuaram flexíveis para não estreitar payloads existentes.
+
+Nenhuma fórmula, cálculo fiscal, regra de precedência, rota, código HTTP, campo de payload,
+classe visual ou sequência de interação foi alterada intencionalmente. Supabase permaneceu
+isolado como adaptador externo.
+
+### Validação executada
+
+- `python -m compileall -q app tests`: aprovado com o interpretador do `.venv`.
+- `python -m pytest -q`: **340 testes aprovados e 1 ignorado**.
+- `npm run lint`: aprovado sem erros.
+- `npm run build`: aprovado com TypeScript e Vite.
+
 ## Rodada integral de 17/09/2026
 
 O inventário atual cobriu os 220 arquivos Python/TypeScript de aplicação, migrações e

@@ -73,7 +73,7 @@ export interface LocalMvaEntry {
   mva?: number | string | null;
   mva_ajustada?: Array<{ aliquotas?: Record<string, number | string | null> }> | null;
   mva_original?: Array<{ valor?: number | string | null }> | null;
-  cest?: string | null;
+  cest?: string[] | null;
   descricao?: string | null;
 }
 

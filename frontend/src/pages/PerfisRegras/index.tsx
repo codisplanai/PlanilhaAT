@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Copy,
   Sliders,
   Plus,
   Edit2,
@@ -8,7 +7,6 @@ import {
   Sparkles,
   Zap,
   Check,
-  Search,
   Percent,
   Layers,
   Route,
@@ -40,6 +38,7 @@ import { ReducaoProdutoSection } from './ReducaoProdutoSection';
 import { ReclassificacaoCfopSection } from './ReclassificacaoCfopSection';
 import { ExclusaoParcialSection } from './ExclusaoParcialSection';
 import { MvaAntecipacaoSection } from './MvaAntecipacaoSection';
+import { PerfilList } from './PerfilList';
 
 type SectionKey =
   | 'limiteAori'
@@ -174,7 +173,6 @@ export const PerfisRegrasPage: React.FC = () => {
   } = usePerfisRegrasPage();
 
   const [cfopTab, setCfopTab] = useState<'geral' | 'reclassificacao'>('geral');
-  const [filtroPerfil, setFiltroPerfil] = useState('');
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(collapsedSections);
 
   useEffect(() => {
@@ -192,18 +190,6 @@ export const PerfisRegrasPage: React.FC = () => {
   const collapseAllSections = () => {
     setOpenSections(collapsedSections());
   };
-
-  // A busca só aparece quando a lista deixa de caber num olhar.
-  const mostrarBuscaPerfis = perfis.length > 6;
-  const perfisVisiveis = useMemo(() => {
-    const termo = filtroPerfil.trim().toLowerCase();
-    if (!termo) return perfis;
-    return perfis.filter(
-      (p) =>
-        p.nome.toLowerCase().includes(termo) ||
-        (p.descricao || '').toLowerCase().includes(termo),
-    );
-  }, [perfis, filtroPerfil]);
 
   const allSectionsOpen = SECTION_KEYS.every((key) => openSections[key]);
   const allSectionsClosed = SECTION_KEYS.every((key) => !openSections[key]);
@@ -260,124 +246,14 @@ export const PerfisRegrasPage: React.FC = () => {
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Coluna Esquerda: Seletor de Perfis — acompanha a rolagem das seções */}
-          <div className="space-y-3 lg:col-span-4 lg:sticky lg:top-4 lg:self-start">
-            <div className="flex items-baseline justify-between gap-2 px-1">
-              <h2 className="text-sm font-bold tracking-tight text-slate-900">
-                Perfis compartilhados
-              </h2>
-              <span className="font-mono text-xs tabular-nums text-slate-400">{perfis.length}</span>
-            </div>
-
-            {mostrarBuscaPerfis && (
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="search"
-                  value={filtroPerfil}
-                  onChange={(e) => setFiltroPerfil(e.target.value)}
-                  placeholder="Buscar perfil"
-                  aria-label="Buscar perfil pelo nome ou descrição"
-                  className="w-full rounded-lg border border-slate-200/90 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 shadow-2xs transition-all duration-150 placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/15"
-                />
-              </div>
-            )}
-
-            <div className="space-y-2 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
-              {perfisVisiveis.length === 0 && (
-                <p className="rounded-xl border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center text-xs text-slate-500">
-                  Nenhum perfil corresponde a &ldquo;{filtroPerfil}&rdquo;.
-                </p>
-              )}
-              {perfisVisiveis.map((p) => {
-                const isSelected = activePerfil?.id === p.id;
-                return (
-                  <div
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={isSelected}
-                    onClick={() => setSelectedPerfilId(p.id)}
-                    onKeyDown={(e) => {
-                      if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                        e.preventDefault();
-                        setSelectedPerfilId(p.id);
-                      }
-                    }}
-                    className={`group relative cursor-pointer rounded-xl border py-3.5 pl-4 pr-3 text-left transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
-                      isSelected
-                        ? 'border-blue-600 bg-blue-50/70 shadow-xs'
-                        : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/60'
-                    }`}
-                  >
-                    {isSelected && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute inset-y-2.5 left-0 w-1 rounded-r-full bg-blue-600"
-                      />
-                    )}
-                    <div className="flex items-start justify-between gap-2">
-                      <h4
-                        className={`text-sm font-bold tracking-tight ${
-                          isSelected ? 'text-blue-950' : 'text-slate-900'
-                        }`}
-                      >
-                        {p.nome}
-                      </h4>
-                      {/* Ações ficam quietas até o perfil ser apontado, focado ou selecionado. */}
-                      <div
-                        className={`flex shrink-0 items-center gap-0.5 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 max-lg:opacity-100 ${
-                          isSelected ? 'opacity-100' : 'opacity-0'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenEditPerfil(p);
-                          }}
-                          className="p-1 rounded-md text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
-                          title="Editar perfil"
-                          aria-label={`Editar perfil ${p.nome}`}
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDuplicatePerfil(p);
-                          }}
-                          className="p-1 rounded-md text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
-                          title="Duplicar perfil"
-                          aria-label={`Duplicar perfil ${p.nome}`}
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        {perfis.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPerfilParaExcluir(p);
-                            }}
-                            className="p-1 rounded-md text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
-                            title="Remover perfil"
-                            aria-label={`Remover perfil ${p.nome}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {p.descricao && (
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{p.descricao}</p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <PerfilList
+            perfis={perfis}
+            activePerfilId={activePerfil?.id}
+            onSelect={setSelectedPerfilId}
+            onEdit={handleOpenEditPerfil}
+            onDuplicate={openDuplicatePerfil}
+            onDelete={setPerfilParaExcluir}
+          />
 
           {/* Coluna Direita: Detalhes das Regras do Perfil Selecionado */}
           {activePerfil && (
