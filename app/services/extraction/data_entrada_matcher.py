@@ -1,9 +1,10 @@
+import datetime
 import io
 import os
 import re
-import datetime
-from typing import Optional, List, Dict, Tuple, Set
 from dataclasses import dataclass
+from typing import List, Optional, Set, Tuple
+
 import openpyxl
 import xlrd
 
@@ -74,6 +75,34 @@ class PlanilhaEntradaParser:
     Parser da planilha de exportação do sistema contábil (suporta layout Prosoft e similares em .xls/.xlsx).
     """
 
+    _NUMERO_HEADERS = ["Número Nota", "Numero Nota", "Nº Nota", "Num Nota", "N. Fiscal", "Nota"]
+    _DATA_HEADERS = [
+        "Dt.Escritur.",
+        "Dt.Escritur",
+        "Data Escrituração",
+        "Data Entrada",
+        "Dt.Entrada",
+        "Data de Entrada",
+    ]
+    _SERIE_HEADERS = ["Série", "Serie", "Ser"]
+    _CNPJ_HEADERS = ["Terceiro", "CNPJ do Emitente", "CNPJ Emitente", "CNPJ/CPF", "CNPJ"]
+    _CHAVE_HEADERS = [
+        "Chave da Nota Fiscal Eletrônica",
+        "Chave NFe",
+        "Chave de Acesso",
+        "Chave Eletrônica",
+        "Chave",
+    ]
+    _CFOP_HEADERS = [
+        "CFOP",
+        "C.F.O.P.",
+        "Cód. Fiscal",
+        "Cod. Fiscal",
+        "Código Fiscal",
+        "Natureza da Operação",
+        "Natureza",
+    ]
+
     @staticmethod
     def _find_column_index(headers: List[str], exact_names: List[str], partial_names: Optional[List[str]] = None) -> Optional[int]:
         # 1. Busca por nome exato (case-insensitive)
@@ -91,6 +120,57 @@ class PlanilhaEntradaParser:
                     if partial_clean in h_clean and "ie " not in h_clean and "inscrição" not in h_clean:
                         return idx
         return None
+
+    @classmethod
+    def _resolve_column_indexes(
+        cls,
+        headers: List[str],
+        *,
+        is_xlsx: bool,
+    ) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int], Optional[int], Optional[int]]:
+        data_headers = [*cls._DATA_HEADERS, "Data Entrada/Saída"] if is_xlsx else cls._DATA_HEADERS
+        cnpj_headers = [*cls._CNPJ_HEADERS, "CPF/CNPJ"] if is_xlsx else cls._CNPJ_HEADERS
+        chave_headers = cls._CHAVE_HEADERS if is_xlsx else [
+            header for header in cls._CHAVE_HEADERS if header != "Chave Eletrônica"
+        ]
+        return (
+            cls._find_column_index(headers, cls._NUMERO_HEADERS),
+            cls._find_column_index(headers, data_headers),
+            cls._find_column_index(headers, cls._SERIE_HEADERS),
+            cls._find_column_index(headers, cnpj_headers),
+            cls._find_column_index(headers, chave_headers),
+            cls._find_column_index(headers, cls._CFOP_HEADERS, partial_names=["cfop"]),
+        )
+
+    @staticmethod
+    def _parse_text_date(value: str, formats: Tuple[str, ...]) -> Optional[datetime.date]:
+        clean_value = value.strip()
+        for date_format in formats:
+            try:
+                return datetime.datetime.strptime(clean_value, date_format).date()
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _build_record(
+        *,
+        numero: str,
+        serie: object,
+        cnpj: object,
+        chave: object,
+        data_entrada: Optional[datetime.date],
+        cfop: object,
+    ) -> PlanilhaEntradaRecord:
+        return PlanilhaEntradaRecord(
+            numero_raw=numero,
+            numero_normalizado=DataEntradaNormalizer.normalize_numero(numero),
+            serie_normalizada=DataEntradaNormalizer.normalize_serie(serie),
+            cnpj_emitente_normalizado=DataEntradaNormalizer.normalize_cnpj(cnpj),
+            chave_acesso_normalizada=DataEntradaNormalizer.normalize_chave(chave),
+            data_entrada=data_entrada,
+            cfop_normalizado=DataEntradaNormalizer.normalize_cfop(cfop),
+        )
 
     @classmethod
     def parse(cls, file_bytes: bytes, filename: str = "planilha.xlsx") -> List[PlanilhaEntradaRecord]:
@@ -136,16 +216,14 @@ class PlanilhaEntradaParser:
             header_names = [str(ws.cell(1, c).value or "").strip() for c in range(1, ws.max_column + 1)]
 
         # Resolver índices das colunas (0-based)
-        col_num_idx = cls._find_column_index(header_names, ["Número Nota", "Numero Nota", "Nº Nota", "Num Nota", "N. Fiscal", "Nota"])
-        col_dt_idx = cls._find_column_index(header_names, ["Dt.Escritur.", "Dt.Escritur", "Data Escrituração", "Data Entrada", "Dt.Entrada", "Data de Entrada", "Data Entrada/Saída"])
-        col_serie_idx = cls._find_column_index(header_names, ["Série", "Serie", "Ser"])
-        col_cnpj_idx = cls._find_column_index(header_names, ["Terceiro", "CNPJ do Emitente", "CNPJ Emitente", "CNPJ/CPF", "CNPJ", "CPF/CNPJ"])
-        col_chave_idx = cls._find_column_index(header_names, ["Chave da Nota Fiscal Eletrônica", "Chave NFe", "Chave de Acesso", "Chave Eletrônica", "Chave"])
-        col_cfop_idx = cls._find_column_index(
-            header_names,
-            ["CFOP", "C.F.O.P.", "Cód. Fiscal", "Cod. Fiscal", "Código Fiscal", "Natureza da Operação", "Natureza"],
-            partial_names=["cfop"]
-        )
+        (
+            col_num_idx,
+            col_dt_idx,
+            col_serie_idx,
+            col_cnpj_idx,
+            col_chave_idx,
+            col_cfop_idx,
+        ) = cls._resolve_column_indexes(header_names, is_xlsx=True)
 
         if col_num_idx is None or col_dt_idx is None:
             wb.close()
@@ -174,22 +252,18 @@ class PlanilhaEntradaParser:
             elif isinstance(dt_raw, datetime.date):
                 parsed_date = dt_raw
             elif isinstance(dt_raw, str) and dt_raw.strip():
-                clean_dt_str = dt_raw.strip()
-                for fmt in ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"]:
-                    try:
-                        parsed_date = datetime.datetime.strptime(clean_dt_str, fmt).date()
-                        break
-                    except ValueError:
-                        pass
+                parsed_date = cls._parse_text_date(
+                    dt_raw,
+                    ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"),
+                )
 
-            rec = PlanilhaEntradaRecord(
-                numero_raw=num_str,
-                numero_normalizado=DataEntradaNormalizer.normalize_numero(num_str),
-                serie_normalizada=DataEntradaNormalizer.normalize_serie(serie_raw),
-                cnpj_emitente_normalizado=DataEntradaNormalizer.normalize_cnpj(cnpj_raw),
-                chave_acesso_normalizada=DataEntradaNormalizer.normalize_chave(chave_raw),
+            rec = cls._build_record(
+                numero=num_str,
+                serie=serie_raw,
+                cnpj=cnpj_raw,
+                chave=chave_raw,
                 data_entrada=parsed_date,
-                cfop_normalizado=DataEntradaNormalizer.normalize_cfop(cfop_raw)
+                cfop=cfop_raw,
             )
             records.append(rec)
 
@@ -215,16 +289,14 @@ class PlanilhaEntradaParser:
             header_row_idx = 0
             header_names = [str(sheet.cell_value(0, c) or "").strip() for c in range(sheet.ncols)]
 
-        col_num_idx = cls._find_column_index(header_names, ["Número Nota", "Numero Nota", "Nº Nota", "Num Nota", "N. Fiscal", "Nota"])
-        col_dt_idx = cls._find_column_index(header_names, ["Dt.Escritur.", "Dt.Escritur", "Data Escrituração", "Data Entrada", "Dt.Entrada", "Data de Entrada"])
-        col_serie_idx = cls._find_column_index(header_names, ["Série", "Serie", "Ser"])
-        col_cnpj_idx = cls._find_column_index(header_names, ["Terceiro", "CNPJ do Emitente", "CNPJ Emitente", "CNPJ/CPF", "CNPJ"])
-        col_chave_idx = cls._find_column_index(header_names, ["Chave da Nota Fiscal Eletrônica", "Chave NFe", "Chave de Acesso", "Chave"])
-        col_cfop_idx = cls._find_column_index(
-            header_names,
-            ["CFOP", "C.F.O.P.", "Cód. Fiscal", "Cod. Fiscal", "Código Fiscal", "Natureza da Operação", "Natureza"],
-            partial_names=["cfop"]
-        )
+        (
+            col_num_idx,
+            col_dt_idx,
+            col_serie_idx,
+            col_cnpj_idx,
+            col_chave_idx,
+            col_cfop_idx,
+        ) = cls._resolve_column_indexes(header_names, is_xlsx=False)
 
         if col_num_idx is None or col_dt_idx is None:
             raise ValidationException(
@@ -255,21 +327,18 @@ class PlanilhaEntradaParser:
                     date_tuple = xlrd.xldate_as_tuple(dt_cell.value, book.datemode)
                     parsed_date = datetime.date(date_tuple[0], date_tuple[1], date_tuple[2])
                 elif isinstance(dt_cell.value, str) and dt_cell.value.strip():
-                    for fmt in ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"]:
-                        try:
-                            parsed_date = datetime.datetime.strptime(dt_cell.value.strip(), fmt).date()
-                            break
-                        except ValueError:
-                            pass
+                    parsed_date = cls._parse_text_date(
+                        dt_cell.value,
+                        ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"),
+                    )
 
-            rec = PlanilhaEntradaRecord(
-                numero_raw=num_str,
-                numero_normalizado=DataEntradaNormalizer.normalize_numero(num_str),
-                serie_normalizada=DataEntradaNormalizer.normalize_serie(serie_raw),
-                cnpj_emitente_normalizado=DataEntradaNormalizer.normalize_cnpj(cnpj_raw),
-                chave_acesso_normalizada=DataEntradaNormalizer.normalize_chave(chave_raw),
+            rec = cls._build_record(
+                numero=num_str,
+                serie=serie_raw,
+                cnpj=cnpj_raw,
+                chave=chave_raw,
                 data_entrada=parsed_date,
-                cfop_normalizado=DataEntradaNormalizer.normalize_cfop(cfop_raw)
+                cfop=cfop_raw,
             )
             records.append(rec)
 

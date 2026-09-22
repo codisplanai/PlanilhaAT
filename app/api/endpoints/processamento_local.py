@@ -87,6 +87,150 @@ def _authorize_request(solicitacao: Solicitacao, current_user: Profile) -> None:
         raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")
 
 
+def _serialize_empresa(empresa: Empresa) -> Dict[str, Any]:
+    termo = empresa.termo_acordo
+    return {
+        "id": empresa.id,
+        "razao_social": empresa.razao_social,
+        "cnpj": empresa.cnpj,
+        "inscricao_estadual": empresa.inscricao_estadual,
+        "uf": empresa.uf,
+        "perfil_regras_id": empresa.perfil_regras_id,
+        "optante_simples_nacional": bool(empresa.optante_simples_nacional),
+        "termo_acordo": (
+            {
+                "id": termo.id,
+                "aliquota": _serialize_decimal(termo.aliquota),
+                "descricao": termo.descricao,
+            }
+            if termo
+            else None
+        ),
+    }
+
+
+def _serialize_reducao(regra: RegraReducaoProduto) -> Dict[str, Any]:
+    return {
+        "id": regra.id,
+        "perfil_regras_id": regra.perfil_regras_id,
+        "ncm": regra.ncm,
+        "termos_inclusao": regra.termos_inclusao or [],
+        "termos_exclusao": regra.termos_exclusao or [],
+        "aliquota": _serialize_decimal(regra.aliquota),
+        "descricao": regra.descricao,
+        "excecoes": [
+            {
+                "id": excecao.id,
+                "descricao_exata": excecao.descricao_exata,
+                "enquadrado": bool(excecao.enquadrado),
+                "observacao": excecao.observacao,
+            }
+            for excecao in regra.excecoes
+        ],
+    }
+
+
+def _serialize_reclassificacao(regra: RegraReclassificacaoCfop) -> Dict[str, Any]:
+    return {
+        "id": regra.id,
+        "perfil_regras_id": regra.perfil_regras_id,
+        "ncm": regra.ncm,
+        "cfop_origem_sufixo": regra.cfop_origem_sufixo,
+        "cfop_destino_sufixo": regra.cfop_destino_sufixo,
+        "termos_inclusao": regra.termos_inclusao or [],
+        "termos_exclusao": regra.termos_exclusao or [],
+        "descricao": regra.descricao,
+        "excecoes": [
+            {
+                "id": excecao.id,
+                "descricao_exata": excecao.descricao_exata,
+                "aplicar": bool(excecao.aplicar),
+                "observacao": excecao.observacao,
+            }
+            for excecao in regra.excecoes
+        ],
+    }
+
+
+def _build_context_payload(
+    *,
+    db: Session,
+    empresa: Empresa,
+    perfil: PerfilRegras,
+    aliquotas: list[RegraAliquotaDestino],
+    regras_cfop: list[RegraCfopDestino],
+    reducoes: list[RegraReducaoProduto],
+    reclassificacoes: list[RegraReclassificacaoCfop],
+    exclusoes: list[RegraExclusaoParcial],
+    templates: list[TemplateXlsx],
+) -> Dict[str, Any]:
+    return {
+        "empresa": _serialize_empresa(empresa),
+        "perfil": {
+            "id": perfil.id,
+            "nome": perfil.nome,
+            "descricao": perfil.descricao,
+            "configuracoes_extras": perfil.configuracoes_extras or {},
+        },
+        "regras_aliquotas": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "uf": regra.uf,
+                "ncm": regra.ncm,
+                "aliquota": _serialize_decimal(regra.aliquota),
+                "descricao": regra.descricao,
+                "parametros_extras": regra.parametros_extras or {},
+            }
+            for regra in aliquotas
+        ],
+        "regras_cfop": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "cfop_sufixo": regra.cfop_sufixo,
+                "destino": regra.destino,
+                "descricao": regra.descricao,
+            }
+            for regra in regras_cfop
+        ],
+        "regras_reducao": [_serialize_reducao(regra) for regra in reducoes],
+        "regras_reclassificacao": [
+            _serialize_reclassificacao(regra) for regra in reclassificacoes
+        ],
+        "regras_exclusao_parcial": [
+            {
+                "id": regra.id,
+                "perfil_regras_id": regra.perfil_regras_id,
+                "uf": regra.uf,
+                "ncm": regra.ncm,
+                "descricao": regra.descricao,
+                "termos_obrigatorios": regra.termos_obrigatorios or [],
+                "motivo": regra.motivo,
+                "ativo": bool(regra.ativo),
+            }
+            for regra in exclusoes
+        ],
+        "margens_seguranca_templates": {
+            tipo: TemplateManager.get_safety_margin(db, tipo)
+            for tipo in TIPOS_PLANILHA
+        },
+        "templates_ativos": [
+            {
+                "id": template.id,
+                "tipo": template.tipo,
+                "versao": template.versao,
+                "capacidade_linhas": template.capacidade_linhas,
+                "arquivo_hash": template.arquivo_hash,
+                "mapeamento_campos": template.mapeamento_campos,
+                "observacoes": template.observacoes,
+            }
+            for template in templates
+        ],
+        "mva_anexo": MvaResolver._load_anexo_entries(),
+    }
+
+
 @router.get("/contexto", response_model=LocalProcessingContextOut)
 def obter_contexto_processamento_local(
     empresa_id: int,
@@ -153,128 +297,17 @@ def obter_contexto_processamento_local(
         .all()
     )
 
-    termo = empresa.termo_acordo
-    return {
-        "empresa": {
-            "id": empresa.id,
-            "razao_social": empresa.razao_social,
-            "cnpj": empresa.cnpj,
-            "inscricao_estadual": empresa.inscricao_estadual,
-            "uf": empresa.uf,
-            "perfil_regras_id": empresa.perfil_regras_id,
-            "optante_simples_nacional": bool(empresa.optante_simples_nacional),
-            "termo_acordo": (
-                {
-                    "id": termo.id,
-                    "aliquota": _serialize_decimal(termo.aliquota),
-                    "descricao": termo.descricao,
-                }
-                if termo
-                else None
-            ),
-        },
-        "perfil": {
-            "id": perfil.id,
-            "nome": perfil.nome,
-            "descricao": perfil.descricao,
-            "configuracoes_extras": perfil.configuracoes_extras or {},
-        },
-        "regras_aliquotas": [
-            {
-                "id": regra.id,
-                "perfil_regras_id": regra.perfil_regras_id,
-                "uf": regra.uf,
-                "ncm": regra.ncm,
-                "aliquota": _serialize_decimal(regra.aliquota),
-                "descricao": regra.descricao,
-                "parametros_extras": regra.parametros_extras or {},
-            }
-            for regra in aliquotas
-        ],
-        "regras_cfop": [
-            {
-                "id": regra.id,
-                "perfil_regras_id": regra.perfil_regras_id,
-                "cfop_sufixo": regra.cfop_sufixo,
-                "destino": regra.destino,
-                "descricao": regra.descricao,
-            }
-            for regra in regras_cfop
-        ],
-        "regras_reducao": [
-            {
-                "id": regra.id,
-                "perfil_regras_id": regra.perfil_regras_id,
-                "ncm": regra.ncm,
-                "termos_inclusao": regra.termos_inclusao or [],
-                "termos_exclusao": regra.termos_exclusao or [],
-                "aliquota": _serialize_decimal(regra.aliquota),
-                "descricao": regra.descricao,
-                "excecoes": [
-                    {
-                        "id": exc.id,
-                        "descricao_exata": exc.descricao_exata,
-                        "enquadrado": bool(exc.enquadrado),
-                        "observacao": exc.observacao,
-                    }
-                    for exc in regra.excecoes
-                ],
-            }
-            for regra in reducoes
-        ],
-        "regras_reclassificacao": [
-            {
-                "id": regra.id,
-                "perfil_regras_id": regra.perfil_regras_id,
-                "ncm": regra.ncm,
-                "cfop_origem_sufixo": regra.cfop_origem_sufixo,
-                "cfop_destino_sufixo": regra.cfop_destino_sufixo,
-                "termos_inclusao": regra.termos_inclusao or [],
-                "termos_exclusao": regra.termos_exclusao or [],
-                "descricao": regra.descricao,
-                "excecoes": [
-                    {
-                        "id": exc.id,
-                        "descricao_exata": exc.descricao_exata,
-                        "aplicar": bool(exc.aplicar),
-                        "observacao": exc.observacao,
-                    }
-                    for exc in regra.excecoes
-                ],
-            }
-            for regra in reclassificacoes
-        ],
-        "regras_exclusao_parcial": [
-            {
-                "id": regra.id,
-                "perfil_regras_id": regra.perfil_regras_id,
-                "uf": regra.uf,
-                "ncm": regra.ncm,
-                "descricao": regra.descricao,
-                "termos_obrigatorios": regra.termos_obrigatorios or [],
-                "motivo": regra.motivo,
-                "ativo": bool(regra.ativo),
-            }
-            for regra in exclusoes
-        ],
-        "margens_seguranca_templates": {
-            tipo: TemplateManager.get_safety_margin(db, tipo)
-            for tipo in TIPOS_PLANILHA
-        },
-        "templates_ativos": [
-            {
-                "id": template.id,
-                "tipo": template.tipo,
-                "versao": template.versao,
-                "capacidade_linhas": template.capacidade_linhas,
-                "arquivo_hash": template.arquivo_hash,
-                "mapeamento_campos": template.mapeamento_campos,
-                "observacoes": template.observacoes,
-            }
-            for template in templates
-        ],
-        "mva_anexo": MvaResolver._load_anexo_entries(),
-    }
+    return _build_context_payload(
+        db=db,
+        empresa=empresa,
+        perfil=perfil,
+        aliquotas=aliquotas,
+        regras_cfop=regras_cfop,
+        reducoes=reducoes,
+        reclassificacoes=reclassificacoes,
+        exclusoes=exclusoes,
+        templates=templates,
+    )
 
 
 @router.post("/solicitacoes/{id}/resultado", response_model=SolicitacaoOut)

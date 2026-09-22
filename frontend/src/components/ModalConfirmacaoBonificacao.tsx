@@ -12,6 +12,7 @@ import {
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { formatCurrency } from '../lib/formatters';
 import type { NotaBonificacaoPendencia } from '../types/solicitacao';
 
 export interface ModalConfirmacaoBonificacaoProps {
@@ -63,9 +64,6 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
     setCopiedKey(chave);
     setTimeout(() => setCopiedKey(null), 2000);
   };
-
-  const formatCurrency = (val: number) =>
-    Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
   const totalParaRevenda = Object.values(decisoes).filter(Boolean).length;
   const totalNaoRevenda = notas.length - totalParaRevenda;

@@ -29,6 +29,18 @@ interface SidebarProps {
   onClose: () => void;
 }
 
+const MAIN_NAV_ITEMS = [
+  { to: '/', label: 'Visão Geral', icon: LayoutDashboard, end: true },
+  { to: '/solicitacoes', label: 'Histórico de Planilhas', icon: History },
+  { to: '/empresas', label: 'Empresas Clientes', icon: Building2 },
+  { to: '/perfis-regras', label: 'Perfis e Alíquotas', icon: Sliders },
+];
+
+const ADMIN_NAV_ITEMS = [
+  { to: '/templates', label: 'Modelos de Planilha', icon: FileCode2 },
+  { to: '/usuarios', label: 'Usuários', icon: Users },
+];
+
 export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavigate, onClose }) => {
   const isAdmin = user?.role === 'admin';
   const [isAlterarSenhaOpen, setIsAlterarSenhaOpen] = useState(false);
@@ -66,13 +78,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
-
-  const mainNav = [
-    { to: '/', label: 'Visão Geral', icon: LayoutDashboard, end: true },
-    { to: '/solicitacoes', label: 'Histórico de Planilhas', icon: History },
-    { to: '/empresas', label: 'Empresas Clientes', icon: Building2 },
-    { to: '/perfis-regras', label: 'Perfis e Alíquotas', icon: Sliders },
-  ];
 
   return (
     <aside
@@ -125,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
             <span>Operação Diária</span>
           </div>
           <nav className="space-y-1">
-            {mainNav.map((item) => (
+            {MAIN_NAV_ITEMS.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -162,50 +167,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
               <span>Área Administrativa</span>
             </div>
             <nav className="space-y-1">
-              <NavLink
-                to="/templates"
-                onClick={onNavigate}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 ${
-                    isActive
-                      ? 'bg-amber-500/15 text-amber-400 font-bold border-l-3 border-amber-500 shadow-2xs'
-                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/70'
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <FileCode2
-                      className={`w-4 h-4 shrink-0 transition-colors ${
-                        isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-200'
-                      }`}
-                    />
-                    <span>Modelos de Planilha</span>
-                  </>
-                )}
-              </NavLink>
-              <NavLink
-                to="/usuarios"
-                onClick={onNavigate}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 ${
-                    isActive
-                      ? 'bg-amber-500/15 text-amber-400 font-bold border-l-3 border-amber-500 shadow-2xs'
-                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/70'
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <Users
-                      className={`w-4 h-4 shrink-0 transition-colors ${
-                        isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-200'
-                      }`}
-                    />
-                    <span>Usuários</span>
-                  </>
-                )}
-              </NavLink>
+              {ADMIN_NAV_ITEMS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  onClick={onNavigate}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 ${
+                      isActive
+                        ? 'bg-amber-500/15 text-amber-400 font-bold border-l-3 border-amber-500 shadow-2xs'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/70'
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <item.icon
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          isActive ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-200'
+                        }`}
+                      />
+                      <span>{item.label}</span>
+                    </>
+                  )}
+                </NavLink>
+              ))}
             </nav>
           </div>
         )}
