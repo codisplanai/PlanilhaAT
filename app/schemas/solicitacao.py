@@ -108,6 +108,8 @@ class SolicitacaoOut(BaseModel):
     id: str
     empresa_id: int
     usuario_id: Optional[str] = None
+    usuario_nome: Optional[str] = None
+    usuario_email: Optional[str] = None
     periodo_inicio: date
     periodo_fim: date
     tipo_planilha: str
@@ -141,6 +143,8 @@ class SolicitacaoListOut(BaseModel):
     id: str
     empresa_id: int
     usuario_id: Optional[str] = None
+    usuario_nome: Optional[str] = None
+    usuario_email: Optional[str] = None
     periodo_inicio: date
     periodo_fim: date
     tipo_planilha: str

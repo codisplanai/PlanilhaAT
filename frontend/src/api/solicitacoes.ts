@@ -7,7 +7,7 @@ import type {
 } from '../types/solicitacao';
 
 export const solicitacoesApi = {
-  listar: async (params?: { empresa_id?: number; status_filter?: string }): Promise<Solicitacao[]> => {
+  listar: async (params?: { empresa_id?: number; status_filter?: string; usuario_id?: string }): Promise<Solicitacao[]> => {
     const { data } = await apiClient.get<Solicitacao[]>('/solicitacoes', { params });
     return data;
   },

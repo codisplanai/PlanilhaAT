@@ -94,6 +94,9 @@ export interface SolicitacaoSaida {
 export interface Solicitacao {
   id: string;
   empresa_id: number;
+  usuario_id?: string | null;
+  usuario_nome?: string | null;
+  usuario_email?: string | null;
   periodo_inicio: string;
   periodo_fim: string;
   tipo_planilha: TipoPlanilha | 'multi';

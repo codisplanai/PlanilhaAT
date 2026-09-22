@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 from sqlalchemy import CheckConstraint, Column, Integer, String, Date, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 
@@ -41,6 +42,14 @@ class Solicitacao(Base):
         cascade="all, delete-orphan",
         order_by="func.coalesce(NotaFiscalProcessada.data_entrada, NotaFiscalProcessada.data_emissao), NotaFiscalProcessada.data_emissao, NotaFiscalProcessada.numero_nota, NotaFiscalProcessada.item_numero"
     )
+
+    @property
+    def usuario_nome(self) -> Optional[str]:
+        return self.usuario.nome if self.usuario else None
+
+    @property
+    def usuario_email(self) -> Optional[str]:
+        return self.usuario.email if self.usuario else None
 
     __table_args__ = (
         CheckConstraint("periodo_fim >= periodo_inicio", name="ck_solicitacoes_periodo"),
