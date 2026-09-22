@@ -55,6 +55,11 @@ LOCAL_USERS_FALLBACK = {
 # nunca recebem permissão, ainda que usem o prefixo local.
 ACTIVE_DEV_TOKENS: Dict[str, Dict[str, Any]] = {}
 
+# Refresh tokens do fallback local, indexados por token -> id do perfil. Existem
+# para que o frontend tenha um único fluxo de sessão: sem eles, o caminho local
+# precisaria de um ramo próprio de renovação no cliente.
+LOCAL_REFRESH_TOKENS: Dict[str, str] = {}
+
 
 def verify_supabase_token(token: str) -> Optional[Dict[str, Any]]:
     if not token:

@@ -279,10 +279,12 @@ function triggerDownload(content: string, filename: string, type: string): void 
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = filename;
+  anchor.rel = 'noopener';
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  // Firefox e WebKit abortam o download quando a URL é revogada no mesmo tick.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export function downloadDiagnosticJson(session: DiagnosticSession): void {

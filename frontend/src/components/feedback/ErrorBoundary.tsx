@@ -4,21 +4,36 @@ import { Button } from '../ui/Button';
 
 interface Props {
   children: ReactNode;
+  /**
+   * Muda a cada navegação. Sem isso, uma falha em uma tela mantinha a tela de
+   * erro visível em todas as rotas seguintes, já que o boundary envolve o
+   * roteador inteiro e nada reabilitava a renderização dos filhos.
+   */
+  resetKey?: string;
 }
 
 interface State {
   hasError: boolean;
   error: Error | null;
+  resetKey?: string;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null,
+    resetKey: undefined,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
+  }
+
+  public static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    if (props.resetKey !== state.resetKey) {
+      return { hasError: false, error: null, resetKey: props.resetKey };
+    }
+    return null;
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {

@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import openpyxl
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.models.template_xlsx import TemplateXlsx
 from app.schemas.template_xlsx import TemplateMapping
@@ -156,9 +156,30 @@ class TemplateManager:
             return novo_template
         except IntegrityError as exc:
             db.rollback()
-            remove_file_if_exists(stored_path)
-            SupabaseStorageService.delete_file(settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, stored_filename)
+            cls._descartar_arquivo_orfao(stored_path, stored_filename)
             raise ValidationException("Outro upload criou esta versão simultaneamente; tente novamente.") from exc
+        except SQLAlchemyError as exc:
+            # Sem esta compensação, uma falha de banco que não fosse conflito de
+            # unicidade deixava o arquivo publicado sem nenhuma versão apontando
+            # para ele, ocupando espaço e confundindo a resolução por nome.
+            db.rollback()
+            logger.exception("Falha ao registrar a versão %s v%s", clean_tipo, proxima_versao)
+            cls._descartar_arquivo_orfao(stored_path, stored_filename)
+            raise ValidationException(
+                "Não foi possível registrar a nova versão do modelo. Tente novamente."
+            ) from exc
+
+    @classmethod
+    def _descartar_arquivo_orfao(cls, stored_path: str, stored_filename: str) -> None:
+        """Remove o arquivo recém-gravado quando o registro correspondente falha."""
+        try:
+            remove_file_if_exists(stored_path)
+        except OSError:
+            logger.warning("Arquivo órfão %s não pôde ser removido", stored_path, exc_info=True)
+        if SupabaseStorageService.is_configured():
+            SupabaseStorageService.delete_file(
+                settings.SUPABASE_STORAGE_BUCKET_TEMPLATES, stored_filename
+            )
 
     @classmethod
     def promote_version(cls, db: Session, template_id: int) -> TemplateXlsx:

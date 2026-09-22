@@ -173,6 +173,7 @@ export async function processFiscalLocally(
     registrosEntrada: sources.entryRecords.length,
     notasInvalidas: sources.ignoredNotes.length,
     possuiSped: Boolean(request.input.spedFile),
+    possuiPlanilhaEntrada: Boolean(request.input.entrySheet),
   }, Math.round(performance.now() - sourceStartedAt));
   diagnostic?.setSummary({
     read: sources.notes.length + sources.ignoredNotes.length,
@@ -211,7 +212,7 @@ export async function processFiscalLocally(
   const transformationStartedAt = performance.now();
   diagnostic?.stage('transformacao', 'Validação fiscal, aplicação de regras e cálculos iniciados.');
 
-  const hasEntrySource = Boolean(request.input.spedFile) || sources.entryRecords.length > 0;
+  const hasEntrySource = Boolean(request.input.spedFile) || Boolean(request.input.entrySheet) || sources.entryRecords.length > 0;
   const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
 
   for (const note of sources.notes) {

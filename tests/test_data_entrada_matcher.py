@@ -246,3 +246,58 @@ def test_api_patch_data_entrada_manual(client, db_session):
     nota_atualizada = res_patch.json()
     assert nota_atualizada["data_entrada"] == "2026-01-20"
     assert nota_atualizada["origem_data_entrada"] == "manual"
+
+
+def test_planilha_entrada_parser_tsv_prosoft():
+    raw_content = (
+        "Consulta de Notas Fiscais de Entrada\r\n"
+        "Empresa: 0095 - TESTE LTDA\r\n"
+        "\r\n"
+        "Número Nota\tDt.Escritur.\tSérie\tSubSér\tCFOP\tTerceiro\tUF\tChave da Nota Fiscal Eletrônica\r\n"
+        "'0000002610   \t03/08/2026\t'001      \t'\t'1102  \t'44730457000127\tBA\t29260844730457000127550010000026101001791840\r\n"
+        "'0000018116   \t05/08/2026\t'006      \t'\t'1202  \t'15157837000469\tBA\t29260833847666000139550060000181161818384800\r\n"
+    ).encode("latin1")
+
+    records = PlanilhaEntradaParser.parse(raw_content, "prosoft_entradas.XLS")
+    assert len(records) == 2
+    r1 = records[0]
+    assert r1.numero_normalizado == "2610"
+    assert r1.serie_normalizada == "001"
+    assert r1.cnpj_emitente_normalizado == "44730457000127"
+    assert r1.chave_acesso_normalizada == "29260844730457000127550010000026101001791840"
+    assert r1.data_entrada == datetime.date(2026, 8, 3)
+    assert r1.cfop_normalizado == "1102"
+
+
+def test_planilha_entrada_parser_arquivo_real_downloads():
+    sample_path = r"c:\Users\Rodrigo\Downloads\exemplo_ENTRADA.XLS"
+    if not os.path.exists(sample_path):
+        pytest.skip("Arquivo exemplo_ENTRADA.XLS não presente em Downloads")
+
+    with open(sample_path, "rb") as f:
+        file_bytes = f.read()
+
+    records = PlanilhaEntradaParser.parse(file_bytes, "exemplo_ENTRADA.XLS")
+    assert len(records) == 826
+
+    # Testar correspondência da nota 2610 presente
+    dt, origem = DataEntradaMatcher.match_data_entrada(
+        nf_chave="29260844730457000127550010000026101001791840",
+        nf_cnpj_emitente="44730457000127",
+        nf_serie="1",
+        nf_numero="2610",
+        planilha_records=records,
+    )
+    assert dt == datetime.date(2026, 8, 3)
+    assert origem == "planilha_sistema_contabil"
+
+    # Testar nota ausente (não deve ter entrada confirmada)
+    dt_ausente, origem_ausente = DataEntradaMatcher.match_data_entrada(
+        nf_chave="31260817718478000154551040028464821000000000",
+        nf_cnpj_emitente="99999999000199",
+        nf_serie="104",
+        nf_numero="2846482",
+        planilha_records=records,
+    )
+    assert dt_ausente is None
+    assert origem_ausente is None

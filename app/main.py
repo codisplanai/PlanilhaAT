@@ -64,10 +64,22 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+# ``allow_origins=["*"]`` com ``allow_credentials=True`` faz o Starlette ecoar a
+# origem do pedido, o que na prática libera qualquer site a enviar credenciais.
+# A autenticação aqui é por Bearer em cabeçalho, então o curinga só é aceito com
+# as credenciais desligadas.
+_cors_origins = settings.cors_origins
+_cors_allows_any_origin = "*" in _cors_origins
+if _cors_allows_any_origin:
+    logger.warning(
+        "CORS_ORIGINS contém '*'; credenciais de origem cruzada foram desativadas. "
+        "Liste as origens permitidas explicitamente em produção."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"] if _cors_allows_any_origin else _cors_origins,
+    allow_credentials=not _cors_allows_any_origin,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -139,14 +151,19 @@ def health(db: Session = Depends(get_db)):
     return {"status": "online", "app": settings.APP_NAME, "version": os.getenv("APP_VERSION", "development"), "docs": "/docs"}
 
 
-dist_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+# Resolvido de verdade: ``is_relative_to`` compara caminhos textualmente, então
+# uma base não resolvida (link simbólico, componente relativo) deixaria a
+# verificação de travessia de diretório passar por engano.
+dist_dir = (Path(__file__).resolve().parent.parent / "frontend" / "dist").resolve()
 if dist_dir.exists():
     assets_dir = dist_dir / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-    @app.get("/")
-    @app.get("/{full_path:path}")
+    # Fora do schema: é o fallback do SPA, não um endpoint de API, e como rota
+    # coringa aparecia no /docs cobrindo qualquer caminho.
+    @app.get("/", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str = ""):
         if full_path and (
             full_path.startswith(("api/", "v1/"))

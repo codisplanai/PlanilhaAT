@@ -33,7 +33,7 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 interface LoginPageProps {
-  onAuthenticated: (user: User, token: string) => void;
+  onAuthenticated: (user: User, token: string, expiresIn: number | null) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
@@ -58,7 +58,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onAuthenticated }) => {
     setServerError(null);
     try {
       const resp = await authApi.login(data);
-      onAuthenticated(resp.user, resp.access_token);
+      onAuthenticated(resp.user, resp.access_token, resp.expires_in ?? null);
       navigate('/');
     } catch (err) {
       setServerError(getErrorMessage(err));

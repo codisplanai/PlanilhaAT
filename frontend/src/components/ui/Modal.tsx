@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -13,8 +13,32 @@ export interface ModalProps {
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '6xl';
 }
 
-let modalStack: string[] = [];
+/**
+ * A pilha de modais abertos é estado compartilhado entre instâncias, então vive
+ * fora do React e é publicada por ``useSyncExternalStore``. Mantê-la em um
+ * array mutável simples fazia a renderização ler a pilha antes do efeito que a
+ * empilha: o topo real nunca era reconhecido e todo modal nascia com
+ * ``aria-hidden`` e sem clique no backdrop.
+ */
+let modalStack: readonly string[] = [];
 let originalOverflow = '';
+const stackSubscribers = new Set<() => void>();
+
+function subscribeToStack(onStoreChange: () => void): () => void {
+  stackSubscribers.add(onStoreChange);
+  return () => {
+    stackSubscribers.delete(onStoreChange);
+  };
+}
+
+function getStackSnapshot(): readonly string[] {
+  return modalStack;
+}
+
+function setStack(next: readonly string[]): void {
+  modalStack = next;
+  for (const notify of stackSubscribers) notify();
+}
 
 export const Modal: React.FC<ModalProps> = ({
   isOpen,
@@ -29,19 +53,33 @@ export const Modal: React.FC<ModalProps> = ({
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const stack = useSyncExternalStore(subscribeToStack, getStackSnapshot, getStackSnapshot);
 
   useEffect(() => {
     onCloseRef.current = onClose;
   });
 
-  useEffect(() => {
+  // Empilhar antes da pintura evita um quadro com o modal marcado como inerte.
+  useLayoutEffect(() => {
     if (!isOpen) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     if (modalStack.length === 0) {
       originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
     }
-    modalStack.push(instanceId);
+    setStack([...modalStack, instanceId]);
+
+    return () => {
+      setStack(modalStack.filter((id) => id !== instanceId));
+      if (modalStack.length === 0) {
+        document.body.style.overflow = originalOverflow;
+      }
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, instanceId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
 
     const focusTimer = window.setTimeout(() => {
       if (dialogRef.current?.contains(document.activeElement)) return;
@@ -89,18 +127,17 @@ export const Modal: React.FC<ModalProps> = ({
     return () => {
       window.clearTimeout(focusTimer);
       window.removeEventListener('keydown', handleKeyDown);
-      modalStack = modalStack.filter((id) => id !== instanceId);
-      if (modalStack.length === 0) {
-        document.body.style.overflow = originalOverflow;
-      }
-      previouslyFocused?.focus();
     };
   }, [isOpen, instanceId]);
 
   if (!isOpen) return null;
 
-  const stackIndex = Math.max(0, modalStack.indexOf(instanceId));
-  const isTopModal = modalStack[modalStack.length - 1] === instanceId;
+  const stackIndex = Math.max(0, stack.indexOf(instanceId));
+  // Até o efeito de layout empilhar esta instância, ela é o modal mais recente
+  // a ser aberto e deve se comportar como topo — nunca como um modal inerte.
+  const isTopModal = stack.length === 0
+    || !stack.includes(instanceId)
+    || stack[stack.length - 1] === instanceId;
   const zIndex = 50 + stackIndex * 10;
 
   const maxWidths = {
@@ -138,7 +175,7 @@ export const Modal: React.FC<ModalProps> = ({
         tabIndex={-1}
         className={twMerge(
           clsx(
-            'w-full bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] animate-scale-in pointer-events-auto',
+            'w-full bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92dvh] animate-scale-in pointer-events-auto',
             maxWidths[maxWidth]
           )
         )}

@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { LoadingSpinner } from './components/feedback/LoadingSpinner';
 import { ErrorBoundary } from './components/feedback/ErrorBoundary';
@@ -43,6 +43,12 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Reabilita a renderização a cada navegação após uma falha em alguma tela. */
+function RouteErrorBoundary({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  return <ErrorBoundary resetKey={location.pathname}>{children}</ErrorBoundary>;
+}
+
 export function App() {
   const { user, isInitializing, startSession, endSession } = useAuthSession();
 
@@ -57,7 +63,7 @@ export function App() {
 
   if (isInitializing) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-900">
+      <div className="h-dvh w-full flex items-center justify-center bg-slate-900">
         <LoadingSpinner message="Inicializando sistema..." />
       </div>
     );
@@ -66,7 +72,7 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <ErrorBoundary>
+        <RouteErrorBoundary>
           <Suspense fallback={<LoadingSpinner message="Carregando sistema..." />}>
             <Routes>
               <Route
@@ -115,7 +121,7 @@ export function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
-        </ErrorBoundary>
+        </RouteErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>
   );

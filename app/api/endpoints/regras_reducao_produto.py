@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 from app.core.database import get_db
@@ -66,7 +66,11 @@ def listar_regras_reducao(
     ncm: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(RegraReducaoProduto)
+    # ``RegraReducaoOut`` serializa as exceções de cada regra: sem carregá-las
+    # junto, a listagem dispara uma consulta extra por regra retornada.
+    query = db.query(RegraReducaoProduto).options(
+        selectinload(RegraReducaoProduto.excecoes)
+    )
     if perfil_id:
         query = query.filter(RegraReducaoProduto.perfil_regras_id == perfil_id)
     if ncm:

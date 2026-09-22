@@ -97,10 +97,14 @@ export function useHistoricoPage() {
     mutationFn: async (id: string) => {
       await solicitacoesApi.excluir(id);
       await deleteLocalArtifacts(id).catch(() => undefined);
+      return id;
     },
-    onSuccess: async () => {
+    onSuccess: async (deletedId) => {
+      // O detalhe precisa sair do cache: mantido, ele reapareceria montado a
+      // partir de dados de um registro que já não existe no servidor.
+      queryClient.removeQueries({ queryKey: queryKeys.solicitacao(deletedId) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
-      if (selectedSolicitacaoId === solicitacaoParaExcluir?.id) {
+      if (selectedSolicitacaoId === deletedId) {
         setSelectedSolicitacaoId(null);
       }
       setSolicitacaoParaExcluir(null);
@@ -115,8 +119,12 @@ export function useHistoricoPage() {
     mutationFn: async (ids: string[]) => {
       await solicitacoesApi.excluirEmLote(ids);
       await deleteMultipleLocalArtifacts(ids).catch(() => undefined);
+      return ids;
     },
-    onSuccess: async () => {
+    onSuccess: async (deletedIds) => {
+      for (const id of deletedIds) {
+        queryClient.removeQueries({ queryKey: queryKeys.solicitacao(id) });
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.solicitacoesRoot });
       if (selectedSolicitacaoId && selectedIds.has(selectedSolicitacaoId)) {
         setSelectedSolicitacaoId(null);
@@ -212,7 +220,16 @@ export function useHistoricoPage() {
     clearSelection,
     isBatchDeleteModalOpen,
     setBatchDeleteModalOpen,
-    deleteBatchRequests: () => deleteBatchMutation.mutate(Array.from(selectedIds)),
+    deleteBatchRequests: () => {
+      const ids = Array.from(selectedIds);
+      // Sem itens marcados não há o que excluir: disparar a mutation enviaria
+      // um lote vazio ao servidor e deixaria o modal em estado de carregamento.
+      if (ids.length === 0) {
+        setBatchDeleteModalOpen(false);
+        return;
+      }
+      deleteBatchMutation.mutate(ids);
+    },
     isDeletingBatch: deleteBatchMutation.isPending,
     entryDateError,
     setEntryDateError,

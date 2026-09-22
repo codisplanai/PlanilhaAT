@@ -16,27 +16,37 @@ export function useFiscalInputFiles() {
   const [planilhaEntradaFile, setPlanilhaEntradaFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
+  /**
+   * A decisão inteira acontece fora do atualizador de estado. Chamar
+   * ``setFileError`` de dentro dele tornava o atualizador impuro — no
+   * StrictMode o React o executa duas vezes e a mensagem de erro aparecia
+   * mesmo quando a adição era aceita.
+   */
   const addXmlFiles = (newFiles: File[]) => {
-    const supportedFiles = newFiles.filter(isXmlOrZip);
-    const validFiles = supportedFiles.filter((file) => file.size > 0 && file.size <= MAX_FILE_BYTES);
+    if (newFiles.length === 0) return;
+
+    const validFiles = newFiles.filter(
+      (file) => isXmlOrZip(file) && file.size > 0 && file.size <= MAX_FILE_BYTES,
+    );
+    const fileKey = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
+    const existingKeys = new Set(xmlFiles.map(fileKey));
+    const addedFiles = validFiles.filter((file) => !existingKeys.has(fileKey(file)));
+    const nextFiles = [...xmlFiles, ...addedFiles];
+
+    if (nextFiles.reduce((sum, file) => sum + file.size, 0) > MAX_TOTAL_BYTES) {
+      setFileError('O conjunto de XMLs/ZIPs não pode exceder 100 MB.');
+      return;
+    }
+
+    if (addedFiles.length > 0) setXmlFiles(nextFiles);
+
     if (validFiles.length < newFiles.length) {
       setFileError(
         'Alguns arquivos foram ignorados. Use .xml/.zip não vazios, com no máximo 20 MB por arquivo.',
       );
+    } else {
+      setFileError(null);
     }
-
-    setXmlFiles((currentFiles) => {
-      const existingKeys = new Set(currentFiles.map((file) => `${file.name}|${file.size}|${file.lastModified}`));
-      const nextFiles = [
-        ...currentFiles,
-        ...validFiles.filter((file) => !existingKeys.has(`${file.name}|${file.size}|${file.lastModified}`)),
-      ];
-      if (nextFiles.reduce((sum, file) => sum + file.size, 0) > MAX_TOTAL_BYTES) {
-        setFileError('O conjunto de XMLs/ZIPs não pode exceder 100 MB.');
-        return currentFiles;
-      }
-      return nextFiles;
-    });
   };
 
   const handleXmlDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -92,8 +102,8 @@ export function useFiscalInputFiles() {
     if (!file) return;
 
     const filename = file.name.toLowerCase();
-    if (!filename.endsWith('.xlsx')) {
-      setFileError('Selecione uma planilha no formato .xlsx. O formato .xls legado deve ser convertido antes do processamento.');
+    if (!filename.endsWith('.xlsx') && !filename.endsWith('.xls')) {
+      setFileError('Selecione uma planilha no formato .xlsx ou .xls.');
       event.target.value = '';
       return;
     }
