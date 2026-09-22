@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional
 from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, validator
 
@@ -71,14 +71,145 @@ class LocalProcessingResultIn(BaseModel):
         extra = "forbid"
 
 
+class LocalTermoAcordoOut(BaseModel):
+    id: int
+    aliquota: float
+    descricao: Optional[str] = None
+
+
+class LocalEmpresaOut(BaseModel):
+    id: int
+    razao_social: str
+    cnpj: str
+    inscricao_estadual: Optional[str] = None
+    uf: str
+    perfil_regras_id: int
+    optante_simples_nacional: bool
+    termo_acordo: Optional[LocalTermoAcordoOut] = None
+
+
+class LocalPerfilOut(BaseModel):
+    id: int
+    nome: str
+    descricao: Optional[str] = None
+    configuracoes_extras: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LocalRegraAliquotaOut(BaseModel):
+    id: int
+    perfil_regras_id: int
+    uf: str
+    ncm: Optional[str] = None
+    aliquota: float
+    descricao: Optional[str] = None
+    parametros_extras: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LocalRegraCfopOut(BaseModel):
+    id: int
+    perfil_regras_id: Optional[int] = None
+    cfop_sufixo: str
+    destino: str
+    descricao: Optional[str] = None
+
+
+class LocalExcecaoReducaoOut(BaseModel):
+    id: int
+    descricao_exata: str
+    enquadrado: bool
+    observacao: Optional[str] = None
+
+
+class LocalRegraReducaoOut(BaseModel):
+    id: int
+    perfil_regras_id: int
+    ncm: str
+    termos_inclusao: List[str] = Field(default_factory=list)
+    termos_exclusao: List[str] = Field(default_factory=list)
+    aliquota: float
+    descricao: Optional[str] = None
+    excecoes: List[LocalExcecaoReducaoOut] = Field(default_factory=list)
+
+
+class LocalExcecaoReclassificacaoOut(BaseModel):
+    id: int
+    descricao_exata: str
+    aplicar: bool
+    observacao: Optional[str] = None
+
+
+class LocalRegraReclassificacaoOut(BaseModel):
+    id: int
+    perfil_regras_id: int
+    ncm: str
+    cfop_origem_sufixo: Optional[str] = None
+    cfop_destino_sufixo: str
+    termos_inclusao: List[str] = Field(default_factory=list)
+    termos_exclusao: List[str] = Field(default_factory=list)
+    descricao: Optional[str] = None
+    excecoes: List[LocalExcecaoReclassificacaoOut] = Field(default_factory=list)
+
+
+class LocalRegraExclusaoOut(BaseModel):
+    id: int
+    perfil_regras_id: int
+    uf: str
+    ncm: str
+    descricao: Optional[str] = None
+    termos_obrigatorios: List[str] = Field(default_factory=list)
+    motivo: str
+    ativo: bool
+
+
+class LocalTemplateMappingOut(BaseModel):
+    start_row: int
+    columns: Dict[str, str]
+    sheet_name: Optional[str] = None
+    header_cell: Optional[str] = None
+    aliquota_format: Optional[str] = None
+    extra_options: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        extra = "allow"
+
+
+class LocalTemplateDescriptorOut(BaseModel):
+    id: int
+    tipo: str
+    versao: int
+    capacidade_linhas: Optional[int] = None
+    arquivo_hash: str
+    mapeamento_campos: LocalTemplateMappingOut
+    observacoes: Optional[str] = None
+
+
+class LocalMvaAjustadaOut(BaseModel):
+    caso: Optional[str] = None
+    aliquotas: Dict[str, float] = Field(default_factory=dict)
+
+
+class LocalMvaOriginalOut(BaseModel):
+    caso: Optional[str] = None
+    valor: Optional[float] = None
+
+
+class LocalMvaEntryOut(BaseModel):
+    ncm: str
+    mva: Optional[float] = None
+    mva_ajustada: Optional[List[LocalMvaAjustadaOut]] = None
+    mva_original: Optional[List[LocalMvaOriginalOut]] = None
+    cest: Optional[List[str]] = None
+    descricao: Optional[str] = None
+
+
 class LocalProcessingContextOut(BaseModel):
-    empresa: Dict[str, Any]
-    perfil: Dict[str, Any]
-    regras_aliquotas: List[Dict[str, Any]]
-    regras_cfop: List[Dict[str, Any]]
-    regras_reducao: List[Dict[str, Any]]
-    regras_reclassificacao: List[Dict[str, Any]]
-    regras_exclusao_parcial: List[Dict[str, Any]]
+    empresa: LocalEmpresaOut
+    perfil: LocalPerfilOut
+    regras_aliquotas: List[LocalRegraAliquotaOut]
+    regras_cfop: List[LocalRegraCfopOut]
+    regras_reducao: List[LocalRegraReducaoOut]
+    regras_reclassificacao: List[LocalRegraReclassificacaoOut]
+    regras_exclusao_parcial: List[LocalRegraExclusaoOut]
     margens_seguranca_templates: Dict[str, int]
-    templates_ativos: List[Dict[str, Any]]
-    mva_anexo: List[Dict[str, Any]]
+    templates_ativos: List[LocalTemplateDescriptorOut]
+    mva_anexo: List[LocalMvaEntryOut]
