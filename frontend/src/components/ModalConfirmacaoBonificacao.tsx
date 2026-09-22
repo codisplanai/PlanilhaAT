@@ -13,6 +13,7 @@ import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { formatCurrency } from '../lib/formatters';
+import { useManagedTimeout } from '../hooks/useManagedTimeout';
 import type { NotaBonificacaoPendencia } from '../types/solicitacao';
 
 export interface ModalConfirmacaoBonificacaoProps {
@@ -32,6 +33,8 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
 }) => {
   const [decisoes, setDecisoes] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const copyFeedbackTimeout = useManagedTimeout();
 
   // Inicializa decisões com as sugestões inteligentes detectadas
   useEffect(() => {
@@ -58,11 +61,18 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
     setDecisoes(updated);
   };
 
-  const handleCopyChave = (chave: string) => {
+  const handleCopyChave = async (chave: string) => {
     if (!chave) return;
-    navigator.clipboard.writeText(chave);
-    setCopiedKey(chave);
-    setTimeout(() => setCopiedKey(null), 2000);
+    try {
+      // Indisponível fora de contexto seguro ou sem permissão: sem o try, a
+      // promessa rejeitada virava um erro não tratado no console.
+      await navigator.clipboard.writeText(chave);
+      setCopiedKey(chave);
+      copyFeedbackTimeout.schedule(() => setCopiedKey(null), 2000);
+    } catch {
+      setCopyError('Não foi possível copiar a chave de acesso. Selecione o texto e copie manualmente.');
+      copyFeedbackTimeout.schedule(() => setCopyError(null), 4000);
+    }
   };
 
   const totalParaRevenda = Object.values(decisoes).filter(Boolean).length;
@@ -77,6 +87,15 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
       maxWidth="4xl"
     >
       <div className="space-y-4 text-slate-800">
+        {copyError && (
+          <p
+            role="status"
+            className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2"
+          >
+            {copyError}
+          </p>
+        )}
+
         {/* Banner Informativo */}
         <div className="bg-blue-50/70 border border-blue-200/80 rounded-xl p-4 flex gap-3 text-xs sm:text-sm text-blue-900 leading-relaxed shadow-xs">
           <HelpCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />

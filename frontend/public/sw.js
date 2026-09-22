@@ -60,7 +60,16 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(async () => {
           const cached = await caches.match(request);
-          return cached || caches.match(OFFLINE_URL);
+          if (cached) return cached;
+          const offline = await caches.match(OFFLINE_URL);
+          // O precache pode ter falhado; devolver undefined faria o
+          // respondWith lançar em vez de mostrar um erro compreensível.
+          return offline || new Response(
+            '<!doctype html><meta charset="utf-8"><title>PlanAut offline</title>'
+            + '<p style="font-family:sans-serif;padding:2rem">Sem conexao com o servidor. '
+            + 'Verifique sua internet e recarregue a pagina.</p>',
+            { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+          );
         }),
     );
     return;
@@ -83,7 +92,15 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => {
+          // respondWith rejeita um valor indefinido: sem cache e sem rede, o
+          // navegador precisa de uma resposta real para falhar com clareza.
+          if (cached) return cached;
+          return new Response('', {
+            status: 504,
+            statusText: 'Recurso indisponível offline',
+          });
+        });
 
       return cached || network;
     }),

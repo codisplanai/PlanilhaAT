@@ -3,7 +3,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.persistence import commit_and_refresh, get_by_id_or_404
+from app.api.persistence import (
+    commit_and_refresh,
+    delete_and_commit,
+    get_by_id_or_404,
+    save_changes,
+)
 from app.constants import ROLE_ADMIN, STATUS_PENDENTE
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -99,7 +104,7 @@ def atualizar_data_entrada_nota(
 
     nota.data_entrada = payload.data_entrada
     nota.origem_data_entrada = "manual"
-    db.commit()
+    save_changes(db, "Não foi possível atualizar a data de entrada da nota.")
     db.refresh(nota)
     return nota
 
@@ -147,8 +152,7 @@ def excluir_solicitacao(
     """
     solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
     _authorize_solicitacao(solicitacao, current_user)
-    db.delete(solicitacao)
-    db.commit()
+    delete_and_commit(db, solicitacao)
     return None
 
 
@@ -177,7 +181,7 @@ def excluir_solicitacoes_em_lote(
     deleted_ids = [str(sol.id) for sol in solicitacoes]
     for sol in solicitacoes:
         db.delete(sol)
-    db.commit()
+    save_changes(db, "Não foi possível excluir as solicitações selecionadas.")
 
     return SolicitacoesBatchDeleteResponse(deleted_count=len(deleted_ids), ids=deleted_ids)
 

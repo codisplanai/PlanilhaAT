@@ -28,8 +28,16 @@ class UserOut(BaseModel):
         orm_mode = True
 
 class TokenResponse(BaseModel):
+    """Resposta de login e de renovação.
+
+    O ``refresh_token`` nunca aparece aqui: ele viaja exclusivamente no cookie
+    httpOnly, fora do alcance do JavaScript. ``expires_in`` permite ao cliente
+    renovar antes de expirar, em vez de descobrir pelo primeiro 401.
+    """
+
     access_token: str
     token_type: str = "bearer"
+    expires_in: Optional[int] = None
     user: UserOut
 
 

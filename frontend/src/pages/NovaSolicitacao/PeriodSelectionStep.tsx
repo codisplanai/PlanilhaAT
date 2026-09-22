@@ -66,6 +66,7 @@ export function PeriodSelectionStep({
             type="date"
             value={start}
             onChange={(event) => onStartChange(event.target.value)}
+            max={end || undefined}
             className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
           />
         </div>
@@ -76,7 +77,7 @@ export function PeriodSelectionStep({
             type="date"
             value={end}
             onChange={(event) => onEndChange(event.target.value)}
-            min={start}
+            min={start || undefined}
             className="w-full px-3 py-2 text-base sm:text-sm min-h-[40px] bg-white border border-slate-200/90 rounded-lg shadow-2xs focus:outline-none focus:ring-4 focus:ring-blue-500/15 focus:border-blue-600 text-slate-900 font-medium"
           />
         </div>

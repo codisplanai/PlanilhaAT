@@ -66,7 +66,7 @@ class DataEntradaNormalizer:
 
     @staticmethod
     def _numeric_text(value: object) -> str:
-        text = str(value).strip()
+        text = str(value).strip().strip("'").strip('"').strip()
         return text[:-2] if re.fullmatch(r"\d+\.0", text) else text
 
 
@@ -181,8 +181,27 @@ class PlanilhaEntradaParser:
         try:
             if suffix == ".xlsx":
                 return cls._parse_openpyxl(file_bytes)
-            if suffix == ".xls":
-                return cls._parse_xlrd(file_bytes)
+            if suffix in (".xls", ".txt", ".tsv", ".csv"):
+                # Detecta se é texto puro delimitado (TSV/CSV com extensão .xls comum no Prosoft/Domínio)
+                is_text = False
+                try:
+                    head = file_bytes[:200].decode("latin1")
+                    if "\t" in head or ";" in head or "Consulta" in head or "Nota" in head:
+                        is_text = True
+                except Exception:
+                    pass
+
+                if is_text:
+                    try:
+                        return cls._parse_tsv_or_csv(file_bytes)
+                    except Exception:
+                        pass
+
+                try:
+                    return cls._parse_xlrd(file_bytes)
+                except Exception:
+                    return cls._parse_tsv_or_csv(file_bytes)
+
             raise ValidationException("A planilha contábil deve possuir extensão .xls ou .xlsx.")
         except ValidationException:
             raise
@@ -191,6 +210,94 @@ class PlanilhaEntradaParser:
                 f"Não foi possível ler a planilha do sistema contábil '{filename}'. "
                 "Verifique se o arquivo é um Excel válido."
             ) from exc
+
+    @classmethod
+    def _parse_tsv_or_csv(cls, file_bytes: bytes) -> List[PlanilhaEntradaRecord]:
+        try:
+            text = file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            text = file_bytes.decode("latin1")
+
+        lines = [line.rstrip("\r\n") for line in text.splitlines()]
+        if not lines:
+            return []
+
+        # Detectar delimitador
+        delimiter = "\t"
+        for line in lines[:16]:
+            if "\t" in line:
+                delimiter = "\t"
+                break
+            if ";" in line:
+                delimiter = ";"
+                break
+
+        # Localizar cabeçalho nas primeiras 16 linhas
+        header_row_idx = None
+        header_names: List[str] = []
+
+        for r_idx, line in enumerate(lines[:16]):
+            vals = [v.strip().strip("'").strip('"').strip() for v in line.split(delimiter)]
+            if any("número nota" in v.lower() or "numero nota" in v.lower() or "dt.escritur" in v.lower() for v in vals):
+                header_row_idx = r_idx
+                header_names = vals
+                break
+
+        if header_row_idx is None:
+            header_row_idx = 0
+            header_names = [v.strip().strip("'").strip('"').strip() for v in lines[0].split(delimiter)]
+
+        (
+            col_num_idx,
+            col_dt_idx,
+            col_serie_idx,
+            col_cnpj_idx,
+            col_chave_idx,
+            col_cfop_idx,
+        ) = cls._resolve_column_indexes(header_names, is_xlsx=True)
+
+        if col_num_idx is None or col_dt_idx is None:
+            raise ValidationException(
+                "A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração."
+            )
+
+        records: List[PlanilhaEntradaRecord] = []
+
+        for line in lines[header_row_idx + 1:]:
+            if not line.strip():
+                continue
+            parts = line.split(delimiter)
+            if col_num_idx >= len(parts):
+                continue
+
+            num_str = parts[col_num_idx].strip().strip("'").strip('"').strip()
+            if not num_str:
+                continue
+
+            dt_raw = parts[col_dt_idx].strip().strip("'").strip('"').strip() if col_dt_idx is not None and col_dt_idx < len(parts) else ""
+            serie_raw = parts[col_serie_idx].strip().strip("'").strip('"').strip() if col_serie_idx is not None and col_serie_idx < len(parts) else ""
+            cnpj_raw = parts[col_cnpj_idx].strip().strip("'").strip('"').strip() if col_cnpj_idx is not None and col_cnpj_idx < len(parts) else ""
+            chave_raw = parts[col_chave_idx].strip().strip("'").strip('"').strip() if col_chave_idx is not None and col_chave_idx < len(parts) else ""
+            cfop_raw = parts[col_cfop_idx].strip().strip("'").strip('"').strip() if col_cfop_idx is not None and col_cfop_idx < len(parts) else ""
+
+            parsed_date: Optional[datetime.date] = None
+            if dt_raw:
+                parsed_date = cls._parse_text_date(
+                    dt_raw,
+                    ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"),
+                )
+
+            rec = cls._build_record(
+                numero=num_str,
+                serie=serie_raw,
+                cnpj=cnpj_raw,
+                chave=chave_raw,
+                data_entrada=parsed_date,
+                cfop=cfop_raw,
+            )
+            records.append(rec)
+
+        return records
 
     @classmethod
     def _parse_openpyxl(cls, file_bytes: bytes) -> List[PlanilhaEntradaRecord]:

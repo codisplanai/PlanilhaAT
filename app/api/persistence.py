@@ -43,6 +43,28 @@ def commit_and_refresh(
         raise HTTPException(status_code=500, detail="Não foi possível salvar o registro.")
 
 
+def save_changes(
+    db: Session,
+    failure_detail: str = "Não foi possível salvar as alterações.",
+    conflict_detail: str = "Os dados informados conflitam com um registro existente.",
+) -> None:
+    """Confirma a transação traduzindo falhas do banco em respostas HTTP.
+
+    Um ``db.commit()`` solto transforma qualquer violação de restrição em HTTP
+    500 — com o erro cru do banco no corpo quando ``DEBUG`` está ligado — e
+    deixa a sessão em estado inválido para o restante da requisição.
+    """
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=conflict_detail)
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Falha ao confirmar alterações no banco")
+        raise HTTPException(status_code=500, detail=failure_detail)
+
+
 def delete_and_commit(db: Session, entity: Any) -> None:
     try:
         db.delete(entity)

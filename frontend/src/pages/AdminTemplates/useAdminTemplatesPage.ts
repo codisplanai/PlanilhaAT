@@ -105,12 +105,24 @@ export function useAdminTemplatesPage() {
     defaultValues: getDefaultMapping('antecipacao_parcial'),
   });
 
+  const persistedSafetyMargin = safetyConfigQuery.data?.find(
+    (item) => item.tipo === selectedType,
+  )?.margem_seguranca_linhas;
+
+  /**
+   * Só reidrata o campo quando o valor salvo realmente muda. Depender do objeto
+   * da query fazia cada refetch — inclusive o disparado pelo próprio salvamento
+   * — sobrescrever o que o administrador estava digitando e apagar o aviso de
+   * "salvo" no mesmo instante em que ele aparecia.
+   */
   useEffect(() => {
-    const current = safetyConfigQuery.data?.find((item) => item.tipo === selectedType);
-    setSafetyMarginInput(String(current?.margem_seguranca_linhas ?? 0));
+    setSafetyMarginInput(String(persistedSafetyMargin ?? 0));
     setSafetyMarginError(null);
+  }, [selectedType, persistedSafetyMargin]);
+
+  useEffect(() => {
     setSafetyMarginSaved(false);
-  }, [selectedType, safetyConfigQuery.data]);
+  }, [selectedType]);
 
   const safetyMarginMutation = useMutation({
     mutationFn: ({ tipo, margin }: { tipo: TipoPlanilha; margin: number }) =>

@@ -1,11 +1,15 @@
 import type { User } from '../types/auth';
 
-const TOKEN_KEY = 'token';
-const USER_KEY = 'user';
+/**
+ * Persistência local do usuário exibido na interface.
+ *
+ * Credenciais não passam mais por aqui: o access token vive em memória
+ * (``lib/accessToken.ts``) e o refresh token em cookie httpOnly. O que resta é
+ * dado de exibição — nome, cargo, papel — usado para pintar a tela sem esperar
+ * a renovação inicial e para sincronizar as abas.
+ */
 
-export function readAccessToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
+const USER_KEY = 'user';
 
 export function readStoredUser(): User | null {
   const serialized = localStorage.getItem(USER_KEY);
@@ -19,16 +23,13 @@ export function readStoredUser(): User | null {
   }
 }
 
-export function storeSession(user: User, token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
-}
-
 export function storeUser(user: User): void {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearStoredSession(): void {
-  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  // Resquício das versões que guardavam a credencial no navegador. Removido no
+  // logout para que um token antigo não fique esquecido no dispositivo.
+  localStorage.removeItem('token');
 }

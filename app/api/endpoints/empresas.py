@@ -1,6 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
@@ -49,12 +49,14 @@ def listar_empresas(
     perfil_id: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    query = db.query(Empresa)
+    # ``EmpresaOut.termo_acordo`` lê a coleção de termos de cada empresa. Sem
+    # carregá-la junto, a listagem disparava uma consulta por empresa retornada.
+    query = db.query(Empresa).options(selectinload(Empresa.regras_aliquotas_empresa))
     if uf:
         query = query.filter(Empresa.uf == uf.strip().upper())
     if perfil_id:
         query = query.filter(Empresa.perfil_regras_id == perfil_id)
-    return query.all()
+    return query.order_by(Empresa.razao_social).all()
 
 @router.get("/{id}", response_model=EmpresaOut)
 def obter_empresa(id: int, db: Session = Depends(get_db)):

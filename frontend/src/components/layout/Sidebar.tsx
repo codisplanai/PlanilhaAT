@@ -49,6 +49,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
   React.useEffect(() => {
     if (!isOpen) return;
 
+    // Em telas pequenas o menu é um drawer: sem mover o foco para dentro dele,
+    // o leitor de tela e o teclado continuavam na página coberta pelo backdrop.
+    const sidebarNode = sidebarRef.current;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    if (window.innerWidth < 1024) {
+      sidebarNode?.querySelector<HTMLElement>('button:not([disabled]), [href]')?.focus();
+    }
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -76,7 +84,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (window.innerWidth < 1024 && sidebarNode?.contains(document.activeElement)) {
+        previouslyFocused?.focus();
+      }
+    };
   }, [isOpen, onClose]);
 
   return (
@@ -84,8 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
       id="main-sidebar"
       ref={sidebarRef}
       aria-label="Navegação principal"
-      aria-hidden={!isOpen ? undefined : undefined}
-      className={`fixed inset-y-0 left-0 z-40 w-68 bg-slate-900 text-slate-200 flex flex-col h-screen shrink-0 border-r border-slate-800 shadow-xl select-none transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-40 w-68 bg-slate-900 text-slate-200 flex flex-col h-dvh shrink-0 border-r border-slate-800 shadow-xl select-none transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
         isOpen
           ? 'translate-x-0'
           : '-translate-x-full max-lg:invisible max-lg:pointer-events-none'
