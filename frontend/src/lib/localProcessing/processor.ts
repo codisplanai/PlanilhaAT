@@ -191,8 +191,8 @@ function convenio5291PreAnalysis(
         cst: fullIcmsCode(item),
         p_icms: item.aOri,
         p_red_bc: item.pRedBC > 1 ? item.pRedBC / 100 : item.pRedBC,
-        v_bc_xml: item.baseCalculoXml,
-        base_sem_ipi: item.baseSemIpi,
+        v_bc_xml: Number(item.baseCalculoXml ?? item.baseCalculo),
+        base_sem_ipi: Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))),
         motivo: classification.motivo,
         item_legal: classification.itemLegal ?? null,
         descricao_legal: classification.descricaoLegal ?? null,
@@ -580,15 +580,15 @@ export async function processFiscalLocally(
       let vTotal = useNoteTotal ? note.vTotalNota : group.items.reduce((sum, item) => sum + item.vTotal, 0);
       const originalBaseXml = useNoteTotal && note.vBcNota > 0
         ? note.vBcNota
-        : group.items.reduce((sum, item) => sum + item.baseCalculoXml, 0);
+        : group.items.reduce((sum, item) => sum + Number(item.baseCalculoXml ?? item.baseCalculo), 0);
       let base = group.convenio5291Applied
-        ? group.items.reduce((sum, item) => sum + item.baseSemIpi, 0)
+        ? group.items.reduce((sum, item) => sum + Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))), 0)
         : (useNoteTotal && note.vBcNota > 0
           ? note.vBcNota
           : group.items.reduce((sum, item) => sum + item.baseCalculo, 0));
       let ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
       const reducedBaseEvidence = group.items.some(
-        (item) => fullIcmsCode(item).endsWith('20') || item.pRedBC > 0,
+        (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
       );
 
       if (base <= 0) base = vTotal - ipi;
