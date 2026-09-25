@@ -324,6 +324,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         baseCalculo: vBcIcms > 0 ? vBcIcms : vOpr - vIpi,
         vIcms,
         vIpi: vBcIcms > 0 && vIpi === 0 && vOpr > vBcIcms ? vOpr - vBcIcms : vIpi,
+        cstIcms,
       });
     }
   }
