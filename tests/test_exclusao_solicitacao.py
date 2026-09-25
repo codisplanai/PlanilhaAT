@@ -134,7 +134,7 @@ def test_excluir_solicitacoes_em_lote_operador_bloqueia_alheia(client, db_sessio
 
     sol_alheia = Solicitacao(
         empresa_id=empresa.id,
-        usuario_id="outro-usuario-id",
+        usuario_id="00000000-0000-0000-0000-000000000099",
         periodo_inicio=datetime.date(2026, 5, 1),
         periodo_fim=datetime.date(2026, 5, 31),
         tipo_planilha="multi",
