@@ -190,7 +190,9 @@ function convenio5291PreAnalysis(
         descricao_normalizada: normalizeConvenioDescription(item.descricao),
         cst: fullIcmsCode(item),
         p_icms: item.aOri,
-        p_red_bc: item.pRedBC > 1 ? item.pRedBC / 100 : item.pRedBC,
+        p_red_bc: Number(item.pRedBC ?? 0) > 1
+          ? Number(item.pRedBC ?? 0) / 100
+          : Number(item.pRedBC ?? 0),
         v_bc_xml: Number(item.baseCalculoXml ?? item.baseCalculo),
         base_sem_ipi: Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))),
         motivo: classification.motivo,
