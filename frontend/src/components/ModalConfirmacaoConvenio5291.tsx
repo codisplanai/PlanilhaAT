@@ -72,7 +72,7 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
       onClose={onClose}
       title="Possível redução de base — Convênio ICMS 52/91"
       subtitle="Confirme somente os itens em que NCM, descrição ou tratamento da NF-e não permitem decisão automática."
-      maxWidth="5xl"
+      maxWidth="6xl"
     >
       <div className="space-y-4">
         <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-relaxed text-amber-950">
