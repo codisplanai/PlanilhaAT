@@ -38,12 +38,14 @@ import { ReducaoProdutoSection } from './ReducaoProdutoSection';
 import { ReclassificacaoCfopSection } from './ReclassificacaoCfopSection';
 import { ExclusaoParcialSection } from './ExclusaoParcialSection';
 import { MvaAntecipacaoSection } from './MvaAntecipacaoSection';
+import { Convenio5291Section } from './Convenio5291Section';
 import { PerfilList } from './PerfilList';
 
 type SectionKey =
   | 'limiteAori'
   | 'aliquotasIguais'
   | 'reducoes'
+  | 'convenio5291'
   | 'exclusoes'
   | 'mva'
   | 'padrao'
@@ -54,6 +56,7 @@ type SectionKey =
 // depois a antecipação e por fim o roteamento dos itens.
 const SECTION_KEYS: SectionKey[] = [
   'reducoes',
+  'convenio5291',
   'excecoes',
   'padrao',
   'limiteAori',
@@ -94,6 +97,7 @@ const collapsedSections = (): Record<SectionKey, boolean> => ({
   limiteAori: false,
   aliquotasIguais: false,
   reducoes: false,
+  convenio5291: false,
   exclusoes: false,
   mva: false,
   padrao: false,
@@ -363,6 +367,12 @@ export const PerfisRegrasPage: React.FC = () => {
                 perfilId={activePerfil.id}
                 open={openSections.reducoes}
                 onOpenChange={(open) => setSectionOpen('reducoes', open)}
+              />
+
+              <Convenio5291Section
+                perfil={activePerfil}
+                open={openSections.convenio5291}
+                onOpenChange={(open) => setSectionOpen('convenio5291', open)}
               />
 
               {/* Nível 3a — exceção por NCM, sobrescreve a base da UF */}

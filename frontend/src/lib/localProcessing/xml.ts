@@ -94,10 +94,16 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     let baseCalculo = 0;
     let pIcms = 0;
     let vIcms = 0;
+    let origemMercadoria = '';
+    let cstIcms = '';
+    let pRedBC = 0;
     if (icms) {
       for (const group of Array.from(icms.children)) {
+        origemMercadoria = text(group, 'orig');
+        cstIcms = text(group, 'CST') || text(group, 'CSOSN');
         const bc = number(group, 'vBC');
         if (bc > 0) baseCalculo = bc;
+        pRedBC = number(group, 'pRedBC');
         const p = number(group, 'pICMS') || number(group, 'pCredSN');
         if (p > 0) pIcms = p;
         const vi = number(group, 'vICMS');
@@ -113,6 +119,8 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     const vDesc = number(prod, 'vDesc');
     const ipiDespesas = vIpi + vFrete + vSeg + vOutro;
     const vTotal = vProd + ipiDespesas - vDesc;
+    const baseCalculoXml = baseCalculo;
+    const baseSemIpi = Math.max(0, vProd + vFrete + vSeg + vOutro - vDesc);
     if (baseCalculo <= 0) baseCalculo = Math.max(0, vTotal - ipiDespesas);
 
     const rawItem = det.getAttribute('nItem') ?? String(itens.length + 1);
@@ -129,9 +137,15 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
       vItem: vProd,
       vTotal,
       baseCalculo,
+      baseCalculoXml,
+      baseSemIpi,
       ipiDespesas,
+      vIpi,
       aOri,
       vIcms,
+      origemMercadoria,
+      cstIcms,
+      pRedBC,
     });
   }
 
