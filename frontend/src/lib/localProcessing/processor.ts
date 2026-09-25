@@ -7,6 +7,7 @@ import type {
 } from '../../types/localProcessing';
 import type {
   AvisoAvaliacao,
+  Convenio5291Pendencia,
   ItemExcluido,
   NotaBonificacaoPendencia,
   NotaIgnorada,
@@ -14,6 +15,13 @@ import type {
 } from '../../types/solicitacao';
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import { calculateTax } from './calculations';
+import {
+  classifyConvenio5291,
+  convenioDecisionKey,
+  fullIcmsCode,
+  normalizeConvenioDescription,
+  resolveConvenio5291Application,
+} from './convenio5291';
 import {
   classifyRevendaMva,
   evaluatePartialMerchandiseExclusion,
@@ -52,6 +60,11 @@ const EARLY_DESTINATIONS = new Set<TipoPlanilha>([
 const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_tributaria',
   'antecipacao_tributaria_antecipado',
+]);
+
+const CONVENIO_52_91_DESTINATIONS = new Set<TipoPlanilha>([
+  ...PARTIAL_DESTINATIONS,
+  'difal',
 ]);
 
 function cleanDigits(value: string): string {
@@ -117,6 +130,83 @@ function bonusPreAnalysis(notes: ExtractedNote[], start: string, end: string, co
   return pending;
 }
 
+function convenio5291PreAnalysis(
+  notes: ExtractedNote[],
+  start: string,
+  end: string,
+  companyUf: string,
+  context: LocalProcessingRequest['context'],
+  entryRecords: Parameters<typeof matchEntryCfop>[1],
+  bonusDecisions: Record<string, boolean> | undefined,
+  decisions: Record<string, boolean> | undefined,
+): Convenio5291Pendencia[] {
+  const config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
+  if (!config?.enabled || companyUf.toUpperCase() !== 'BA') return [];
+
+  const revendaConfig = getRevendaAntecipacaoConfig(context);
+  const pending: Convenio5291Pendencia[] = [];
+
+  for (const note of notes) {
+    if (note.ufEmitente && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
+    if (!withinPeriod(note, start, end)) continue;
+    const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
+
+    for (const originalItem of note.itens) {
+      const item = { ...originalItem };
+      if (auxiliaryCfop && isUsoConsumoAtivo(auxiliaryCfop)) item.cfop = auxiliaryCfop;
+
+      const cfopResolution = resolveCfop(context, item);
+      let destination = cfopResolution.destino as TipoPlanilha | null;
+      if (isUsoConsumoAtivo(item.cfop)) destination = 'difal';
+
+      const suffix = cleanDigits(item.cfop).slice(-3);
+      if (BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
+        const decision = bonusDecisions[note.chaveAcesso] ?? bonusDecisions[String(note.numeroNota)];
+        if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
+      }
+      if (!destination) continue;
+
+      if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
+      destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
+      if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
+
+      const classification = classifyConvenio5291(config, note, item, companyUf);
+      if (classification.status !== 'revisar') continue;
+
+      const decisionKey = convenioDecisionKey(note, item);
+      if (typeof decisions?.[decisionKey] === 'boolean') continue;
+
+      pending.push({
+        decision_key: decisionKey,
+        chave_acesso: note.chaveAcesso,
+        numero_nota: note.numeroNota,
+        serie: note.serie || null,
+        item_numero: item.itemNumero,
+        fornecedor: String(note.rawMetadata.emit_nome ?? ''),
+        cnpj_emitente: note.cnpjEmitente,
+        uf_origem: note.ufEmitente,
+        ncm: item.ncm,
+        descricao: item.descricao,
+        descricao_normalizada: normalizeConvenioDescription(item.descricao),
+        cst: fullIcmsCode(item),
+        p_icms: item.aOri,
+        p_red_bc: item.pRedBC > 1 ? item.pRedBC / 100 : item.pRedBC,
+        v_bc_xml: item.baseCalculoXml,
+        base_sem_ipi: item.baseSemIpi,
+        motivo: classification.motivo,
+        item_legal: classification.itemLegal ?? null,
+        descricao_legal: classification.descricaoLegal ?? null,
+        cst20: classification.cst20,
+        reducao_destacada: classification.reducaoDestacada,
+        operacao_quatro_por_cento: classification.operacaoQuatroPorCento,
+        sugestao_aplicar: classification.sugestaoAplicar,
+      });
+    }
+  }
+
+  return pending;
+}
+
 interface Group {
   destination: TipoPlanilha;
   aOri: number;
@@ -128,6 +218,10 @@ interface Group {
   aOriOriginal: number;
   mvaPolicyGroup: 'especial' | 'demais' | '';
   mvaPolicySource: string;
+  convenio5291Applied: boolean;
+  convenio5291Manual: boolean;
+  convenio5291OrigemAliquota: string;
+  convenio5291Motivos: string[];
 }
 
 function groupKey(
@@ -136,10 +230,11 @@ function groupKey(
   aDst: number,
   item: ExtractedItem,
   mvaPolicyGroup: Group['mvaPolicyGroup'],
+  convenio5291Applied: boolean,
 ): string {
   const ncm = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.ncm : '';
   const cest = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.cest : '';
-  return JSON.stringify([destination, aOri, aDst, ncm, cest, mvaPolicyGroup]);
+  return JSON.stringify([destination, aOri, aDst, ncm, cest, mvaPolicyGroup, convenio5291Applied]);
 }
 
 function sortRows(rows: LocalOutputRow[]): void {
@@ -192,7 +287,7 @@ export async function processFiscalLocally(
       pendencias: pending.length,
     });
     return {
-      preAnalysis: { requer_decisao: true, notas_bonificacao: pending },
+      preAnalysis: { requer_decisao: true, notas_bonificacao: pending, itens_convenio_52_91: [] },
       notasProcessadas: [],
       notasIgnoradas: sources.ignoredNotes,
       itensExcluidos: [],
@@ -214,6 +309,33 @@ export async function processFiscalLocally(
 
   const hasEntrySource = Boolean(request.input.spedFile) || Boolean(request.input.entrySheet) || sources.entryRecords.length > 0;
   const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
+  const convenio5291Config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
+  const convenioPending = convenio5291PreAnalysis(
+    sources.notes,
+    periodoInicio,
+    periodoFim,
+    context.empresa.uf,
+    context,
+    sources.entryRecords,
+    request.bonusDecisions,
+    request.convenio5291Decisions,
+  );
+  if (convenioPending.length > 0) {
+    if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
+    diagnostic?.stage('validacao', 'Processamento pausado para confirmação do Convênio ICMS 52/91.', {
+      pendencias: convenioPending.length,
+    });
+    return {
+      preAnalysis: { requer_decisao: true, notas_bonificacao: [], itens_convenio_52_91: convenioPending },
+      notasProcessadas: [],
+      notasIgnoradas: sources.ignoredNotes,
+      itensExcluidos: [],
+      avisosAvaliacao: [],
+      cfopsSemRegra: {},
+      rowsByDestination: {},
+      artifacts: [],
+    };
+  }
 
   for (const note of sources.notes) {
     if (cleanDigits(note.cnpjDestinatario) !== cleanDigits(context.empresa.cnpj)) {
@@ -350,11 +472,28 @@ export async function processFiscalLocally(
       }
 
       const rate = resolveDestinationRate(context, item);
-      let aOri = item.aOri;
-      const originalAOri = aOri;
+      const convenio = CONVENIO_52_91_DESTINATIONS.has(destination)
+        ? resolveConvenio5291Application(
+          convenio5291Config,
+          note,
+          item,
+          context.empresa.uf,
+          request.convenio5291Decisions,
+        )
+        : null;
+      let aOri = convenio?.applied ? Number(convenio.aOri) : item.aOri;
+      const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
+      const originalAOri = item.aOri;
+      const effectiveRate = convenio?.applied
+        ? {
+          aliquota: effectiveADst,
+          origem: 'convenio_52_91',
+          detalhe: `Convênio ICMS 52/91 — ${convenio.classification.motivo}`,
+        }
+        : rate;
       const limitOrigin = context.perfil.configuracoes_extras.limitar_a_ori_reducoes === true;
       const reducedOrAgreement = ['reducao_produto:', 'excecao:', 'termo_acordo:']
-        .some((prefix) => rate.origem.startsWith(prefix));
+        .some((prefix) => effectiveRate.origem.startsWith(prefix));
       let aOriLimited = false;
       if (limitOrigin && reducedOrAgreement && aOri > 0.10) {
         aOri = 0.10;
@@ -362,7 +501,7 @@ export async function processFiscalLocally(
       }
 
       if (PARTIAL_DESTINATIONS.has(destination)) {
-        const numeric = shouldExcludeEqualRates(context, destination, item, aOri, rate.aliquota);
+        const numeric = shouldExcludeEqualRates(context, destination, item, aOri, effectiveADst);
         if (numeric.excluded) {
           const base = item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo;
           excluded.push({
@@ -382,7 +521,7 @@ export async function processFiscalLocally(
             base_calculo: base,
             ipi_despesas: item.ipiDespesas,
             a_ori: aOri,
-            a_dst: rate.aliquota,
+            a_dst: effectiveADst,
             debito: numeric.debito,
             credito: numeric.credito,
             valor_devido: numeric.valorDevido,
@@ -391,11 +530,11 @@ export async function processFiscalLocally(
         }
       }
 
-      const key = groupKey(destination, aOri, rate.aliquota, item, mvaPolicyGroup);
+      const key = groupKey(destination, aOri, effectiveADst, item, mvaPolicyGroup, Boolean(convenio?.applied));
       const group = groups.get(key) ?? {
         destination,
         aOri,
-        aDst: rate.aliquota,
+        aDst: effectiveADst,
         items: [],
         rateResolutions: [],
         cfopResolutions: [],
@@ -403,11 +542,30 @@ export async function processFiscalLocally(
         aOriOriginal: originalAOri,
         mvaPolicyGroup,
         mvaPolicySource,
+        convenio5291Applied: Boolean(convenio?.applied),
+        convenio5291Manual: Boolean(
+          convenio?.applied && convenio.classification.status === 'revisar'
+        ),
+        convenio5291OrigemAliquota: convenio?.origemAliquota ?? '',
+        convenio5291Motivos: convenio?.applied ? [convenio.classification.motivo] : [],
       };
       group.items.push(item);
-      group.rateResolutions.push(rate);
+      group.rateResolutions.push(effectiveRate);
       group.cfopResolutions.push(cfopResolution);
       group.aOriLimited ||= aOriLimited;
+      if (convenio?.applied && !group.convenio5291Motivos.includes(convenio.classification.motivo)) {
+        group.convenio5291Motivos.push(convenio.classification.motivo);
+      }
+      if (convenio?.classification.status === 'revisar' && typeof request.convenio5291Decisions?.[convenio.decisionKey] === 'boolean') {
+        diagnostic?.event('info', 'validacao', 'Decisão do usuário para o Convênio ICMS 52/91 aplicada.', {
+          chaveAcesso: note.chaveAcesso,
+          numeroNota: note.numeroNota,
+          itemNumero: item.itemNumero,
+          ncm: item.ncm,
+          aplicar: request.convenio5291Decisions[convenio.decisionKey],
+          motivo: convenio.classification.motivo,
+        });
+      }
       groups.set(key, group);
       classifiedItems += 1;
     }
@@ -420,13 +578,23 @@ export async function processFiscalLocally(
       const useNoteTotal = groups.size === 1 && classifiedItems === note.itens.length && note.vTotalNota > 0;
 
       let vTotal = useNoteTotal ? note.vTotalNota : group.items.reduce((sum, item) => sum + item.vTotal, 0);
-      let base = useNoteTotal && note.vBcNota > 0
+      const originalBaseXml = useNoteTotal && note.vBcNota > 0
         ? note.vBcNota
-        : group.items.reduce((sum, item) => sum + item.baseCalculo, 0);
+        : group.items.reduce((sum, item) => sum + item.baseCalculoXml, 0);
+      let base = group.convenio5291Applied
+        ? group.items.reduce((sum, item) => sum + item.baseSemIpi, 0)
+        : (useNoteTotal && note.vBcNota > 0
+          ? note.vBcNota
+          : group.items.reduce((sum, item) => sum + item.baseCalculo, 0));
       let ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
+      const reducedBaseEvidence = group.items.some(
+        (item) => fullIcmsCode(item).endsWith('20') || item.pRedBC > 0,
+      );
 
       if (base <= 0) base = vTotal - ipi;
-      else if (base > 0 && vTotal > base && ipi === 0) ipi = vTotal - base;
+      else if (!group.convenio5291Applied && !reducedBaseEvidence && base > 0 && vTotal > base && ipi === 0) {
+        ipi = vTotal - base;
+      }
 
       if (vTotal <= 0) {
         ignored.push(ignoredNote(note, `Valor total zerado ou sem valor comercial (R$ ${vTotal.toFixed(2)}).`));
@@ -513,6 +681,13 @@ export async function processFiscalLocally(
           detalhe_cfop: cfopDetails.join('; '),
           a_ori_limitada: group.aOriLimited,
           a_ori_original: String(group.aOriOriginal),
+          convenio_52_91_aplicado: group.convenio5291Applied,
+          convenio_52_91_decisao_manual: group.convenio5291Manual,
+          convenio_52_91_motivo: group.convenio5291Motivos.join('; ') || null,
+          convenio_52_91_origem_aliquota: group.convenio5291OrigemAliquota || null,
+          convenio_52_91_base_xml_original: originalBaseXml,
+          convenio_52_91_base_planilha: group.convenio5291Applied ? base : null,
+          convenio_52_91_cst_reducao_detectada: reducedBaseEvidence,
           ...calculation.detalhes,
         } as never,
       });
@@ -643,7 +818,7 @@ export async function processFiscalLocally(
   });
 
   return {
-    preAnalysis: { requer_decisao: false, notas_bonificacao: pending },
+    preAnalysis: { requer_decisao: false, notas_bonificacao: pending, itens_convenio_52_91: [] },
     notasProcessadas: processed,
     notasIgnoradas: ignored,
     itensExcluidos: excluded,
