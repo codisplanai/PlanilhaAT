@@ -197,6 +197,9 @@ export function classifyConvenio5291(
   const cst20 = cst.endsWith('20');
   const reducaoDestacada = Number(item.pRedBC ?? 0) > 0;
   const operacaoQuatroPorCento = Math.abs(Number(item.aOri ?? 0) - 0.04) < 0.0005;
+  const evidence = config?.considerar_cst20_como_indicio === false
+    ? false
+    : (cst20 || reducaoDestacada);
   const base = { ncm, cst20, reducaoDestacada, operacaoQuatroPorCento };
 
   if (!config?.enabled || ufDestino.toUpperCase() !== 'BA') {
@@ -212,7 +215,7 @@ export function classifyConvenio5291(
       return { ...base, status: 'nao_aplicar', motivo: adjustment.motivo || 'Ajuste do perfil determinou não aplicar o Convênio.', sugestaoAplicar: false, ajusteId: adjustment.id };
     }
     if (adjustment.acao === 'revisar') {
-      return { ...base, status: 'revisar', motivo: adjustment.motivo || 'Ajuste do perfil exige revisão manual.', sugestaoAplicar: cst20 || reducaoDestacada, ajusteId: adjustment.id };
+      return { ...base, status: 'revisar', motivo: adjustment.motivo || 'Ajuste do perfil exige revisão manual.', sugestaoAplicar: evidence, ajusteId: adjustment.id };
     }
     return {
       ...base,
@@ -232,7 +235,7 @@ export function classifyConvenio5291(
       ...base,
       status: 'revisar',
       motivo: 'Documento anterior à janela do catálogo consolidado adotada pelo sistema; a vigência histórica deve ser confirmada.',
-      sugestaoAplicar: cst20 || reducaoDestacada,
+      sugestaoAplicar: evidence,
     };
   }
 
@@ -283,7 +286,7 @@ export function classifyConvenio5291(
     motivo: CORRELATED_2022_NCMS.has(ncm)
       ? 'NCM 2022 correlacionada a mais de um subtipo histórico do Anexo I; é necessário confirmar o produto.'
       : 'NCM consta no Anexo I, mas a descrição disponível não é suficiente para aplicação automática.',
-    sugestaoAplicar: cst20 || reducaoDestacada,
+    sugestaoAplicar: evidence,
   };
 }
 
@@ -320,7 +323,7 @@ export function resolveConvenio5291Application(
     decisionKey,
     aOri: origin.aliquota,
     aDst: 0.088,
-    baseSemIpi: Number(item.baseSemIpi ?? item.vTotal - item.vIpi),
+    baseSemIpi: Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))),
     origemAliquota: origin.origem,
   };
 }
