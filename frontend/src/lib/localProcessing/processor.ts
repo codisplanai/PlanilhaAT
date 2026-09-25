@@ -555,6 +555,9 @@ export async function processFiscalLocally(
       group.rateResolutions.push(effectiveRate);
       group.cfopResolutions.push(cfopResolution);
       group.aOriLimited ||= aOriLimited;
+      group.convenio5291Manual ||= Boolean(
+        convenio?.applied && convenio.classification.status === 'revisar',
+      );
       if (convenio?.applied && !group.convenio5291Motivos.includes(convenio.classification.motivo)) {
         group.convenio5291Motivos.push(convenio.classification.motivo);
       }
