@@ -1,6 +1,9 @@
 import pytest
+from sqlalchemy import Uuid, select
+from sqlalchemy.dialects import postgresql
 
 from app.models.profile import Profile
+from app.models.solicitacao import Solicitacao
 
 
 def test_auth_login_sucesso(client):
@@ -175,3 +178,16 @@ def test_login_supabase_conta_desconhecida_continua_operador(
     user = res.json()["user"]
     assert user["cargo"] == "Analista Fiscal"
     assert user["role"] == "operador"
+
+
+def test_ids_de_autenticacao_usam_uuid_no_postgresql():
+    """Evita regressão uuid = varchar ao consultar perfis no Supabase/Postgres."""
+    assert isinstance(Profile.__table__.c.id.type, Uuid)
+    assert Profile.__table__.c.id.type.as_uuid is False
+    assert isinstance(Solicitacao.__table__.c.usuario_id.type, Uuid)
+    assert Solicitacao.__table__.c.usuario_id.type.as_uuid is False
+
+    stmt = select(Profile).where(Profile.id == SUPABASE_UID_CODISPLAN)
+    compiled = stmt.compile(dialect=postgresql.dialect())
+    typed_binds = [bind.type for bind in compiled.binds.values()]
+    assert any(isinstance(bind_type, Uuid) for bind_type in typed_binds)

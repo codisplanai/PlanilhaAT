@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, String, Boolean, DateTime
+from sqlalchemy import CheckConstraint, Column, String, Boolean, DateTime, Uuid
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -8,7 +8,7 @@ from app.constants import CARGO_POR_ROLE, ROLE_OPERADOR
 class Profile(Base):
     __tablename__ = "profiles"
 
-    id = Column(String(36), primary_key=True)  # Supabase Auth UUID
+    id = Column(Uuid(as_uuid=False), primary_key=True)  # Supabase Auth UUID
     email = Column(String(255), unique=True, nullable=False, index=True)
     nome = Column(String(255), nullable=False)
     cargo = Column(String(100), default=CARGO_POR_ROLE[ROLE_OPERADOR], nullable=False)
