@@ -7,10 +7,22 @@ export interface ExtractedItem {
   descricaoConfiavel: boolean;
   vItem: number;
   vTotal: number;
+  /** Base de ICMS lida da fonte fiscal; pode já conter benefício/redução. */
   baseCalculo: number;
+  /** vBC original do XML/SPED, preservada para diagnóstico. */
+  baseCalculoXml?: number;
+  /** Base econômica da operação sem IPI: vProd + frete + seguro + outras - desconto. */
+  baseSemIpi?: number;
+  /** Campo legado usado nas planilhas: IPI + frete + seguro + outras despesas. */
   ipiDespesas: number;
+  /** IPI isolado, necessário para não confundir redução de BC com despesa. */
+  vIpi?: number;
   aOri: number;
   vIcms: number;
+  origemMercadoria?: string;
+  /** CST (2 dígitos) ou CSOSN (3 dígitos), sem o dígito de origem. */
+  cstIcms?: string;
+  pRedBC?: number;
 }
 
 export interface ExtractedNote {

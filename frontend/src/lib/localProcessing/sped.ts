@@ -63,6 +63,7 @@ interface C190State {
   baseCalculo: number;
   vIcms: number;
   vIpi: number;
+  cstIcms: string;
 }
 
 export interface SpedParseResult {
@@ -107,9 +108,15 @@ export function parseSped(text: string, filename: string): SpedParseResult {
           vItem: row.vOpr,
           vTotal: row.vOpr + row.vIpi,
           baseCalculo: row.baseCalculo,
+          baseCalculoXml: row.baseCalculo,
+          baseSemIpi: Math.max(0, row.vOpr),
           ipiDespesas: row.vIpi,
+          vIpi: row.vIpi,
           aOri,
           vIcms: row.vIcms,
+          origemMercadoria: '',
+          cstIcms: row.cstIcms,
+          pRedBC: 0,
         };
       });
     }
@@ -125,9 +132,15 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vItem: current.vTotalNota,
         vTotal: current.vTotalNota,
         baseCalculo: current.vBcNota,
+        baseCalculoXml: current.vBcNota,
+        baseSemIpi: Math.max(0, current.vTotalNota - current.vIpiNota),
         ipiDespesas: current.vIpiNota + current.vDespesasNota,
+        vIpi: current.vIpiNota,
         aOri: 0,
         vIcms: current.vIcmsNota,
+        origemMercadoria: '',
+        cstIcms: '',
+        pRedBC: 0,
       }];
     }
 
@@ -249,6 +262,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const registry = itemRegistry.get(codItem);
       const vItem = decimal(fields[7]);
       const vDesc = decimal(fields[8]);
+      const cstIcms = (fields[10] ?? '').trim();
       const cfop = (fields[11] ?? '').trim();
       const vBcIcms = decimal(fields[13]);
       const aliqIcms = decimal(fields[14]);
@@ -282,14 +296,21 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vItem,
         vTotal,
         baseCalculo,
+        baseCalculoXml: vBcIcms,
+        baseSemIpi: Math.max(0, vTotal - vIpi),
         ipiDespesas,
+        vIpi,
         aOri,
         vIcms,
+        origemMercadoria: '',
+        cstIcms,
+        pRedBC: 0,
       });
       continue;
     }
 
     if (reg === 'C190' && current) {
+      const cstIcms = (fields[2] ?? '').trim();
       const cfop = (fields[3] ?? '').trim();
       const aliq = decimal(fields[4]);
       const vOpr = decimal(fields[5]);
@@ -303,6 +324,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         baseCalculo: vBcIcms > 0 ? vBcIcms : vOpr - vIpi,
         vIcms,
         vIpi: vBcIcms > 0 && vIpi === 0 && vOpr > vBcIcms ? vOpr - vBcIcms : vIpi,
+        cstIcms,
       });
     }
   }

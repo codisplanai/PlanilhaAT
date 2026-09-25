@@ -1,5 +1,5 @@
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
 import re
 from pydantic import BaseModel, Field, validator
@@ -87,6 +87,79 @@ def _validar_config_mva(value: Any) -> Dict[str, Any]:
     return res
 
 
+
+def _validar_config_convenio_52_91(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("convenio_icms_52_91_anexo_i deve ser um objeto")
+
+    res = dict(value)
+    for campo in (
+        "enabled",
+        "aplicar_automaticamente_seguros",
+        "solicitar_confirmacao_duvidosos",
+        "considerar_cst20_como_indicio",
+    ):
+        val = res.get(campo)
+        if type(val) is not bool:
+            raise ValueError(f"convenio_icms_52_91_anexo_i.{campo} deve ser booleano")
+        res[campo] = val
+
+    ajustes = res.get("ajustes", [])
+    if not isinstance(ajustes, list):
+        raise ValueError("convenio_icms_52_91_anexo_i.ajustes deve ser uma lista")
+
+    normalized = []
+    ids = set()
+    for index, ajuste in enumerate(ajustes):
+        if not isinstance(ajuste, dict):
+            raise ValueError(f"ajustes[{index}] deve ser um objeto")
+
+        ajuste_id = str(ajuste.get("id") or "").strip()
+        if not ajuste_id:
+            raise ValueError(f"ajustes[{index}].id é obrigatório")
+        if ajuste_id in ids:
+            raise ValueError(f"ID de ajuste duplicado: {ajuste_id}")
+        ids.add(ajuste_id)
+
+        ncm = re.sub(r"\D", "", str(ajuste.get("ncm") or ""))
+        if len(ncm) != 8:
+            raise ValueError(f"NCM inválido '{ajuste.get('ncm')}' em ajustes[{index}]; informe 8 dígitos")
+
+        acao = str(ajuste.get("acao") or "").strip().lower()
+        if acao not in {"automatico", "revisar", "nao_aplicar"}:
+            raise ValueError(f"ajustes[{index}].acao deve ser automatico, revisar ou nao_aplicar")
+
+        termos = _normalizar_lista_textos(
+            ajuste.get("termos_descricao", []),
+            f"ajustes[{index}].termos_descricao",
+        )
+
+        vigencia_inicio = ajuste.get("vigencia_inicio") or None
+        vigencia_fim = ajuste.get("vigencia_fim") or None
+        for campo_data, raw in (("vigencia_inicio", vigencia_inicio), ("vigencia_fim", vigencia_fim)):
+            if raw is not None:
+                try:
+                    date.fromisoformat(str(raw))
+                except (TypeError, ValueError):
+                    raise ValueError(f"ajustes[{index}].{campo_data} deve usar AAAA-MM-DD")
+        if vigencia_inicio and vigencia_fim and str(vigencia_fim) < str(vigencia_inicio):
+            raise ValueError(f"ajustes[{index}].vigencia_fim não pode ser anterior à vigência inicial")
+
+        normalized.append({
+            **ajuste,
+            "id": ajuste_id,
+            "ncm": ncm,
+            "acao": acao,
+            "termos_descricao": termos,
+            "vigencia_inicio": str(vigencia_inicio) if vigencia_inicio else None,
+            "vigencia_fim": str(vigencia_fim) if vigencia_fim else None,
+            "motivo": str(ajuste.get("motivo") or "").strip(),
+        })
+
+    res["ajustes"] = normalized
+    return res
+
+
 def _validar_e_normalizar_configuracoes_extras(value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if value is None:
         return value
@@ -119,6 +192,11 @@ def _validar_e_normalizar_configuracoes_extras(value: Optional[Dict[str, Any]]) 
     if "mva_revenda_antecipacao_tributaria" in res:
         res["mva_revenda_antecipacao_tributaria"] = _validar_config_mva(
             res["mva_revenda_antecipacao_tributaria"]
+        )
+
+    if "convenio_icms_52_91_anexo_i" in res:
+        res["convenio_icms_52_91_anexo_i"] = _validar_config_convenio_52_91(
+            res["convenio_icms_52_91_anexo_i"]
         )
 
     return res

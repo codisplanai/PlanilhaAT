@@ -136,9 +136,36 @@ export interface NotaBonificacaoPendencia {
   motivo_sugestao: string;
 }
 
+export interface Convenio5291Pendencia {
+  decision_key: string;
+  chave_acesso: string;
+  numero_nota: string;
+  serie?: string | null;
+  item_numero: number;
+  fornecedor?: string | null;
+  cnpj_emitente?: string | null;
+  uf_origem?: string | null;
+  ncm: string;
+  descricao: string;
+  descricao_normalizada: string;
+  cst: string;
+  p_icms: number;
+  p_red_bc: number;
+  v_bc_xml: number;
+  base_sem_ipi: number;
+  motivo: string;
+  item_legal?: string | null;
+  descricao_legal?: string | null;
+  cst20: boolean;
+  reducao_destacada: boolean;
+  operacao_quatro_por_cento: boolean;
+  sugestao_aplicar: boolean;
+}
+
 export interface PreAnaliseSolicitacao {
   requer_decisao: boolean;
   notas_bonificacao: NotaBonificacaoPendencia[];
+  itens_convenio_52_91?: Convenio5291Pendencia[];
 }
 
 export interface SolicitacoesBatchDeleteRequest {

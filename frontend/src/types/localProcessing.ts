@@ -2,6 +2,7 @@ import type {
   AvisoAvaliacao,
   ItemExcluido,
   NotaBonificacaoPendencia,
+  Convenio5291Pendencia,
   NotaFiscalProcessada,
   NotaIgnorada,
   Solicitacao,
@@ -90,6 +91,7 @@ export interface LocalProcessingRequest {
   context: LocalProcessingContext;
   input: LocalFiscalInput;
   bonusDecisions?: Record<string, boolean>;
+  convenio5291Decisions?: Record<string, boolean>;
   diagnostic?: DiagnosticRecorder;
 }
 
@@ -134,6 +136,7 @@ export interface LocalProcessingResult {
   preAnalysis: {
     requer_decisao: boolean;
     notas_bonificacao: NotaBonificacaoPendencia[];
+    itens_convenio_52_91: Convenio5291Pendencia[];
   };
   solicitacao?: Solicitacao;
   notasProcessadas: Omit<NotaFiscalProcessada, 'id' | 'solicitacao_id' | 'criado_em'>[];

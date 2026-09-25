@@ -20,6 +20,7 @@ import { ItensExcluidosSection } from '../../components/domain/ItensExcluidosSec
 import { AvisosAvaliacaoSection } from '../../components/domain/AvisosAvaliacaoSection';
 import { getEntryOriginLabel } from '../../constants/domain';
 import { ModalConfirmacaoBonificacao } from '../../components/ModalConfirmacaoBonificacao';
+import { ModalConfirmacaoConvenio5291 } from '../../components/ModalConfirmacaoConvenio5291';
 import { ProcessingDiagnostics } from '../../components/processing/ProcessingDiagnostics';
 import { formatCNPJ, formatDate, formatCurrency, formatPercent } from '../../lib/formatters';
 import { CompanySelectionStep } from './CompanySelectionStep';
@@ -73,6 +74,10 @@ export const NovaSolicitacaoPage: React.FC = () => {
     showModalBonificacao,
     confirmarBonificacoesEProcessar,
     cancelarModalBonificacao,
+    pendenciasConvenio5291,
+    showModalConvenio5291,
+    confirmarConvenio5291EProcessar,
+    cancelarModalConvenio5291,
     diagnosticSession,
     clearDiagnostic,
     exportDiagnosticText,
@@ -551,6 +556,14 @@ export const NovaSolicitacaoPage: React.FC = () => {
         onClose={cancelarModalBonificacao}
         notas={pendenciasBonificacao}
         onConfirm={confirmarBonificacoesEProcessar}
+        isProcessing={isProcessing}
+      />
+
+      <ModalConfirmacaoConvenio5291
+        isOpen={showModalConvenio5291}
+        onClose={cancelarModalConvenio5291}
+        itens={pendenciasConvenio5291}
+        onConfirm={confirmarConvenio5291EProcessar}
         isProcessing={isProcessing}
       />
     </div>
