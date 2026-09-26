@@ -200,6 +200,15 @@ jobs:
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
+      - name: Apply database migrations
+        if: steps.preflight.outputs.configured == 'true' && steps.runtime.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          uv pip install --system -r requirements.txt
+          python -m alembic upgrade head
+          python -m alembic current
+
       - name: Deploy Vercel develop fullstack artifact
         if: steps.preflight.outputs.configured == 'true' && steps.runtime.outputs.configured == 'true'
         id: deploy
@@ -387,6 +396,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           vercel build --prod --yes --token="$VERCEL_TOKEN"
+
+      - name: Apply database migrations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          uv pip install --system -r requirements.txt
+          python -m alembic upgrade head
+          python -m alembic current
 
       - name: Deploy Vercel production fullstack artifact
         id: deploy
