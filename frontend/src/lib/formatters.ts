@@ -16,6 +16,25 @@ export function formatPercent(value: number | string | null | undefined, isDecim
   })}%`;
 }
 
+/**
+ * Percentual digitado ("12", "12,06") em alíquota decimal (0.12). Aceita só
+ * percentual, sem a leitura dupla "12 ou 0,12", para que reabrir e salvar um
+ * cadastro nunca transforme 1% em 100%. Vazio vira null; inválido, NaN.
+ */
+export function parsePercentInput(value: string): number | null {
+  const clean = value.trim().replace(',', '.');
+  if (!clean) return null;
+  const percent = Number(clean);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return Number.NaN;
+  return Number((percent / 100).toFixed(6));
+}
+
+/** Alíquota decimal (0.1206) no percentual editável ("12,06"). */
+export function formatPercentInput(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '';
+  return String(Number((Number(value) * 100).toFixed(4))).replace('.', ',');
+}
+
 export function formatDate(dateString: string | null | undefined): string {
   if (!dateString) return '-';
 
