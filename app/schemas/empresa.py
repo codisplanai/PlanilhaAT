@@ -1,10 +1,12 @@
 import re
+from decimal import Decimal
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
 from app.constants import UFS_BRASIL
 from app.schemas.regra_aliquota_empresa import TermoAcordoOut
+from app.schemas.validators import normalizar_aliquota
 
 # Compatibilidade pública para integrações que importam este nome.
 VALID_UFS = UFS_BRASIL
@@ -22,11 +24,16 @@ class EmpresaBase(BaseModel):
     uf: str = Field(..., min_length=2, max_length=2, example="BA")
     perfil_regras_id: int = Field(..., example=1)
     optante_simples_nacional: bool = False
+    a_ori_fixa_parcial: Optional[Decimal] = Field(None, example=0.12)
     ativo: bool = True
 
     @validator("cnpj")
     def validate_cnpj(cls, v):
         return clean_cnpj(v)
+
+    @validator("a_ori_fixa_parcial")
+    def validate_a_ori_fixa_parcial(cls, v):
+        return normalizar_aliquota(v)
 
     @validator("uf")
     def validate_uf(cls, v):
@@ -55,6 +62,7 @@ class EmpresaUpdate(BaseModel):
     uf: Optional[str] = None
     perfil_regras_id: Optional[int] = None
     optante_simples_nacional: Optional[bool] = None
+    a_ori_fixa_parcial: Optional[Decimal] = None
     ativo: Optional[bool] = None
 
     @validator("cnpj")
@@ -62,6 +70,10 @@ class EmpresaUpdate(BaseModel):
         if v is not None:
             return clean_cnpj(v)
         return v
+
+    @validator("a_ori_fixa_parcial")
+    def validate_a_ori_fixa_parcial(cls, v):
+        return normalizar_aliquota(v)
 
     @validator("uf")
     def validate_uf(cls, v):

@@ -5,6 +5,7 @@ export const CONVENIO_52_91_SOURCE_URL =
   'https://www.confaz.fazenda.gov.br/legislacao/convenios/1991/CV052_91';
 export const CONVENIO_52_91_CATALOG_VERSION = 'CONFAZ vigente em 2026';
 export const CONVENIO_52_91_SAFE_FROM = '2020-01-01';
+export const CONVENIO_52_91_RATE_ORIGIN = 'convenio_52_91';
 
 export type Convenio5291Status = 'automatico' | 'revisar' | 'nao_aplicar' | 'fora_catalogo';
 

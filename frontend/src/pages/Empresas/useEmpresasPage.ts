@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { getErrorMessage } from '../../api/client';
 import { empresasApi } from '../../api/empresas';
 import { queryKeys } from '../../api/queryKeys';
-import { formatCNPJ } from '../../lib/formatters';
+import { formatCNPJ, formatPercentInput, parsePercentInput } from '../../lib/formatters';
 import type { Empresa, EmpresaCreate } from '../../types/empresa';
 import { useEmpresasQuery, usePerfisQuery } from '../../hooks/useApiQueries';
 
@@ -24,6 +24,12 @@ const empresaSchema = z.object({
   uf: z.string().length(2, 'Selecione o estado (UF)'),
   perfil_regras_id: z.number().min(1, 'Selecione um perfil de regras'),
   optante_simples_nacional: z.boolean(),
+  a_ori_fixa_parcial: z
+    .string()
+    .refine(
+      (value) => !Number.isNaN(parsePercentInput(value)),
+      'Informe um percentual entre 0 e 100 (ex: 12) ou deixe vazio',
+    ),
   ativo: z.boolean(),
 });
 
@@ -36,6 +42,7 @@ const EMPTY_FORM: EmpresaFormData = {
   uf: 'BA',
   perfil_regras_id: 1,
   optante_simples_nacional: false,
+  a_ori_fixa_parcial: '',
   ativo: true,
 };
 
@@ -136,6 +143,7 @@ export function useEmpresasPage() {
       uf: empresa.uf,
       perfil_regras_id: empresa.perfil_regras_id,
       optante_simples_nacional: Boolean(empresa.optante_simples_nacional),
+      a_ori_fixa_parcial: formatPercentInput(empresa.a_ori_fixa_parcial),
       ativo: empresa.ativo,
     });
     setModalOpen(true);
@@ -151,6 +159,7 @@ export function useEmpresasPage() {
       uf: data.uf,
       perfil_regras_id: Number(data.perfil_regras_id),
       optante_simples_nacional: Boolean(data.optante_simples_nacional),
+      a_ori_fixa_parcial: parsePercentInput(data.a_ori_fixa_parcial),
       ativo: data.ativo,
     };
     try {

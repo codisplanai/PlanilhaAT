@@ -3,6 +3,7 @@ import type { CfopResolution, ExtractedItem, TaxRateResolution } from './domain'
 import type { TipoPlanilha } from '../../types/solicitacao';
 import type { MvaAntecipacaoTributariaConfig } from '../../types/perfil';
 import { calculateTax } from './calculations.ts';
+import { CONVENIO_52_91_RATE_ORIGIN } from './convenio5291.ts';
 
 const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_parcial',
@@ -312,6 +313,40 @@ export function resolveDestinationRate(
   }
 
   throw new Error(`Nenhuma regra de alíquota de destino encontrada para UF ${uf} e NCM ${ncm}.`);
+}
+
+export interface OriginRateResolution {
+  aOri: number;
+  limited: boolean;
+  fixed: boolean;
+}
+
+const REDUCED_RATE_ORIGINS = ['reducao_produto:', 'excecao:', 'termo_acordo:'];
+
+export function resolveOriginRate(
+  context: LocalProcessingContext,
+  destination: TipoPlanilha,
+  aOri: number,
+  rateOrigin: string,
+): OriginRateResolution {
+  // Acordo com a SEFAZ: a empresa credita sempre a alíquota fixa na Parcial,
+  // qualquer que seja a do XML. O Convênio 52/91 troca A.ORI, A.DST e base em
+  // conjunto, então continua valendo quando se aplica.
+  const fixedRate = context.empresa.a_ori_fixa_parcial;
+  if (
+    fixedRate != null
+    && PARTIAL_DESTINATIONS.has(destination)
+    && rateOrigin !== CONVENIO_52_91_RATE_ORIGIN
+  ) {
+    return { aOri: Number(fixedRate), limited: false, fixed: true };
+  }
+
+  const limitOrigin = context.perfil.configuracoes_extras.limitar_a_ori_reducoes === true;
+  const reducedOrAgreement = REDUCED_RATE_ORIGINS.some((prefix) => rateOrigin.startsWith(prefix));
+  if (limitOrigin && reducedOrAgreement && aOri > 0.10) {
+    return { aOri: 0.10, limited: true, fixed: false };
+  }
+  return { aOri, limited: false, fixed: false };
 }
 
 export function evaluatePartialMerchandiseExclusion(

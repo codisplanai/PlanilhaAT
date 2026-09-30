@@ -16,6 +16,7 @@ import type {
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import { calculateTax } from './calculations';
 import {
+  CONVENIO_52_91_RATE_ORIGIN,
   classifyConvenio5291,
   convenioDecisionKey,
   fullIcmsCode,
@@ -32,6 +33,7 @@ import {
   resolveCfop,
   resolveDestinationRate,
   resolveMva,
+  resolveOriginRate,
   resolveRevendaMva,
   shouldExcludeEqualRates,
 } from './rules';
@@ -217,6 +219,7 @@ interface Group {
   rateResolutions: TaxRateResolution[];
   cfopResolutions: CfopResolution[];
   aOriLimited: boolean;
+  aOriFixed: boolean;
   aOriOriginal: number;
   mvaPolicyGroup: 'especial' | 'demais' | '';
   mvaPolicySource: string;
@@ -483,24 +486,22 @@ export async function processFiscalLocally(
           request.convenio5291Decisions,
         )
         : null;
-      let aOri = convenio?.applied ? Number(convenio.aOri) : item.aOri;
       const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
       const originalAOri = item.aOri;
       const effectiveRate = convenio?.applied
         ? {
           aliquota: effectiveADst,
-          origem: 'convenio_52_91',
+          origem: CONVENIO_52_91_RATE_ORIGIN,
           detalhe: `Convênio ICMS 52/91 — ${convenio.classification.motivo}`,
         }
         : rate;
-      const limitOrigin = context.perfil.configuracoes_extras.limitar_a_ori_reducoes === true;
-      const reducedOrAgreement = ['reducao_produto:', 'excecao:', 'termo_acordo:']
-        .some((prefix) => effectiveRate.origem.startsWith(prefix));
-      let aOriLimited = false;
-      if (limitOrigin && reducedOrAgreement && aOri > 0.10) {
-        aOri = 0.10;
-        aOriLimited = true;
-      }
+      const originRate = resolveOriginRate(
+        context,
+        destination,
+        convenio?.applied ? Number(convenio.aOri) : item.aOri,
+        effectiveRate.origem,
+      );
+      const aOri = originRate.aOri;
 
       if (PARTIAL_DESTINATIONS.has(destination)) {
         const numeric = shouldExcludeEqualRates(context, destination, item, aOri, effectiveADst);
@@ -541,6 +542,7 @@ export async function processFiscalLocally(
         rateResolutions: [],
         cfopResolutions: [],
         aOriLimited: false,
+        aOriFixed: false,
         aOriOriginal: originalAOri,
         mvaPolicyGroup,
         mvaPolicySource,
@@ -554,7 +556,8 @@ export async function processFiscalLocally(
       group.items.push(item);
       group.rateResolutions.push(effectiveRate);
       group.cfopResolutions.push(cfopResolution);
-      group.aOriLimited ||= aOriLimited;
+      group.aOriLimited ||= originRate.limited;
+      group.aOriFixed ||= originRate.fixed;
       group.convenio5291Manual ||= Boolean(
         convenio?.applied && convenio.classification.status === 'revisar',
       );
@@ -685,6 +688,7 @@ export async function processFiscalLocally(
           cfop_reclassificado: group.cfopResolutions.some((item) => item.reclassificado),
           detalhe_cfop: cfopDetails.join('; '),
           a_ori_limitada: group.aOriLimited,
+          a_ori_fixa_parcial: group.aOriFixed,
           a_ori_original: String(group.aOriOriginal),
           convenio_52_91_aplicado: group.convenio5291Applied,
           convenio_52_91_decisao_manual: group.convenio5291Manual,
