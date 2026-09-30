@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from app.core.database import get_db
-from app.core.security import get_current_user, require_admin
+from app.core.security import get_current_user
 from app.models.regra_aliquota import RegraAliquotaDestino
 from app.models.perfil_regras import PerfilRegras
 from app.schemas.regra_aliquota import RegraAliquotaCreate, RegraAliquotaUpdate, RegraAliquotaOut
@@ -102,7 +102,7 @@ def atualizar_regra_aliquota(id: int, payload: RegraAliquotaUpdate, db: Session 
         raise HTTPException(status_code=409, detail="Já existe uma regra para este perfil, UF e NCM.")
     return commit_and_refresh(db, regra)
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_regra_aliquota(id: int, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(
         db, RegraAliquotaDestino, id, "Regra de alíquota não encontrada."
