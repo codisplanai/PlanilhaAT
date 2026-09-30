@@ -15,6 +15,8 @@ export interface Empresa {
   uf: string;
   perfil_regras_id: number;
   optante_simples_nacional?: boolean;
+  /** A.ORI fixa da Antecipação Parcial (acordo com a SEFAZ); nula usa a do XML. */
+  a_ori_fixa_parcial?: number | null;
   ativo: boolean;
   termo_acordo?: TermoAcordo | null;
   criado_em: string;
@@ -28,6 +30,7 @@ export interface EmpresaCreate {
   uf: string;
   perfil_regras_id: number;
   optante_simples_nacional?: boolean;
+  a_ori_fixa_parcial?: number | null;
   ativo?: boolean;
 }
 
@@ -38,5 +41,6 @@ export interface EmpresaUpdate {
   uf?: string;
   perfil_regras_id?: number;
   optante_simples_nacional?: boolean;
+  a_ori_fixa_parcial?: number | null;
   ativo?: boolean;
 }

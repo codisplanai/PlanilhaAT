@@ -236,11 +236,19 @@ export const EmpresasPage: React.FC = () => {
                     className="hover:bg-slate-50/70 transition-colors group"
                   >
                     <td className="py-3.5 px-4 font-semibold text-slate-900">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span>{empresa.razao_social}</span>
                         {empresa.optante_simples_nacional && (
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                             Simples Nacional
+                          </span>
+                        )}
+                        {empresa.a_ori_fixa_parcial != null && (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200"
+                            title="Acordo com a SEFAZ: A.ORI fixa em toda a Antecipação Parcial"
+                          >
+                            A.ORI Parcial {formatPercent(empresa.a_ori_fixa_parcial)}
                           </span>
                         )}
                       </div>
@@ -456,6 +464,17 @@ export const EmpresasPage: React.FC = () => {
             <p className="text-[11px] text-amber-800/90 pl-6.5">
               Aplica automaticamente o desconto legal de 20% no valor devido de Antecipação Parcial e utiliza os modelos oficiais do Simples Nacional (RP-154 / RP-156).
             </p>
+          </div>
+
+          <div className="p-3 bg-blue-50/60 border border-blue-200/80 rounded-lg">
+            <Input
+              label="A.ORI fixa na Antecipação Parcial (%)"
+              placeholder="Vazio: usa a alíquota do XML"
+              inputMode="decimal"
+              {...register('a_ori_fixa_parcial')}
+              error={errors.a_ori_fixa_parcial?.message}
+              helperText="Acordo com a SEFAZ. Substitui a alíquota de origem do XML em todas as planilhas de Antecipação Parcial. Informe em percentual, ex: 12."
+            />
           </div>
 
           <div className="pt-2 flex items-center gap-2.5">

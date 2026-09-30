@@ -85,6 +85,7 @@ class LocalEmpresaOut(BaseModel):
     uf: str
     perfil_regras_id: int
     optante_simples_nacional: bool
+    a_ori_fixa_parcial: Optional[float] = None
     termo_acordo: Optional[LocalTermoAcordoOut] = None
 
 
