@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user, require_admin
+from app.core.security import get_current_user
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.perfil_regras import PerfilRegras
 from app.schemas.regra_cfop import RegraCfopCreate, RegraCfopUpdate, RegraCfopOut, RegraCfopEfetivaOut
@@ -106,7 +106,7 @@ def atualizar_regra_cfop(id: int, payload: RegraCfopUpdate, db: Session = Depend
 
     return commit_and_refresh(db, regra)
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_regra_cfop(id: int, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraCfopDestino, id, "Regra de CFOP não encontrada.")
     delete_and_commit(db, regra)

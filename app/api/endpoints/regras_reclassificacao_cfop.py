@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 from app.core.database import get_db
-from app.core.security import get_current_user, require_admin
+from app.core.security import get_current_user
 from app.models.perfil_regras import PerfilRegras
 from app.models.regra_reclassificacao_cfop import ExcecaoReclassificacaoCfop, RegraReclassificacaoCfop
 from app.schemas.regra_reclassificacao_cfop import (
@@ -115,7 +115,7 @@ def atualizar_regra_reclassificacao(id: int, payload: RegraReclassificacaoUpdate
     return commit_and_refresh(db, regra)
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_regra_reclassificacao(id: int, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraReclassificacaoCfop, id, "Regra de reclassificação não encontrada.")
     delete_and_commit(db, regra)
@@ -137,8 +137,7 @@ def criar_excecao(id: int, payload: ExcecaoReclassificacaoCreate, db: Session = 
     )
 
 
-@router.delete("/{id}/excecoes/{excecao_id}", status_code=status.HTTP_204_NO_CONTENT,
-               dependencies=[Depends(require_admin)])
+@router.delete("/{id}/excecoes/{excecao_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_excecao(id: int, excecao_id: int, db: Session = Depends(get_db)):
     excecao = get_by_id_or_404(db, ExcecaoReclassificacaoCfop, excecao_id, "Exceção não encontrada.")
     if excecao.regra_reclassificacao_id != id:

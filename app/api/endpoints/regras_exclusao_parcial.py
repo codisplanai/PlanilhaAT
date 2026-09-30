@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 from app.core.database import get_db
-from app.core.security import get_current_user, require_admin
+from app.core.security import get_current_user
 from app.models.perfil_regras import PerfilRegras
 from app.models.regra_exclusao_parcial import RegraExclusaoParcial
 from app.schemas.regra_exclusao_parcial import (
@@ -200,7 +200,7 @@ def atualizar_regra_exclusao(
     return commit_and_refresh(db, regra)
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def deletar_regra_exclusao(id: int, db: Session = Depends(get_db)):
     regra = get_by_id_or_404(db, RegraExclusaoParcial, id, "Regra de exclusão não encontrada.")
     delete_and_commit(db, regra)
