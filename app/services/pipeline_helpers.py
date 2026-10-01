@@ -1,6 +1,7 @@
 """Funções puras e transformações reutilizadas pelo pipeline fiscal."""
 
 import re
+import unicodedata
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Protocol, Union
@@ -209,3 +210,113 @@ def build_header_info(empresa: Empresa, periodo_inicio: date, ie: str) -> dict[s
         "mes": periodo_inicio.month,
         "ano": periodo_inicio.year,
     }
+
+
+MODELO_OFICIAL_POR_TIPO = {
+    "antecipacao_parcial": "RP-153",
+    "antecipacao_parcial_antecipado": "RP-155",
+    "antecipacao_parcial_simples": "RP-154",
+    "antecipacao_parcial_antecipado_simples": "RP-156",
+    "antecipacao_tributaria": "RP-151",
+    "antecipacao_tributaria_antecipado": "RP-151",
+    "difal": "RP-158",
+}
+
+TIPO_PLANILHA_CURTO = {
+    "antecipacao_parcial": "Parcial",
+    "antecipacao_parcial_antecipado": "Parcial-Antecipado",
+    "antecipacao_parcial_simples": "Parcial-Simples",
+    "antecipacao_parcial_antecipado_simples": "Parcial-Ant-Simples",
+    "antecipacao_tributaria": "AT",
+    "antecipacao_tributaria_antecipado": "AT-Antecipado",
+    "difal": "DIFAL",
+}
+
+CORPORATE_SUFFIXES = {
+    "LTDA",
+    "ME",
+    "EPP",
+    "EIRELI",
+    "SA",
+    "CIA",
+    "COMPANHIA",
+    "MEI",
+    "UNIPESSOAL",
+    "SOCIEDADE",
+    "INDIVIDUAL",
+    "EIRELI-ME",
+    "LTDA-ME",
+    "LTDA-EPP",
+}
+
+STOP_WORDS = {"DE", "DA", "DO", "DAS", "DOS", "E", "PARA", "COM", "EM"}
+
+
+def sanitize_company_name(raw_name: str, max_length: int = 18) -> str:
+    """Higieniza a razão social para um nome curto, legível e seguro para sistemas de arquivos."""
+    if not raw_name or not isinstance(raw_name, str):
+        return "Empresa"
+
+    normalized = unicodedata.normalize("NFD", raw_name)
+    without_accents = "".join(c for c in normalized if unicodedata.category(c) != "Mn")
+    cleaned = re.sub(r"\bS\s*[/.]\s*A\b\.?", " ", without_accents, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[^\w\s]", " ", cleaned)
+
+    words = [w.strip() for w in cleaned.split() if w.strip()]
+    if not words:
+        return "Empresa"
+
+    filtered_words = [w for w in words if w.upper() not in CORPORATE_SUFFIXES]
+    candidate_words = filtered_words if filtered_words else words
+
+    result = ""
+    for word in candidate_words:
+        upper = word.upper()
+        if result and upper in STOP_WORDS:
+            continue
+        formatted = word.capitalize()
+        if len(result) + len(formatted) <= max_length:
+            result += formatted
+        else:
+            if not result:
+                result = formatted[:max_length]
+            break
+
+    return result or "Empresa"
+
+
+def resolve_modelo_planilha(tipo: str, observacoes: Optional[str] = None) -> str:
+    """Resolve o modelo oficial SEFAZ (ex: RP-153) via observações ou tipo."""
+    if observacoes:
+        match = re.search(r"\bRP[- ]?(\d+)\b", observacoes, flags=re.IGNORECASE)
+        if match:
+            return f"RP-{match.group(1)}"
+    return MODELO_OFICIAL_POR_TIPO.get(tipo, "RP")
+
+
+def resolve_tipo_curto(tipo: str) -> str:
+    """Converte o identificador interno da planilha em uma sigla/nome conciso."""
+    return TIPO_PLANILHA_CURTO.get(tipo, re.sub(r"^antecipacao_", "", tipo).upper())
+
+
+def format_competencia_nome(month: Union[int, str], year: Union[int, str]) -> str:
+    """Formata a competência no padrão MM-AAAA."""
+    m = re.sub(r"\D", "", str(month)).zfill(2)
+    y = re.sub(r"\D", "", str(year))
+    return f"{m}-{y}"
+
+
+def build_spreadsheet_filename(
+    razao_social: str,
+    tipo: str,
+    month: Union[int, str],
+    year: Union[int, str],
+    observacoes: Optional[str] = None,
+) -> str:
+    """Monta o nome amigável da planilha gerada: [Modelo]_[Empresa]_[Tipo]_[MM-AAAA].xlsx."""
+    empresa = sanitize_company_name(razao_social)
+    modelo = resolve_modelo_planilha(tipo, observacoes)
+    tipo_curto = resolve_tipo_curto(tipo)
+    competencia = format_competencia_nome(month, year)
+    return f"{modelo}_{empresa}_{tipo_curto}_{competencia}.xlsx"
+

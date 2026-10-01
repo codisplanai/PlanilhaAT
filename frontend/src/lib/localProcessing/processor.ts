@@ -45,6 +45,7 @@ import {
 } from './sources';
 import { selectTemplateForRows } from './templateSelection';
 import { fillTemplateLocally } from './xlsx';
+import { buildSpreadsheetFilename } from './filename';
 
 const BONUS_SUFFIXES = new Set(['910', '911', '949']);
 const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
@@ -260,7 +261,7 @@ export async function processFiscalLocally(
   templateBytes: Map<number, ArrayBuffer>,
   loadTemplate?: (template: LocalTemplateDescriptor) => Promise<ArrayBuffer>,
 ): Promise<LocalProcessingResult> {
-  const { context, periodoInicio, periodoFim, solicitacaoId } = request;
+  const { context, periodoInicio, periodoFim } = request;
   const diagnostic = request.diagnostic;
   const sourceStartedAt = performance.now();
   diagnostic?.stage('leitura', 'Leitura e interpretação das fontes fiscais iniciada.');
@@ -790,10 +791,17 @@ export async function processFiscalLocally(
         month,
         year,
       });
+      const filename = buildSpreadsheetFilename({
+        razaoSocial: context.empresa.razao_social,
+        tipo: destination,
+        month,
+        year,
+        observacoes: template.observacoes,
+      });
       artifacts.push({
         tipo: destination,
         templateId: template.id,
-        filename: `planilha_${context.empresa.cnpj}_${destination}_${solicitacaoId.slice(0, 8)}.xlsx`,
+        filename,
         bytes: output,
         totalNotas: rows.length,
         totalValorDevido: rows.reduce((sum, row) => sum + row.valor_devido, 0),
