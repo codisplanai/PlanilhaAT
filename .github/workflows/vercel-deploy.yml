@@ -388,6 +388,16 @@ jobs:
           set -Eeuo pipefail
           vercel build --prod --yes --token="$VERCEL_TOKEN"
 
+      # O schema sobe antes do código: as migrations são aditivas e a versão
+      # ainda no ar continua funcionando; se a migration falhar, não há deploy.
+      - name: Apply database migrations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          uv pip install --system -r requirements.txt
+          python -m alembic upgrade head
+          python -m alembic current
+
       - name: Deploy Vercel production fullstack artifact
         id: deploy
         env:
