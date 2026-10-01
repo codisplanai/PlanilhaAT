@@ -109,9 +109,9 @@ def test_operador_cadastra_e_edita_regras_aliquotas(client_operador):
     assert res_update.status_code == 200
     assert res_update.json()["aliquota"] == 0.19
 
-    # 3. Operador NÃO pode excluir regra de alíquota (403 Forbidden)
+    # 3. Operador também exclui regra de alíquota (regra operacional do perfil)
     res_del = client_operador.delete(f"/api/v1/regras-aliquotas/{regra_id}")
-    assert res_del.status_code == 403
+    assert res_del.status_code == 204
 
 
 def test_operador_cadastra_e_edita_regras_cfop(client_operador):
@@ -137,9 +137,9 @@ def test_operador_cadastra_e_edita_regras_cfop(client_operador):
     assert res_update.status_code == 200
     assert res_update.json()["destino"] == "antecipacao_tributaria"
 
-    # 3. Operador NÃO pode excluir regra de CFOP (403 Forbidden)
+    # 3. Operador também exclui regra de CFOP (regra operacional do perfil)
     res_del = client_operador.delete(f"/api/v1/regras-cfop/{regra_id}")
-    assert res_del.status_code == 403
+    assert res_del.status_code == 204
 
 
 def test_operador_cadastra_e_edita_regras_reducao_e_reclassificacao(client_operador):
@@ -173,8 +173,8 @@ def test_operador_cadastra_e_edita_regras_reducao_e_reclassificacao(client_opera
     })
     assert res_exc.status_code == 201
 
-    # Operador NÃO pode excluir regra de redução
-    assert client_operador.delete(f"/api/v1/regras-reducao-produto/{red_id}").status_code == 403
+    # Operador também exclui regra de redução
+    assert client_operador.delete(f"/api/v1/regras-reducao-produto/{red_id}").status_code == 204
 
     # 2. Regra de reclassificação CFOP
     res_rec = client_operador.post("/api/v1/regras-reclassificacao-cfop", json={
@@ -202,5 +202,5 @@ def test_operador_cadastra_e_edita_regras_reducao_e_reclassificacao(client_opera
     })
     assert res_rec_exc.status_code == 201
 
-    # Operador NÃO pode excluir regra de reclassificação
-    assert client_operador.delete(f"/api/v1/regras-reclassificacao-cfop/{rec_id}").status_code == 403
+    # Operador também exclui regra de reclassificação
+    assert client_operador.delete(f"/api/v1/regras-reclassificacao-cfop/{rec_id}").status_code == 204
