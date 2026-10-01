@@ -707,17 +707,17 @@ Esperado: "PR title, description and branch", "Backend syntax and indentation" e
 
 **Interfaces:** nenhuma.
 
-- [ ] **Step 1:** Faça squash merge do PR na `develop` com `gh pr merge <numero-do-pr> --squash`. Não apague a branch.
-- [ ] **Step 2:** Aguarde os workflows do push na `develop` terminarem verdes (`gh run list --branch develop`). "Develop - Test and GHCR Artifacts" precisa passar. Se algo falhar, PARE e reporte.
-- [ ] **Step 3:** Confira que `git log origin/main..origin/develop` mostra **apenas** o commit de squash deste PR. Se aparecer outro, PARE e reporte.
-- [ ] **Step 4:** Abra o PR de release. O corpo segue o mesmo modelo do Step 4 da Task 4, com Origem `develop`, Destino `main` e a seção Release contendo "Título: `release(patch): dispensar limite de 10% da A.ORI com alíquotas iguais na Parcial`" e "Versão: `1.7.1 -> 1.7.2`".
+- [x] **Step 1:** Faça squash merge do PR na `develop` com `gh pr merge <numero-do-pr> --squash`. Não apague a branch.
+- [x] **Step 2:** Aguarde os workflows do push na `develop` terminarem verdes (`gh run list --branch develop`). "Develop - Test and GHCR Artifacts" precisa passar. Se algo falhar, PARE e reporte.
+- [x] **Step 3:** Confira que `git log origin/main..origin/develop` mostra **apenas** o commit de squash deste PR. Se aparecer outro, PARE e reporte.
+- [x] **Step 4:** Abra o PR de release. O corpo segue o mesmo modelo do Step 4 da Task 4, com Origem `develop`, Destino `main` e a seção Release contendo "Título: `release(patch): dispensar limite de 10% da A.ORI com alíquotas iguais na Parcial`" e "Versão: `1.7.1 -> 1.7.2`".
 
 ```
 gh pr create --base main --head develop --title "release(patch): dispensar limite de 10% da A.ORI com alíquotas iguais na Parcial" --body-file <caminho-do-arquivo>
 ```
 
-- [ ] **Step 5:** Aguarde o PR Validation e faça o merge com **merge commit**, sem squash: `gh pr merge <numero> --merge`.
-- [ ] **Step 6:** Acompanhe até o fim e confira cada item:
+- [x] **Step 5:** Aguarde o PR Validation e faça o merge com **merge commit**, sem squash: `gh pr merge <numero> --merge`.
+- [x] **Step 6:** Acompanhe até o fim e confira cada item:
   - "Main - Build Artifacts and Semantic Release" com os 7 jobs verdes;
   - nas execuções de produção de "Vercel - Fullstack Bootstrap and Release", o passo "Apply database migrations" com sucesso e `019_a_ori_fixa_parcial (head)` no log (não há migration nova);
   - `gh release view v1.7.2` publicada;
