@@ -1,5 +1,6 @@
 import type { LocalGeneratedArtifact } from '../../types/localProcessing';
 import type { TipoPlanilha } from '../../types/solicitacao';
+import { buildZipFilenameFromArtifacts } from './filename';
 import { writeZip } from './zip';
 
 const DB_NAME = 'planaut-local-artifacts';
@@ -339,5 +340,6 @@ export async function downloadLocalArtifacts(
     selected.map((artifact) => [artifact.filename, new Uint8Array(artifact.bytes)]),
   );
   const zip = writeZip(entries);
-  triggerDownload(zip, `planilhas_${requestId.slice(0, 8)}.zip`, 'application/zip');
+  const zipFilename = buildZipFilenameFromArtifacts(selected, requestId);
+  triggerDownload(zip, zipFilename, 'application/zip');
 }
