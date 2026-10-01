@@ -71,7 +71,7 @@ def test_build_spreadsheet_filename():
         year=2026,
         observacoes="Modelo oficial pré-definido de Antecipação Parcial (RP-153)",
     )
-    assert filename == "PassoAPasso_RP-153_Parcial_09-2026.xlsx"
+    assert filename == "RP-153_PassoAPasso_Parcial_09-2026.xlsx"
 
     filename_difal = build_spreadsheet_filename(
         razao_social="AUTO PECAS BRASIL S/A",
@@ -79,7 +79,7 @@ def test_build_spreadsheet_filename():
         month=8,
         year=2026,
     )
-    assert filename_difal == "AutoPecasBrasil_RP-158_DIFAL_08-2026.xlsx"
+    assert filename_difal == "RP-158_AutoPecasBrasil_DIFAL_08-2026.xlsx"
 
     filename_at = build_spreadsheet_filename(
         razao_social="COMERCIAL SILVA ME",
@@ -87,4 +87,4 @@ def test_build_spreadsheet_filename():
         month=10,
         year=2026,
     )
-    assert filename_at == "ComercialSilva_RP-151_AT-Antecipado_10-2026.xlsx"
+    assert filename_at == "RP-151_ComercialSilva_AT-Antecipado_10-2026.xlsx"

@@ -132,15 +132,15 @@ export interface BuildSpreadsheetFilenameParams {
 
 /**
  * Monta o nome amigável da planilha gerada:
- * [Empresa]_[Modelo]_[Tipo]_[MM-AAAA].xlsx
- * Exemplo: PassoAPasso_RP-153_Parcial_09-2026.xlsx
+ * [Modelo]_[Empresa]_[Tipo]_[MM-AAAA].xlsx
+ * Exemplo: RP-153_PassoAPasso_Parcial_09-2026.xlsx
  */
 export function buildSpreadsheetFilename(params: BuildSpreadsheetFilenameParams): string {
   const empresa = sanitizeCompanyName(params.razaoSocial);
   const modelo = resolveModeloPlanilha(params.tipo, params.observacoes);
   const tipoCurto = resolveTipoCurto(params.tipo);
   const competencia = formatCompetenciaNome(params.month, params.year);
-  return `${empresa}_${modelo}_${tipoCurto}_${competencia}.xlsx`;
+  return `${modelo}_${empresa}_${tipoCurto}_${competencia}.xlsx`;
 }
 
 /**
@@ -155,7 +155,7 @@ export function buildZipFilenameFromArtifacts(
     const base = artifacts[0].filename.replace(/\.xlsx$/i, '');
     const parts = base.split('_');
     if (parts.length >= 4) {
-      const empresa = parts[0];
+      const empresa = parts[0].startsWith('RP-') ? parts[1] : parts[0];
       const competencia = parts[parts.length - 1];
       return `${empresa}_Planilhas_${competencia}.zip`;
     }

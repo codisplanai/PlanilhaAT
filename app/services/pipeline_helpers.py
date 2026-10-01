@@ -313,10 +313,10 @@ def build_spreadsheet_filename(
     year: Union[int, str],
     observacoes: Optional[str] = None,
 ) -> str:
-    """Monta o nome amigável da planilha gerada: [Empresa]_[Modelo]_[Tipo]_[MM-AAAA].xlsx."""
+    """Monta o nome amigável da planilha gerada: [Modelo]_[Empresa]_[Tipo]_[MM-AAAA].xlsx."""
     empresa = sanitize_company_name(razao_social)
     modelo = resolve_modelo_planilha(tipo, observacoes)
     tipo_curto = resolve_tipo_curto(tipo)
     competencia = format_competencia_nome(month, year)
-    return f"{empresa}_{modelo}_{tipo_curto}_{competencia}.xlsx"
+    return f"{modelo}_{empresa}_{tipo_curto}_{competencia}.xlsx"
 

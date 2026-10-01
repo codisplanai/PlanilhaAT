@@ -75,7 +75,7 @@ test('formatCompetenciaNome: formata mês com dois dígitos e ano com 4', () => 
   assert.equal(formatCompetenciaNome(12, 2025), '12-2025');
 });
 
-test('buildSpreadsheetFilename: gera o nome completo no padrão [Empresa]_[Modelo]_[Tipo]_[MM-AAAA].xlsx', () => {
+test('buildSpreadsheetFilename: gera o nome completo no padrão [Modelo]_[Empresa]_[Tipo]_[MM-AAAA].xlsx', () => {
   const filename = buildSpreadsheetFilename({
     razaoSocial: 'PASSO A PASSO CALCADOS LTDA',
     tipo: 'antecipacao_parcial',
@@ -83,7 +83,7 @@ test('buildSpreadsheetFilename: gera o nome completo no padrão [Empresa]_[Model
     year: 2026,
     observacoes: 'Modelo oficial pré-definido de Antecipação Parcial (RP-153)',
   });
-  assert.equal(filename, 'PassoAPasso_RP-153_Parcial_09-2026.xlsx');
+  assert.equal(filename, 'RP-153_PassoAPasso_Parcial_09-2026.xlsx');
 });
 
 test('buildSpreadsheetFilename: gera nome curto e correto para DIFAL', () => {
@@ -93,7 +93,7 @@ test('buildSpreadsheetFilename: gera nome curto e correto para DIFAL', () => {
     month: 8,
     year: 2026,
   });
-  assert.equal(filename, 'AutoPecasBrasil_RP-158_DIFAL_08-2026.xlsx');
+  assert.equal(filename, 'RP-158_AutoPecasBrasil_DIFAL_08-2026.xlsx');
 });
 
 test('buildSpreadsheetFilename: gera nome curto e correto para AT Antecipado', () => {
@@ -103,13 +103,13 @@ test('buildSpreadsheetFilename: gera nome curto e correto para AT Antecipado', (
     month: 10,
     year: 2026,
   });
-  assert.equal(filename, 'ComercialSilva_RP-151_AT-Antecipado_10-2026.xlsx');
+  assert.equal(filename, 'RP-151_ComercialSilva_AT-Antecipado_10-2026.xlsx');
 });
 
 test('buildZipFilenameFromArtifacts: gera nome amigável para o arquivo zip quando houver artefatos', () => {
   const artifacts = [
-    { filename: 'PassoAPasso_RP-153_Parcial_09-2026.xlsx' },
-    { filename: 'PassoAPasso_RP-158_DIFAL_09-2026.xlsx' },
+    { filename: 'RP-153_PassoAPasso_Parcial_09-2026.xlsx' },
+    { filename: 'RP-158_PassoAPasso_DIFAL_09-2026.xlsx' },
   ];
   assert.equal(
     buildZipFilenameFromArtifacts(artifacts, '123456789'),
