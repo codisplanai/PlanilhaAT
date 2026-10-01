@@ -637,13 +637,13 @@ git add docs/superpowers/plans/2026-10-01-limite-aori-aliquotas-iguais.md
 git commit -m "docs: plano da dispensa do limite de 10% da A.ORI com aliquotas iguais"
 ```
 
-- [ ] **Step 3: Push:**
+- [x] **Step 3: Push:**
 
 ```
 git push -u origin fix/limite-aori-aliquotas-iguais
 ```
 
-- [ ] **Step 4: Criar o corpo do PR** num arquivo UTF-8 **fora do repositório** (por exemplo, numa pasta temporária), com este conteúdo exato. O PR Validation exige as seções `## Descrição` e `## Branch`.
+- [x] **Step 4: Criar o corpo do PR** num arquivo UTF-8 **fora do repositório** (por exemplo, numa pasta temporária), com este conteúdo exato. O PR Validation exige as seções `## Descrição` e `## Branch`.
 
 ```markdown
 ## Descrição
@@ -675,13 +675,13 @@ Testes: `npm test` com 78 passando; `npm run lint` e `npm run build` sem erros.
 Não se aplica (PR para `develop`).
 ```
 
-- [ ] **Step 5: Abrir o PR.** Troque `<caminho-do-arquivo>` pelo arquivo do Step 4:
+- [x] **Step 5: Abrir o PR.** Troque `<caminho-do-arquivo>` pelo arquivo do Step 4:
 
 ```
 gh pr create --base develop --head fix/limite-aori-aliquotas-iguais --title "fix(fiscal): dispensar limite de 10% da A.ORI com alíquotas iguais na Parcial" --body-file <caminho-do-arquivo>
 ```
 
-- [ ] **Step 6: Aguardar as verificações do PR:**
+- [x] **Step 6: Aguardar as verificações do PR:**
 
 ```
 gh pr checks <numero-do-pr> --watch
@@ -689,7 +689,7 @@ gh pr checks <numero-do-pr> --watch
 
 Esperado: "PR title, description and branch", "Backend syntax and indentation" e "Frontend lint and typecheck - no build" com `pass`. Depois apague o arquivo do corpo do PR.
 
-- [ ] **Step 7: Relatório ao usuário.** Inclua:
+- [x] **Step 7: Relatório ao usuário.** Inclua:
   - o número do PR;
   - os resultados de `npm test`, lint e build;
   - o `git diff --stat`;
