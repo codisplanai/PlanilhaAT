@@ -220,6 +220,7 @@ interface Group {
   cfopResolutions: CfopResolution[];
   aOriLimited: boolean;
   aOriFixed: boolean;
+  aOriLimitWaived: boolean;
   aOriOriginal: number;
   mvaPolicyGroup: 'especial' | 'demais' | '';
   mvaPolicySource: string;
@@ -499,6 +500,7 @@ export async function processFiscalLocally(
         context,
         destination,
         convenio?.applied ? Number(convenio.aOri) : item.aOri,
+        effectiveADst,
         effectiveRate.origem,
       );
       const aOri = originRate.aOri;
@@ -543,6 +545,7 @@ export async function processFiscalLocally(
         cfopResolutions: [],
         aOriLimited: false,
         aOriFixed: false,
+        aOriLimitWaived: false,
         aOriOriginal: originalAOri,
         mvaPolicyGroup,
         mvaPolicySource,
@@ -558,6 +561,7 @@ export async function processFiscalLocally(
       group.cfopResolutions.push(cfopResolution);
       group.aOriLimited ||= originRate.limited;
       group.aOriFixed ||= originRate.fixed;
+      group.aOriLimitWaived ||= originRate.limitWaived;
       group.convenio5291Manual ||= Boolean(
         convenio?.applied && convenio.classification.status === 'revisar',
       );
@@ -689,6 +693,7 @@ export async function processFiscalLocally(
           detalhe_cfop: cfopDetails.join('; '),
           a_ori_limitada: group.aOriLimited,
           a_ori_fixa_parcial: group.aOriFixed,
+          a_ori_limite_dispensado: group.aOriLimitWaived,
           a_ori_original: String(group.aOriOriginal),
           convenio_52_91_aplicado: group.convenio5291Applied,
           convenio_52_91_decisao_manual: group.convenio5291Manual,
