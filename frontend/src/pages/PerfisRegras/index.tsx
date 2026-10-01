@@ -596,7 +596,7 @@ export const PerfisRegrasPage: React.FC = () => {
                     open={openSections.limiteAori}
                     onOpenChange={(open) => setSectionOpen('limiteAori', open)}
                     title="Limitar Alíquota de Origem (A.ORI) a 10%"
-                    subtitle="Aplica o limite somente a itens calculados sob Redução por Produto ou Termo de Acordo."
+                    subtitle="Aplica o limite somente a itens calculados sob Redução por Produto ou Termo de Acordo. Na Antecipação Parcial, não se aplica quando a A.ORI do XML é igual à A.DST."
                     summary={
                       limitarAori
                         ? <Badge variant="success" size="sm">Ativo</Badge>
@@ -911,7 +911,7 @@ export const PerfisRegrasPage: React.FC = () => {
                 Limitar Alíquota de Origem (A.ORI) a 10% em Reduções e Termo de Acordo
               </span>
               <span className="text-slate-500 leading-relaxed block">
-                Quando ativo, alíquotas interestaduais superiores a 10% (como 12%) são automaticamente limitadas a 10% nos cálculos fiscais e no preenchimento da planilha para itens de notas sob Redução ou Termo de Acordo.
+                Quando ativo, alíquotas interestaduais superiores a 10% (como 12%) são automaticamente limitadas a 10% nos cálculos fiscais e no preenchimento da planilha para itens de notas sob Redução ou Termo de Acordo. Exceção: na Antecipação Parcial, se a alíquota do XML for igual à de destino (ex.: 12% e 12%), o limite não é aplicado, o imposto fica zero e o item pode ser excluído pela regra de alíquotas iguais.
               </span>
             </label>
           </div>

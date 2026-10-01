@@ -319,14 +319,22 @@ export interface OriginRateResolution {
   aOri: number;
   limited: boolean;
   fixed: boolean;
+  limitWaived: boolean;
 }
 
 const REDUCED_RATE_ORIGINS = ['reducao_produto:', 'excecao:', 'termo_acordo:'];
+
+// Mesma tolerância para dispensar o limite de 10% e para excluir itens com
+// alíquotas iguais: as duas regras precisam concordar sobre o que é "igual".
+function sameRate(a: number, b: number): boolean {
+  return Math.abs(a - b) <= 1e-10;
+}
 
 export function resolveOriginRate(
   context: LocalProcessingContext,
   destination: TipoPlanilha,
   aOri: number,
+  aDst: number,
   rateOrigin: string,
 ): OriginRateResolution {
   // Acordo com a SEFAZ: a empresa credita sempre a alíquota fixa na Parcial,
@@ -338,15 +346,20 @@ export function resolveOriginRate(
     && PARTIAL_DESTINATIONS.has(destination)
     && rateOrigin !== CONVENIO_52_91_RATE_ORIGIN
   ) {
-    return { aOri: Number(fixedRate), limited: false, fixed: true };
+    return { aOri: Number(fixedRate), limited: false, fixed: true, limitWaived: false };
   }
 
   const limitOrigin = context.perfil.configuracoes_extras.limitar_a_ori_reducoes === true;
   const reducedOrAgreement = REDUCED_RATE_ORIGINS.some((prefix) => rateOrigin.startsWith(prefix));
   if (limitOrigin && reducedOrAgreement && aOri > 0.10) {
-    return { aOri: 0.10, limited: true, fixed: false };
+    // Na Parcial prevalece o tratamento mais benéfico: com a A.ORI do XML igual
+    // à A.DST o imposto zera, e a regra de alíquotas iguais pode excluir o item.
+    if (PARTIAL_DESTINATIONS.has(destination) && sameRate(aOri, aDst)) {
+      return { aOri, limited: false, fixed: false, limitWaived: true };
+    }
+    return { aOri: 0.10, limited: true, fixed: false, limitWaived: false };
   }
-  return { aOri, limited: false, fixed: false };
+  return { aOri, limited: false, fixed: false, limitWaived: false };
 }
 
 export function evaluatePartialMerchandiseExclusion(
@@ -399,7 +412,7 @@ export function shouldExcludeEqualRates(
   aDst: number,
 ): { excluded: boolean; debito?: number; credito?: number; valorDevido?: number } {
   if (!PARTIAL_DESTINATIONS.has(destination) || !equalRatesPolicyEnabled(context)) return { excluded: false };
-  if (Math.abs(aOri - aDst) > 1e-10 || item.vTotal <= 0) return { excluded: false };
+  if (!sameRate(aOri, aDst) || item.vTotal <= 0) return { excluded: false };
 
   const base = item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo;
   const result = calculateTax(destination, {
