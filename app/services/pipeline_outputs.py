@@ -23,7 +23,7 @@ from app.models.solicitacao_saida import SolicitacaoSaida
 from app.models.template_xlsx import TemplateXlsx
 from app.services.excel.template_filler import TemplateFiller
 from app.services.local_files import atomic_write, read_bytes_if_exists, remove_file_if_exists
-from app.services.pipeline_helpers import build_header_info
+from app.services.pipeline_helpers import build_header_info, build_spreadsheet_filename
 from app.services.supabase_storage import SupabaseStorageService
 from app.services.templates_admin.template_manager import TemplateManager
 
@@ -268,8 +268,14 @@ class PipelineOutputService:
         header_info: Dict[str, Any],
         artifacts: GeneratedArtifacts,
     ) -> str:
-        filename = (
-            f"planilha_{empresa.cnpj}_{destination}_{solicitacao.id[:8]}.xlsx"
+        month = header_info.get("mes") or (solicitacao.periodo_inicio.month if solicitacao.periodo_inicio else 1)
+        year = header_info.get("ano") or (solicitacao.periodo_inicio.year if solicitacao.periodo_inicio else 2026)
+        filename = build_spreadsheet_filename(
+            razao_social=empresa.razao_social,
+            tipo=destination,
+            month=month,
+            year=year,
+            observacoes=template.observacoes if template else None,
         )
         output_path = os.path.join(settings.OUTPUTS_DIR, filename)
         TemplateFiller.fill_template(
