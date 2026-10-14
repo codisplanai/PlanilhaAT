@@ -172,3 +172,48 @@ def test_template_filler_populates_difal_cleanly(tmp_path):
     orig_wb = openpyxl.load_workbook(TEMPLATE_PATH, data_only=False)
     orig_fmap = FormulaGuard.extract_formula_map(orig_wb)
     FormulaGuard.verify_wb_integrity(orig_fmap, out_wb)
+
+
+def test_template_filler_populates_difal_simples_nacional(tmp_path):
+    output_xlsx = str(tmp_path / "test_out_difal_simples.xlsx")
+    rows_data = [
+        {
+            "numero_nota": "999001",
+            "data_entrada": date(2026, 7, 5),
+            "data_emissao": date(2026, 7, 2),
+            "v_total": Decimal("1000.00"),
+            "base_calculo": Decimal("1000.00"),
+            "ipi_despesas": Decimal("0.00"),
+            "aliq_simples": "S",
+            "a_dst": Decimal("20.50"),
+            "a_ori": Decimal("7.00"),
+            "debito": Decimal("257.86"),
+            "credito": Decimal("88.05"),
+            "valor_devido": Decimal("169.81"),
+        }
+    ]
+
+    header_info = {
+        "razao_social": "EMPRESA SIMPLES DIFAL LTDA",
+        "cnpj": "12345678000195",
+        "ie": "89413195",
+        "competencia": "07/2026",
+        "mes": 7,
+    }
+
+    TemplateFiller.fill_template(
+        template_path=TEMPLATE_PATH,
+        mapping=DEFAULT_DIFAL_MAPPING,
+        rows_data=rows_data,
+        output_path=output_xlsx,
+        header_info=header_info,
+    )
+
+    out_wb = openpyxl.load_workbook(output_xlsx, data_only=False)
+    ws_julho = out_wb["JULHO"]
+    assert ws_julho["D4"].value == "999001"
+    assert ws_julho["G4"].value == "S"
+    assert ws_julho["J4"].value == 7.00
+    orig_wb = openpyxl.load_workbook(TEMPLATE_PATH, data_only=False)
+    orig_fmap = FormulaGuard.extract_formula_map(orig_wb)
+    FormulaGuard.verify_wb_integrity(orig_fmap, out_wb)

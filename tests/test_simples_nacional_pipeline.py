@@ -238,3 +238,91 @@ def test_pipeline_routes_simples_nacional_and_applies_20_percent(
     assert n.credito == Decimal("120.00")
     assert n.valor_devido == Decimal("48.00")
 
+
+def test_pipeline_e2e_fornecedor_simples_sem_destaque_aplica_aliquota_interestadual(
+    db_session, cenario_janeiro, monkeypatch
+):
+    from datetime import datetime
+    from app.models.empresa import Empresa
+    from app.models.nota_fiscal import NotaFiscalProcessada
+    from app.models.regra_cfop import RegraCfopDestino
+    from app.services.extraction.base import ExtractedItemNF, ExtractedNFData
+    from app.services.pipeline_service import ProcessingPipelineService
+
+    solicitacao = cenario_janeiro(tipos=("antecipacao_parcial",))
+    empresa = db_session.query(Empresa).filter_by(id=solicitacao.empresa_id).one()
+    empresa.optante_simples_nacional = False
+    empresa.uf = "BA"
+    db_session.commit()
+
+    perfil_id = empresa.perfil_regras_id
+    db_session.add(
+        RegraCfopDestino(perfil_regras_id=perfil_id, cfop_sufixo="102", destino="antecipacao_parcial")
+    )
+    db_session.commit()
+
+    # Fornecedor de SP optante pelo Simples Nacional sem destaque de ICMS na nota (a_ori = 0.00)
+    item = ExtractedItemNF(
+        item_numero=1,
+        ncm="84713012",
+        cfop="6102",
+        descricao="Equipamento de Informatica",
+        descricao_confiavel=True,
+        v_item=Decimal("2000.00"),
+        v_total=Decimal("2000.00"),
+        base_calculo=Decimal("2000.00"),
+        ipi_despesas=Decimal("0.00"),
+        a_ori=Decimal("0.00"),
+        origem_mercadoria="0",
+        csosn="102",
+    )
+    nf = ExtractedNFData(
+        numero_nota="888",
+        serie="1",
+        chave_acesso="1" * 44,
+        cnpj_emitente="11222333000144",
+        uf_emitente="SP",
+        cnpj_destinatario=empresa.cnpj,
+        uf_destinatario=empresa.uf,
+        data_emissao=datetime(2026, 1, 20),
+        v_total_nota=Decimal("2000.00"),
+        v_bc_nota=Decimal("2000.00"),
+        itens=[item],
+        raw_metadata={"crt": "1", "fornecedor_simples_nacional": True},
+    )
+
+    pipeline = ProcessingPipelineService(db_session)
+    monkeypatch.setattr(
+        pipeline.source_loader,
+        "load",
+        lambda **kw: type("Sources", (), {
+            "notes": [("dummy.xml", nf)],
+            "entry_records": {},
+            "sped_company_info": None,
+            "ignored_notes": [],
+        })(),
+    )
+
+    pipeline.process_solicitacao(
+        solicitacao.id, xml_files_bytes=[("dummy.xml", b"<xml></xml>")]
+    )
+
+    db_session.refresh(solicitacao)
+    notas = (
+        db_session.query(NotaFiscalProcessada)
+        .filter_by(solicitacao_id=solicitacao.id)
+        .all()
+    )
+    assert len(notas) == 1
+    n = notas[0]
+
+    # SP -> BA pela tabela interestadual = 7%
+    assert n.a_ori == Decimal("0.07")
+    assert n.metadados_extras.get("a_ori_inferida_simples") is True
+    # Crédito = 2000 * 7% = 140.00
+    assert n.credito == Decimal("140.00")
+    # Débito = 2000 * 18% = 360.00 (alíquota padrão do cenário)
+    assert n.debito == Decimal("360.00")
+    # Valor devido = 360.00 - 140.00 = 220.00
+    assert n.valor_devido == Decimal("220.00")
+
