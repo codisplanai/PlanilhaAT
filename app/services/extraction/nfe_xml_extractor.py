@@ -214,17 +214,19 @@ class NFeXMLExtractor(BaseNFEExtractor):
             # A.ORI em decimal (ex: 12.00% -> 0.1200)
             a_ori = p_icms_item / Decimal("100.0") if p_icms_item > 1 else p_icms_item
 
-            # IPI + Despesas do item
-            ipi_despesas = v_ipi + v_frete + v_seg + v_outro
+            # Despesas acessórias do item (frete, seguro e outros encargos)
+            v_despesas = v_frete + v_seg + v_outro
 
             # Valor Total do Item (V.Total daquele item)
             # V.Total = vProd + vFrete + vSeg + vOutro + vIPI - vDesc
-            v_total_item = v_prod + ipi_despesas - v_desc
+            v_total_item = v_prod + v_despesas + v_ipi - v_desc
 
             # A base total da capa nunca pode ser atribuída arbitrariamente a um
             # dos itens de uma NF-e com múltiplos produtos.
+            # Se a base do item for zero (ex: Simples Nacional ou CST 60),
+            # a base da mercadoria é apurada como v_total - v_ipi (frete/despesas integram a base de ICMS)
             if v_bc_item == Decimal("0.00"):
-                v_bc_item = v_total_item - ipi_despesas
+                v_bc_item = v_total_item - v_ipi
 
             itens.append(ExtractedItemNF(
                 item_numero=item_numero,
@@ -235,7 +237,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 v_item=v_prod,
                 v_total=v_total_item,
                 base_calculo=v_bc_item,
-                ipi_despesas=ipi_despesas,
+                ipi_despesas=v_ipi,
                 a_ori=a_ori,
                 v_icms=v_icms_item,
                 origem_mercadoria=origem_mercadoria,

@@ -150,7 +150,7 @@ class SpedFiscalExtractor:
                     v_item=current_c100["v_total_nota"],
                     v_total=current_c100["v_total_nota"],
                     base_calculo=current_c100["v_bc_nota"],
-                    ipi_despesas=current_c100["v_ipi_nota"] + current_c100["v_despesas_nota"],
+                    ipi_despesas=current_c100["v_ipi_nota"],
                     a_ori=Decimal("0.00"),
                     v_icms=current_c100["v_icms_nota"]
                 ))
@@ -386,16 +386,11 @@ class SpedFiscalExtractor:
                 # Determinação correta de Base de Cálculo e IPI
                 if vl_bc_icms > Decimal("0.00"):
                     bc_item = vl_bc_icms
-                    if vl_ipi == Decimal("0.00") and v_total_item > vl_bc_icms:
-                        ipi_despesas_item = v_total_item - vl_bc_icms
-                    else:
-                        ipi_despesas_item = vl_ipi
                 elif vl_bc_pis > Decimal("0.00") and vl_bc_pis < v_total_item:
                     bc_item = vl_bc_pis
-                    ipi_despesas_item = v_total_item - vl_bc_pis
                 else:
                     bc_item = v_total_item - vl_ipi
-                    ipi_despesas_item = vl_ipi
+                ipi_despesas_item = vl_ipi
 
                 current_itens.append(ExtractedItemNF(
                     item_numero=num_item,
