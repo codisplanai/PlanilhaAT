@@ -116,6 +116,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     const vFrete = number(prod, 'vFrete');
     const vSeg = number(prod, 'vSeg');
     const vOutro = number(prod, 'vOutro');
+    const vDesc = number(prod, 'vDesc');
     const vDespesas = vFrete + vSeg + vOutro;
     const ipiDespesas = vIpi;
     const vTotal = vProd + vDespesas + vIpi - vDesc;
