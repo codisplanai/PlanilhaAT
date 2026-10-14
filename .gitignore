@@ -38,4 +38,5 @@ storage/templates/template_*
 .DS_Store
 Thumbs.db
 .idea/
+.superpowers/
 .vscode/
