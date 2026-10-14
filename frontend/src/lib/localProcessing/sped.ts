@@ -134,7 +134,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         baseCalculo: current.vBcNota,
         baseCalculoXml: current.vBcNota,
         baseSemIpi: Math.max(0, current.vTotalNota - current.vIpiNota),
-        ipiDespesas: current.vIpiNota + current.vDespesasNota,
+        ipiDespesas: current.vIpiNota,
         vIpi: current.vIpiNota,
         aOri: 0,
         vIcms: current.vIcmsNota,
@@ -274,17 +274,14 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       if (vTotal <= 0 && vItem > 0) vTotal = vItem;
 
       let baseCalculo: number;
-      let ipiDespesas: number;
       if (vBcIcms > 0) {
         baseCalculo = vBcIcms;
-        ipiDespesas = vIpi === 0 && vTotal > vBcIcms ? vTotal - vBcIcms : vIpi;
       } else if (vBcPis > 0 && vBcPis < vTotal) {
         baseCalculo = vBcPis;
-        ipiDespesas = vTotal - vBcPis;
       } else {
         baseCalculo = vTotal - vIpi;
-        ipiDespesas = vIpi;
       }
+      const ipiDespesas = vIpi;
 
       currentItems.push({
         itemNumero: Number.isFinite(rawItem) ? rawItem : currentItems.length + 1,
@@ -323,7 +320,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vOpr,
         baseCalculo: vBcIcms > 0 ? vBcIcms : vOpr - vIpi,
         vIcms,
-        vIpi: vBcIcms > 0 && vIpi === 0 && vOpr > vBcIcms ? vOpr - vBcIcms : vIpi,
+        vIpi,
         cstIcms,
       });
     }

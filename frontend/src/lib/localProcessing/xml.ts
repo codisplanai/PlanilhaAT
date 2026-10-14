@@ -116,12 +116,12 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     const vFrete = number(prod, 'vFrete');
     const vSeg = number(prod, 'vSeg');
     const vOutro = number(prod, 'vOutro');
-    const vDesc = number(prod, 'vDesc');
-    const ipiDespesas = vIpi + vFrete + vSeg + vOutro;
-    const vTotal = vProd + ipiDespesas - vDesc;
+    const vDespesas = vFrete + vSeg + vOutro;
+    const ipiDespesas = vIpi;
+    const vTotal = vProd + vDespesas + vIpi - vDesc;
     const baseCalculoXml = baseCalculo;
-    const baseSemIpi = Math.max(0, vProd + vFrete + vSeg + vOutro - vDesc);
-    if (baseCalculo <= 0) baseCalculo = Math.max(0, vTotal - ipiDespesas);
+    const baseSemIpi = Math.max(0, vProd + vDespesas - vDesc);
+    if (baseCalculo <= 0) baseCalculo = Math.max(0, vTotal - vIpi);
 
     const rawItem = det.getAttribute('nItem') ?? String(itens.length + 1);
     const parsedItem = Number.parseInt(rawItem, 10);

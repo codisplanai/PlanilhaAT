@@ -605,9 +605,6 @@ export async function processFiscalLocally(
       );
 
       if (base <= 0) base = vTotal - ipi;
-      else if (!group.convenio5291Applied && !reducedBaseEvidence && base > 0 && vTotal > base && ipi === 0) {
-        ipi = vTotal - base;
-      }
 
       if (vTotal <= 0) {
         ignored.push(ignoredNote(note, `Valor total zerado ou sem valor comercial (R$ ${vTotal.toFixed(2)}).`));
