@@ -123,7 +123,7 @@ def test_modelo_oficial_predefinido_antecipacao_parcial(db_session, sample_xml_n
     assert ws["A4"].value == 1            # Sequencial
     assert str(ws["D4"].value) == "1234"  # N. Fiscal
     assert float(ws["E4"].value) == 5400.0 # V. Total
-    assert float(ws["G4"].value) == 400.0  # IPI + Despesas
+    assert float(ws["G4"].value) == 250.0  # IPI destacado (sem frete nem outras despesas)
     assert float(ws["H4"].value) == 20.5   # A. DST (20.5%)
     assert float(ws["I4"].value) == 12.0   # A. ORI (12% do XML)
 
