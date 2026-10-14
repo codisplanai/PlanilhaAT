@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from app.core.exceptions import ValidationException
 from app.services.extraction.base import ExtractedNFData, ExtractedItemNF, IBGE_UF_MAP
+from app.constants import CSOSNS_SIMPLES
 
 class SpedFiscalExtractor:
     """
@@ -109,12 +110,13 @@ class SpedFiscalExtractor:
         itens_cadastrados: Dict[str, Dict[str, str]] = {} # COD_ITEM -> {"ncm": ..., "descricao": ...}
 
         notas_extraidas: List[ExtractedNFData] = []
+        cnpjs_simples: set[str] = set()
         current_c100: Optional[Dict[str, Any]] = None
         current_itens: List[ExtractedItemNF] = []
         current_c190: List[Dict[str, Any]] = []
 
         def _finalizar_c100():
-            nonlocal current_c100, current_itens, current_c190
+            nonlocal current_c100, current_itens, current_c190, cnpjs_simples
             if not current_c100:
                 return
 
@@ -168,6 +170,14 @@ class SpedFiscalExtractor:
             dt_emissao = current_c100["data_emissao"]
             dt_emissao_dt = datetime.combine(dt_emissao, datetime.min.time()) if isinstance(dt_emissao, date) else dt_emissao
 
+            is_simples = (
+                bool(current_c100.get("fornecedor_simples"))
+                or (bool(cnpj_emitente) and cnpj_emitente in cnpjs_simples)
+                or any(bool(it.csosn) for it in current_itens)
+            )
+            if is_simples and cnpj_emitente:
+                cnpjs_simples.add(cnpj_emitente)
+
             nf_data = ExtractedNFData(
                 chave_acesso=current_c100["chave_acesso"],
                 numero_nota=current_c100["numero_nota"],
@@ -188,7 +198,8 @@ class SpedFiscalExtractor:
                     "qtd_itens": len(current_itens),
                     "dest_ie": dest_ie,
                     "dest_nome": dest_nome,
-                    "emit_nome": nome_emitente
+                    "emit_nome": nome_emitente,
+                    "fornecedor_simples_nacional": is_simples,
                 },
                 origem_extracao="sped"
             )
@@ -335,12 +346,34 @@ class SpedFiscalExtractor:
 
                 vl_item = self._parse_sped_decimal(fields[7] if len(fields) > 7 else "0.00")
                 vl_desc = self._parse_sped_decimal(fields[8] if len(fields) > 8 else "0.00")
+                cst_icms = fields[10].strip() if len(fields) > 10 else ""
                 cfop = fields[11].strip() if len(fields) > 11 else ""
                 vl_bc_icms = self._parse_sped_decimal(fields[13] if len(fields) > 13 else "0.00")
                 aliq_icms = self._parse_sped_decimal(fields[14] if len(fields) > 14 else "0.00")
                 vl_icms = self._parse_sped_decimal(fields[15] if len(fields) > 15 else "0.00")
                 vl_ipi = self._parse_sped_decimal(fields[24] if len(fields) > 24 else "0.00")
                 vl_bc_pis = self._parse_sped_decimal(fields[26] if len(fields) > 26 else "0.00")
+
+                origem_mercadoria = None
+                csosn = None
+                if len(cst_icms) == 4:
+                    origem_mercadoria = cst_icms[0]
+                    candidate_csosn = cst_icms[1:]
+                    if candidate_csosn in CSOSNS_SIMPLES:
+                        csosn = candidate_csosn
+                elif len(cst_icms) == 3:
+                    if cst_icms in CSOSNS_SIMPLES:
+                        csosn = cst_icms
+                        origem_mercadoria = cst_icms[0] if cst_icms[0] in {"1", "2", "3", "8"} else "0"
+                    else:
+                        origem_mercadoria = cst_icms[0]
+
+                if csosn:
+                    current_c100["fornecedor_simples"] = True
+                    part_c100 = participantes.get(current_c100.get("cod_part", ""), {})
+                    part_cnpj = part_c100.get("cnpj", "")
+                    if part_cnpj:
+                        cnpjs_simples.add(part_cnpj)
 
                 # Alíquota de origem (ex: 12.00% -> 0.1200)
                 a_ori = aliq_icms / Decimal("100.0") if aliq_icms > 1 else aliq_icms
@@ -375,7 +408,9 @@ class SpedFiscalExtractor:
                     base_calculo=bc_item,
                     ipi_despesas=ipi_despesas_item,
                     a_ori=a_ori,
-                    v_icms=vl_icms
+                    v_icms=vl_icms,
+                    origem_mercadoria=origem_mercadoria,
+                    csosn=csosn,
                 ))
 
             # 6. Registro C190: Registro Analítico (Fallback)
@@ -404,6 +439,11 @@ class SpedFiscalExtractor:
 
         # Finalizar última nota fiscal se houver
         _finalizar_c100()
+
+        # Propagação retroativa do Simples Nacional por CNPJ no lote SPED
+        for nf in notas_extraidas:
+            if (nf.cnpj_emitente and nf.cnpj_emitente in cnpjs_simples) or any(bool(it.csosn) for it in nf.itens):
+                nf.raw_metadata["fornecedor_simples_nacional"] = True
 
         if not notas_extraidas:
             raise ValidationException(

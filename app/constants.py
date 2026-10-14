@@ -44,6 +44,10 @@ UFS_BRASIL: Final = frozenset(
     }
 )
 
+CSOSNS_SIMPLES: Final = frozenset(
+    {"101", "102", "103", "201", "202", "203", "300", "400", "500", "900"}
+)
+
 ROLE_ADMIN: Final = "admin"
 ROLE_OPERADOR: Final = "operador"
 CARGO_POR_ROLE: Final = {

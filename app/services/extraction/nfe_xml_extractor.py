@@ -174,11 +174,25 @@ class NFeXMLExtractor(BaseNFEExtractor):
             v_bc_item = Decimal("0.00")
             p_icms_item = Decimal("0.00")
             v_icms_item = Decimal("0.00")
+            origem_mercadoria = None
+            csosn_item = None
             icms_elem = self._find_elem(imposto, "ICMS")
             
             if icms_elem is not None:
                 for icms_group in icms_elem:
-                    # Pode ser ICMS00, ICMS10, ICMS20, ICMS70, ICMS90, ICMSSN101, etc.
+                    group_tag = self._strip_tag(icms_group.tag)
+                    # Origem da mercadoria (dígito 0 a 8)
+                    orig_val = self._get_text(icms_group, "orig")
+                    if orig_val:
+                        origem_mercadoria = orig_val.strip()
+
+                    # CSOSN para Simples Nacional
+                    csosn_val = self._get_text(icms_group, "CSOSN")
+                    if csosn_val:
+                        csosn_item = csosn_val.strip()
+                    elif group_tag.startswith("ICMSSN"):
+                        csosn_item = group_tag.replace("ICMSSN", "").strip()
+
                     # Base de cálculo
                     bc_val = self._get_decimal(icms_group, "vBC")
                     if bc_val > 0:
@@ -223,7 +237,9 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 base_calculo=v_bc_item,
                 ipi_despesas=ipi_despesas,
                 a_ori=a_ori,
-                v_icms=v_icms_item
+                v_icms=v_icms_item,
+                origem_mercadoria=origem_mercadoria,
+                csosn=csosn_item,
             ))
 
         # Se houver discrepância e houver apenas 1 item, ajustar v_total_item com v_total_nota
@@ -233,6 +249,8 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 itens[0].base_calculo = v_bc_nota
             elif itens[0].base_calculo <= 0:
                 itens[0].base_calculo = v_total_nota - itens[0].ipi_despesas
+
+        fornecedor_simples = crt_emitente in ("1", "2") or any(bool(it.csosn) for it in itens)
 
         return ExtractedNFData(
             chave_acesso=chave_acesso,
@@ -248,5 +266,10 @@ class NFeXMLExtractor(BaseNFEExtractor):
             v_bc_nota=v_bc_nota,
             v_icms_nota=v_icms_nota,
             itens=itens,
-            raw_metadata={"qtd_itens": len(itens), "crt": crt_emitente, "emit_nome": x_nome_emit}
+            raw_metadata={
+                "qtd_itens": len(itens),
+                "crt": crt_emitente,
+                "emit_nome": x_nome_emit,
+                "fornecedor_simples_nacional": fornecedor_simples,
+            }
         )

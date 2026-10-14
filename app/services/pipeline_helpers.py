@@ -62,6 +62,9 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
     if "crt" in nf_xml.raw_metadata:
         nf_sped.raw_metadata["crt"] = nf_xml.raw_metadata["crt"]
 
+    if "fornecedor_simples_nacional" in nf_xml.raw_metadata:
+        nf_sped.raw_metadata["fornecedor_simples_nacional"] = nf_xml.raw_metadata["fornecedor_simples_nacional"]
+
     if "emit_nome" in nf_xml.raw_metadata and not nf_sped.raw_metadata.get("emit_nome"):
         nf_sped.raw_metadata["emit_nome"] = nf_xml.raw_metadata["emit_nome"]
 

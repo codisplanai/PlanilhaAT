@@ -27,6 +27,8 @@ class ExtractedItemNF(BaseModel):
     ipi_despesas: Decimal # IPI + Frete + Seguro + Outras despesas acessórias
     a_ori: Decimal        # Alíquota de origem extraída do XML ou SPED (pICMS / ALIQ_ICMS), ex: 0.12 para 12%
     v_icms: Decimal = Decimal("0.00")  # Valor do ICMS destacado (crédito) extraído do documento/item
+    origem_mercadoria: Optional[str] = None  # Dígito 0 a 8 indicativo da procedência (nacional, importada, etc.)
+    csosn: Optional[str] = None  # Código de Situação da Operação no Simples Nacional (ex: 101, 102, 500)
 
 class ExtractedNFData(BaseModel):
     chave_acesso: str = ""
