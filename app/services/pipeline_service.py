@@ -593,8 +593,6 @@ class ProcessingPipelineService:
                     # Se a base de cálculo for zero ou não declarada no grupo (ex: CST 60), a base é a mercadoria (v_total - ipi_despesas)
                     if v_bc_grupo <= Decimal("0.00"):
                         v_bc_grupo = v_total_grupo - ipi_despesas_grupo
-                    elif v_bc_grupo > Decimal("0.00") and v_total_grupo > v_bc_grupo and ipi_despesas_grupo == Decimal("0.00"):
-                        ipi_despesas_grupo = v_total_grupo - v_bc_grupo
 
                     ncm_grupo = itens_objs[0].ncm if itens_objs else ""
                     cfop_grupo = itens_objs[0].cfop if itens_objs else ""

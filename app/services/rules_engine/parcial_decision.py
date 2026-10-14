@@ -130,8 +130,6 @@ class ParcialExclusionService:
         v_ipi = ipi_despesas
         if v_bc <= Decimal("0.00"):
             v_bc = v_tot - v_ipi
-        elif v_bc > Decimal("0.00") and v_tot > v_bc and v_ipi == Decimal("0.00"):
-            v_ipi = v_tot - v_bc
         return v_tot, v_bc, v_ipi
 
     def avaliar_mercadoria(
