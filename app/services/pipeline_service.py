@@ -18,6 +18,7 @@ from app.services.extraction.data_entrada_matcher import (
 )
 from app.services.rules_engine.aliquota_resolver import AliquotaResolver, ResolucaoAliquota
 from app.services.rules_engine.cfop_resolver import CfopResolver, ResolucaoCfop
+from app.services.rules_engine.interstate_rate_resolver import InterstateRateResolver
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.rules_engine.revenda_antecipacao_policy import RevendaAntecipacaoTributariaPolicy
 from app.services.rules_engine.parcial_decision import ParcialExclusionService, DESTINOS_PARCIAL
@@ -272,6 +273,14 @@ class ProcessingPipelineService:
                         planilha_records=planilha_records,
                     )
 
+                is_operacao_interestadual = bool(uf_fornecedor and uf_empresa_dest and uf_fornecedor != uf_empresa_dest)
+                crt_fornecedor = (nf_data.raw_metadata.get("crt") or "").strip()
+                is_fornecedor_simples = (
+                    crt_fornecedor in ("1", "2")
+                    or bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
+                    or any(bool(it.csosn) for it in nf_data.itens)
+                )
+
                 grupos: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[Any]] = {}
                 resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[ResolucaoAliquota]] = {}
                 resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[ResolucaoCfop]] = {}
@@ -434,6 +443,31 @@ class ProcessingPipelineService:
                     a_dst = resolucao.aliquota
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
+                    a_ori_inferida_simples = False
+                    a_ori_original = item.a_ori
+
+                    # Se a operação for interestadual e o fornecedor for Simples Nacional
+                    # sem destaque de alíquota na nota (a_ori == 0), aplica a tabela interestadual.
+                    if is_fornecedor_simples and is_operacao_interestadual and (a_ori is None or a_ori == Decimal("0.00")):
+                        a_ori_inferida = InterstateRateResolver.resolve_rate(
+                            uf_origem=uf_fornecedor,
+                            uf_destino=uf_empresa_dest,
+                            origem_mercadoria=item.origem_mercadoria,
+                        )
+                        a_ori = a_ori_inferida
+                        a_ori_inferida_simples = True
+                        pct_val = a_ori_inferida * Decimal("100.0")
+                        pct_str = f"{pct_val:.0f}%" if pct_val % 1 == 0 else f"{pct_val:.2f}%"
+                        avisos_avaliacao.append({
+                            "numero_nota": nf_data.numero_nota,
+                            "serie": nf_data.serie,
+                            "item_numero": item.item_numero,
+                            "arquivo": filename,
+                            "aviso": (
+                                f"Item {item.item_numero}: Alíquota interestadual de {pct_str} aplicada automaticamente "
+                                f"(fornecedor optante pelo Simples Nacional sem destaque de ICMS na origem {uf_fornecedor} -> {uf_empresa_dest})."
+                            ),
+                        })
 
                     # Se o perfil tiver a regra ativada e o item se enquadrou em Redução por Produto ou Termo de Acordo:
                     # Alíquotas de origem superiores a 10% (ex: 12%) se limitam a 10% (0.10).
@@ -446,8 +480,7 @@ class ProcessingPipelineService:
                         or origem_resolucao.startswith("termo_acordo:")
                     )
                     a_ori_limitada = False
-                    a_ori_original = item.a_ori
-                    if limitar_a_ori_reducoes and teve_reducao_ou_acordo and item.a_ori > Decimal("0.10"):
+                    if limitar_a_ori_reducoes and teve_reducao_ou_acordo and a_ori > Decimal("0.10"):
                         a_ori = Decimal("0.10")
                         a_ori_limitada = True
 
@@ -488,7 +521,11 @@ class ProcessingPipelineService:
                         grupos[key] = []
                         resolucoes[key] = []
                         resolucoes_cfop[key] = []
-                        info_a_ori[key] = {"limitada": False, "original": str(item.a_ori)}
+                        info_a_ori[key] = {
+                            "limitada": False,
+                            "original": str(a_ori_original),
+                            "inferida_simples": a_ori_inferida_simples,
+                        }
                         info_mva_policy[key] = {
                             "grupo": mva_policy_group,
                             "fonte": mva_policy_source,
@@ -499,6 +536,8 @@ class ProcessingPipelineService:
                     if a_ori_limitada:
                         info_a_ori[key]["limitada"] = True
                         info_a_ori[key]["original"] = str(a_ori_original)
+                    if a_ori_inferida_simples:
+                        info_a_ori[key]["inferida_simples"] = True
 
                 if not grupos:
                     # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
@@ -576,11 +615,9 @@ class ProcessingPipelineService:
 
                     mva_grupo = Decimal("0.00")
                     aliq_simples = "N"
-                    fornecedor_simples = False
+                    fornecedor_simples = is_fornecedor_simples
                     if destino_grupo in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO):
                         if revenda_tributaria_config:
-                            crt_fornecedor = (nf_data.raw_metadata.get("crt") or "").strip()
-                            fornecedor_simples = crt_fornecedor in ("1", "2")
                             mva_grupo = RevendaAntecipacaoTributariaPolicy.resolve_mva(
                                 config=revenda_tributaria_config,
                                 grupo=mva_policy_group or "demais",
@@ -594,8 +631,7 @@ class ProcessingPipelineService:
                                 cest=itens_objs[0].cest if itens_objs else None,
                             )
                     elif destino_grupo == DIFAL:
-                        crt = (nf_data.raw_metadata.get("crt") or "").strip()
-                        if crt in ("1", "2"):
+                        if is_fornecedor_simples:
                             aliq_simples = "S"
                         else:
                             aliq_simples = "N"
@@ -701,6 +737,7 @@ class ProcessingPipelineService:
                             ),
                             "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
                             "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
+                            "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
                             **calc_result.detalhes
                         }
                     )
