@@ -15,7 +15,7 @@ import type {
 } from '../../types/solicitacao';
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import { calculateTax } from './calculations';
-import { isSimplesSupplier, resolveInterstateRate } from './interstateRate';
+import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate';
 import { sortRowsByEntryAndNumber } from './rowSorting';
 import {
   CONVENIO_52_91_RATE_ORIGIN,
@@ -492,12 +492,10 @@ export async function processFiscalLocally(
         : rate;
       // Somente fornecedor Simples sem pICMS em operação interestadual.
       // A taxa é referência de origem, e não um crédito destacado no XML.
-      const useInterstateReference = supplierIsSimples && item.aOri === 0
-        && Boolean(note.ufEmitente) && note.ufEmitente.toUpperCase() !== context.empresa.uf.toUpperCase()
-        && !convenio?.applied;
-      const referenceRate = useInterstateReference
-        ? resolveInterstateRate(note.ufEmitente, context.empresa.uf, item.origemMercadoria)
-        : item.aOri;
+      const reference = resolveSimpleOriginReference(
+        note, item, context.empresa.uf, Boolean(convenio?.applied),
+      );
+      const referenceRate = reference.rate;
       const originRate = resolveOriginRate(
         context,
         destination,
@@ -506,7 +504,7 @@ export async function processFiscalLocally(
         effectiveRate.origem,
       );
       const aOri = originRate.aOri;
-      const aOriInferredSimples = useInterstateReference && !originRate.fixed;
+      const aOriInferredSimples = reference.inferred && !originRate.fixed;
       if (aOriInferredSimples) {
         const ratePct = (referenceRate * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
         warnings.push({
