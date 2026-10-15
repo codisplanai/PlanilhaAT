@@ -173,6 +173,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
             # ICMS do item -> extrai Base de Cálculo (vBC), Alíquota de Origem (A.ORI / pICMS) e Valor do ICMS (vICMS)
             v_bc_item = Decimal("0.00")
             p_icms_item = Decimal("0.00")
+            p_cred_sn_item = Decimal("0.00")
             v_icms_item = Decimal("0.00")
             origem_mercadoria = None
             csosn_item = None
@@ -198,13 +199,10 @@ class NFeXMLExtractor(BaseNFEExtractor):
                     if bc_val > 0:
                         v_bc_item = bc_val
 
-                    # Alíquota de Origem (pICMS ou pCredSN para simples nacional)
-                    p_val = self._get_decimal(icms_group, "pICMS")
-                    if p_val == 0:
-                        p_val = self._get_decimal(icms_group, "pCredSN")
-                    
-                    if p_val > 0:
-                        p_icms_item = p_val
+                    # pCredSN é percentual de crédito do Simples, não pICMS:
+                    # guardar separadamente e resolver A.ORI pela tabela se não há pICMS.
+                    p_icms_item = self._get_decimal(icms_group, "pICMS")
+                    p_cred_sn_item = self._get_decimal(icms_group, "pCredSN")
 
                     v_icms_val = self._get_decimal(icms_group, "vICMS")
                     if v_icms_val > 0:
@@ -239,6 +237,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 base_calculo=v_bc_item,
                 ipi_despesas=v_ipi,
                 a_ori=a_ori,
+                p_cred_sn=p_cred_sn_item / Decimal("100.0") if p_cred_sn_item > 1 else p_cred_sn_item,
                 v_icms=v_icms_item,
                 origem_mercadoria=origem_mercadoria,
                 csosn=csosn_item,
