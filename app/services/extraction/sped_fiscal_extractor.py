@@ -364,7 +364,8 @@ class SpedFiscalExtractor:
                 elif len(cst_icms) == 3:
                     if cst_icms in CSOSNS_SIMPLES:
                         csosn = cst_icms
-                        origem_mercadoria = cst_icms[0] if cst_icms[0] in {"1", "2", "3", "8"} else "0"
+                        # CSOSN de 3 dígitos não inclui a origem da mercadoria.
+                        # Não inferir 4% a partir do primeiro dígito de "102".
                     else:
                         origem_mercadoria = cst_icms[0]
 
