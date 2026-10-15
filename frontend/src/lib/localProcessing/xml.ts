@@ -93,6 +93,8 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
 
     let baseCalculo = 0;
     let pIcms = 0;
+    let pCredSN = 0;
+    let csosn = '';
     let vIcms = 0;
     let origemMercadoria = '';
     let cstIcms = '';
@@ -100,12 +102,15 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     if (icms) {
       for (const group of Array.from(icms.children)) {
         origemMercadoria = text(group, 'orig');
-        cstIcms = text(group, 'CST') || text(group, 'CSOSN');
+        csosn = text(group, 'CSOSN');
+        cstIcms = text(group, 'CST') || csosn;
         const bc = number(group, 'vBC');
         if (bc > 0) baseCalculo = bc;
         pRedBC = number(group, 'pRedBC');
-        const p = number(group, 'pICMS') || number(group, 'pCredSN');
-        if (p > 0) pIcms = p;
+        // pCredSN é crédito transferível declarado, não é a alíquota
+        // interestadual pICMS. Mantê-los separados evita usar 2,5% como A.ORI.
+        pIcms = number(group, 'pICMS');
+        pCredSN = number(group, 'pCredSN');
         const vi = number(group, 'vICMS');
         if (vi > 0) vIcms = vi;
         break;
@@ -144,6 +149,8 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
       vIpi,
       aOri,
       vIcms,
+      pCredSN: pCredSN > 1 ? pCredSN / 100 : pCredSN,
+      csosn,
       origemMercadoria,
       cstIcms,
       pRedBC,
@@ -176,6 +183,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     rawMetadata: {
       qtd_itens: itens.length,
       crt: text(emit, 'CRT'),
+      fornecedor_simples_nacional: ['1', '2'].includes(text(emit, 'CRT')) || itens.some((item) => Boolean(item.csosn)),
       emit_nome: text(emit, 'xNome'),
     },
     itens,
