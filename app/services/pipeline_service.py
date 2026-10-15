@@ -276,7 +276,7 @@ class ProcessingPipelineService:
                 is_operacao_interestadual = bool(uf_fornecedor and uf_empresa_dest and uf_fornecedor != uf_empresa_dest)
                 crt_fornecedor = (nf_data.raw_metadata.get("crt") or "").strip()
                 is_fornecedor_simples = (
-                    crt_fornecedor in ("1", "2")
+                    crt_fornecedor in ("1", "2", "4")
                     or bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
                     or any(bool(it.csosn) for it in nf_data.itens)
                 )
