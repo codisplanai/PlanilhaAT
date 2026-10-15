@@ -15,6 +15,7 @@ import type {
 } from '../../types/solicitacao';
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import { calculateTax } from './calculations';
+import { isSimplesSupplier, resolveInterstateRate } from './interstateRate';
 import { sortRowsByEntryAndNumber } from './rowSorting';
 import {
   CONVENIO_52_91_RATE_ORIGIN,
@@ -224,6 +225,8 @@ interface Group {
   aOriFixed: boolean;
   aOriLimitWaived: boolean;
   aOriOriginal: number;
+  aOriInferredSimples: boolean;
+  pCredSN: number[];
   mvaPolicyGroup: 'especial' | 'demais' | '';
   mvaPolicySource: string;
   convenio5291Applied: boolean;
@@ -367,6 +370,7 @@ export async function processFiscalLocally(
     const paidEarly = hasEntrySource && !confirmedEntry;
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, sources.entryRecords) : null;
 
+    const supplierIsSimples = isSimplesSupplier(note);
     const groups = new Map<string, Group>();
     let classifiedItems = 0;
 
@@ -486,14 +490,51 @@ export async function processFiscalLocally(
           detalhe: `Convênio ICMS 52/91 — ${convenio.classification.motivo}`,
         }
         : rate;
+      // Somente fornecedor Simples sem pICMS em operação interestadual.
+      // A taxa é referência de origem, e não um crédito destacado no XML.
+      const useInterstateReference = supplierIsSimples && item.aOri === 0
+        && Boolean(note.ufEmitente) && note.ufEmitente.toUpperCase() !== context.empresa.uf.toUpperCase()
+        && !convenio?.applied;
+      const referenceRate = useInterstateReference
+        ? resolveInterstateRate(note.ufEmitente, context.empresa.uf, item.origemMercadoria)
+        : item.aOri;
       const originRate = resolveOriginRate(
         context,
         destination,
-        convenio?.applied ? Number(convenio.aOri) : item.aOri,
+        convenio?.applied ? Number(convenio.aOri) : referenceRate,
         effectiveADst,
         effectiveRate.origem,
       );
       const aOri = originRate.aOri;
+      const aOriInferredSimples = useInterstateReference && !originRate.fixed;
+      if (aOriInferredSimples) {
+        const ratePct = (referenceRate * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+        warnings.push({
+          numero_nota: note.numeroNota,
+          serie: note.serie,
+          item_numero: item.itemNumero,
+          arquivo: note.filename,
+          aviso: `Item ${item.itemNumero}: Alíquota interestadual de ${ratePct}% aplicada automaticamente (fornecedor optante pelo Simples Nacional sem pICMS: ${note.ufEmitente} -> ${context.empresa.uf}). Alíquota de referência, não crédito destacado.`,
+        });
+        diagnostic?.event('info', 'calculo', 'A.ORI de referência interestadual aplicada ao fornecedor Simples Nacional.', {
+          numeroNota: note.numeroNota,
+          itemNumero: item.itemNumero,
+          ufOrigem: note.ufEmitente,
+          ufDestino: context.empresa.uf,
+          origemMercadoria: item.origemMercadoria || 'não identificada',
+          pCredSN: item.pCredSN ?? null,
+          aliquotaReferencia: referenceRate,
+        });
+        if (!item.origemMercadoria) {
+          warnings.push({
+            numero_nota: note.numeroNota,
+            serie: note.serie,
+            item_numero: item.itemNumero,
+            arquivo: note.filename,
+            aviso: 'Origem da mercadoria não identificada: aplicada referência geográfica (7% ou 12%). Verifique eventual enquadramento na alíquota de 4%.',
+          });
+        }
+      }
 
       if (PARTIAL_DESTINATIONS.has(destination)) {
         const numeric = shouldExcludeEqualRates(context, destination, item, aOri, effectiveADst);
@@ -537,6 +578,8 @@ export async function processFiscalLocally(
         aOriFixed: false,
         aOriLimitWaived: false,
         aOriOriginal: originalAOri,
+        aOriInferredSimples: false,
+        pCredSN: [],
         mvaPolicyGroup,
         mvaPolicySource,
         convenio5291Applied: Boolean(convenio?.applied),
@@ -552,6 +595,8 @@ export async function processFiscalLocally(
       group.aOriLimited ||= originRate.limited;
       group.aOriFixed ||= originRate.fixed;
       group.aOriLimitWaived ||= originRate.limitWaived;
+      group.aOriInferredSimples ||= aOriInferredSimples;
+      if (item.pCredSN && !group.pCredSN.includes(item.pCredSN)) group.pCredSN.push(item.pCredSN);
       group.convenio5291Manual ||= Boolean(
         convenio?.applied && convenio.classification.status === 'revisar',
       );
@@ -609,8 +654,6 @@ export async function processFiscalLocally(
       const description = group.items.length === 1
         ? first?.descricao ?? ''
         : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
-      const crt = String(note.rawMetadata.crt ?? '').trim();
-      const supplierIsSimples = ['1', '2'].includes(crt);
       const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)
         ? revendaAntecipacaoConfig
           ? resolveRevendaMva(
@@ -621,7 +664,7 @@ export async function processFiscalLocally(
           )
           : resolveMva(context, ncm, group.aOri, first?.cest)
         : 0;
-      const aliqSimples = group.destination === 'difal' && ['1', '2'].includes(crt) ? 'S' : 'N';
+      const aliqSimples = group.destination === 'difal' && supplierIsSimples ? 'S' : 'N';
 
       const calculation = calculateTax(group.destination, {
         vTotal,
@@ -670,9 +713,7 @@ export async function processFiscalLocally(
           mva: String(mva),
           mva_grupo: group.mvaPolicyGroup || null,
           mva_fonte: group.mvaPolicySource || null,
-          fornecedor_simples_nacional: TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)
-            ? supplierIsSimples
-            : null,
+          fornecedor_simples_nacional: supplierIsSimples,
           aliq_simples: aliqSimples,
           origem_a_dst: rateOrigins,
           detalhe_a_dst: rateDetails.join('; '),
@@ -682,6 +723,8 @@ export async function processFiscalLocally(
           a_ori_fixa_parcial: group.aOriFixed,
           a_ori_limite_dispensado: group.aOriLimitWaived,
           a_ori_original: String(group.aOriOriginal),
+          a_ori_inferida_simples: group.aOriInferredSimples,
+          p_cred_sn: group.pCredSN.length ? group.pCredSN : null,
           convenio_52_91_aplicado: group.convenio5291Applied,
           convenio_52_91_decisao_manual: group.convenio5291Manual,
           convenio_52_91_motivo: group.convenio5291Motivos.join('; ') || null,
