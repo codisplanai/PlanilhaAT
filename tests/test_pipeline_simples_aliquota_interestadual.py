@@ -19,10 +19,12 @@ def _build_nfe_xml(
     orig: str,
     csosn: str,
     p_cred: str = "0.00",
+    p_icms: str = "0.00",
     cfop: str = "6102",
     v_prod: str = "1000.00",
 ) -> bytes:
     p_cred_tag = f"<pCredSN>{p_cred}</pCredSN>" if Decimal(p_cred) > 0 else ""
+    p_icms_tag = f"<pICMS>{p_icms}</pICMS>" if Decimal(p_icms) > 0 else ""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
     <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
       <NFe>
@@ -67,6 +69,7 @@ def _build_nfe_xml(
                   <orig>{orig}</orig>
                   <CSOSN>{csosn}</CSOSN>
                   {p_cred_tag}
+                  {p_icms_tag}
                 </ICMSSN{csosn}>
               </ICMS>
             </imposto>
@@ -217,7 +220,7 @@ def test_pipeline_simples_nordeste_aplica_12_porcento(db_session, create_sample_
     assert nota.valor_devido == Decimal("85.00")
 
 
-def test_pipeline_simples_com_destaque_preserva_aliquota_destacada(db_session, create_sample_excel_template):
+def test_pipeline_simples_com_pcred_sn_separado_inferencia_tabela(db_session, create_sample_excel_template):
     empresa, solicitacao = _setup_pipeline_env(db_session, create_sample_excel_template)
     # Simples com pCredSN = 2.5%
     xml_content = _build_nfe_xml(
@@ -233,13 +236,30 @@ def test_pipeline_simples_com_destaque_preserva_aliquota_destacada(db_session, c
 
     assert len(solicitacao.notas_processadas) == 1
     nota = solicitacao.notas_processadas[0]
-    # Mantém 2.50% (0.025) e NÃO altera para 7%
-    assert nota.a_ori == Decimal("0.025")
-    assert nota.metadados_extras.get("a_ori_inferida_simples") is not True
-    assert nota.credito == Decimal("25.00")
-    # Não deve ter aviso de inferência automática
-    avisos = [a for a in solicitacao.avisos_avaliacao if "aplicada automaticamente" in a.get("aviso", "")]
-    assert len(avisos) == 0
+    # pCredSN não é pICMS. Sem pICMS, aplica A.ORI de referência de 7%.
+    assert nota.a_ori == Decimal("0.07")
+    assert nota.metadados_extras.get("a_ori_inferida_simples") is True
+    assert nota.metadados_extras.get("p_cred_sn") == ["0.025"]
+    assert nota.credito == Decimal("70.00")
+    avisos = [a for a in solicitacao.avisos_avaliacao if "Alíquota interestadual de 7%" in a.get("aviso", "")]
+    assert len(avisos) == 1
+
+
+def test_pipeline_simples_com_picms_declarado_nao_sobrescreve(db_session, create_sample_excel_template):
+    _, solicitacao = _setup_pipeline_env(db_session, create_sample_excel_template)
+    xml_content = _build_nfe_xml(
+        numero="106", uf_emit="SP", crt="1", orig="0", csosn="101",
+        p_icms="12.00", p_cred="2.50",
+    )
+    resultado = ProcessingPipelineService(db_session).process_solicitacao(
+        solicitacao_id=solicitacao.id,
+        xml_files_bytes=[("nfe_106.xml", xml_content)],
+        sped_file_bytes=None,
+    )
+    nota = resultado.notas_processadas[0]
+    assert nota.a_ori == Decimal("0.12")
+    assert nota.metadados_extras["a_ori_inferida_simples"] is False
+    assert nota.metadados_extras["p_cred_sn"] == ["0.025"]
 
 
 def test_pipeline_simples_difal_sem_destaque_usa_aliquota_interestadual(db_session, create_sample_excel_template):

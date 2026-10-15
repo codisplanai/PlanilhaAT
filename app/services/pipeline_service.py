@@ -276,7 +276,7 @@ class ProcessingPipelineService:
                 is_operacao_interestadual = bool(uf_fornecedor and uf_empresa_dest and uf_fornecedor != uf_empresa_dest)
                 crt_fornecedor = (nf_data.raw_metadata.get("crt") or "").strip()
                 is_fornecedor_simples = (
-                    crt_fornecedor in ("1", "2")
+                    crt_fornecedor in ("1", "2", "4")
                     or bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
                     or any(bool(it.csosn) for it in nf_data.itens)
                 )
@@ -447,7 +447,8 @@ class ProcessingPipelineService:
                     a_ori_original = item.a_ori
 
                     # Se a operação for interestadual e o fornecedor for Simples Nacional
-                    # sem destaque de alíquota na nota (a_ori == 0), aplica a tabela interestadual.
+                    # sem pICMS (a_ori == 0), aplica a tabela de referência. pCredSN
+                    # é registrado em separado e não substitui a alíquota da operação.
                     if is_fornecedor_simples and is_operacao_interestadual and (a_ori is None or a_ori == Decimal("0.00")):
                         a_ori_inferida = InterstateRateResolver.resolve_rate(
                             uf_origem=uf_fornecedor,
@@ -465,7 +466,8 @@ class ProcessingPipelineService:
                             "arquivo": filename,
                             "aviso": (
                                 f"Item {item.item_numero}: Alíquota interestadual de {pct_str} aplicada automaticamente "
-                                f"(fornecedor optante pelo Simples Nacional sem destaque de ICMS na origem {uf_fornecedor} -> {uf_empresa_dest})."
+                                f"(fornecedor optante pelo Simples Nacional sem pICMS na origem {uf_fornecedor} -> {uf_empresa_dest}). "
+                                "Alíquota de referência, não crédito destacado."
                             ),
                         })
 
@@ -525,6 +527,7 @@ class ProcessingPipelineService:
                             "limitada": False,
                             "original": str(a_ori_original),
                             "inferida_simples": a_ori_inferida_simples,
+                            "p_cred_sn": set(),
                         }
                         info_mva_policy[key] = {
                             "grupo": mva_policy_group,
@@ -538,6 +541,8 @@ class ProcessingPipelineService:
                         info_a_ori[key]["original"] = str(a_ori_original)
                     if a_ori_inferida_simples:
                         info_a_ori[key]["inferida_simples"] = True
+                    if item.p_cred_sn > 0:
+                        info_a_ori[key]["p_cred_sn"].add(str(item.p_cred_sn))
 
                 if not grupos:
                     # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
@@ -736,6 +741,7 @@ class ProcessingPipelineService:
                             "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
                             "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
                             "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
+                            "p_cred_sn": sorted(info_a_ori.get(grupo_key, {}).get("p_cred_sn", set())) or None,
                             **calc_result.detalhes
                         }
                     )

@@ -1,4 +1,5 @@
 import type { ExtractedItem, ExtractedNote } from './domain';
+import { parseSpedTaxCode } from './interstateRate.ts';
 
 const IBGE_UF_MAP: Record<string, string> = {
   '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO',
@@ -98,6 +99,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
     if (currentItems.length === 0 && currentC190.length > 0) {
       currentItems = currentC190.map((row, index) => {
         const aOri = row.aOri > 1 ? row.aOri / 100 : row.aOri;
+        const taxCode = parseSpedTaxCode(row.cstIcms);
         return {
           itemNumero: index + 1,
           ncm: '00000000',
@@ -114,7 +116,8 @@ export function parseSped(text: string, filename: string): SpedParseResult {
           vIpi: row.vIpi,
           aOri,
           vIcms: row.vIcms,
-          origemMercadoria: '',
+          origemMercadoria: taxCode.origemMercadoria,
+          csosn: taxCode.csosn,
           cstIcms: row.cstIcms,
           pRedBC: 0,
         };
@@ -172,6 +175,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         dest_ie: destIe,
         dest_nome: destNome,
         emit_nome: participant?.nome ?? '',
+        fornecedor_simples_nacional: currentItems.some((item) => Boolean(item.csosn)),
       },
       itens: currentItems,
     });
@@ -270,6 +274,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const vIpi = decimal(fields[24]);
       const vBcPis = decimal(fields[26]);
       const aOri = aliqIcms > 1 ? aliqIcms / 100 : aliqIcms;
+      const taxCode = parseSpedTaxCode(cstIcms);
       let vTotal = vItem + vIpi - vDesc;
       if (vTotal <= 0 && vItem > 0) vTotal = vItem;
 
@@ -299,7 +304,8 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vIpi,
         aOri,
         vIcms,
-        origemMercadoria: '',
+        origemMercadoria: taxCode.origemMercadoria,
+        csosn: taxCode.csosn,
         cstIcms,
         pRedBC: 0,
       });
@@ -327,6 +333,17 @@ export function parseSped(text: string, filename: string): SpedParseResult {
   }
 
   finalize();
+  // Quando um C100 não tem C170 (apenas C190), reaproveita a evidência
+  // de Simples encontrada em outras notas do MESMO CNPJ, como no backend.
+  const simpleCnpjs = new Set(notes
+    .filter((note) => note.rawMetadata.fornecedor_simples_nacional === true)
+    .map((note) => note.cnpjEmitente)
+    .filter(Boolean));
+  for (const note of notes) {
+    if (simpleCnpjs.has(note.cnpjEmitente)) {
+      note.rawMetadata.fornecedor_simples_nacional = true;
+    }
+  }
   if (notes.length === 0) {
     throw new Error('Nenhum documento fiscal de entrada (Registro C100, IND_OPER=0) válido foi encontrado no SPED Fiscal.');
   }

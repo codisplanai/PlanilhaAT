@@ -19,6 +19,10 @@ export interface ExtractedItem {
   vIpi?: number;
   aOri: number;
   vIcms: number;
+  /** Percentual de crédito do Simples (pCredSN); não equivale ao pICMS. */
+  pCredSN?: number;
+  /** CSOSN extraído do XML ou registro C170 do SPED. */
+  csosn?: string;
   origemMercadoria?: string;
   /** CST (2 dígitos) ou CSOSN (3 dígitos), sem o dígito de origem. */
   cstIcms?: string;
