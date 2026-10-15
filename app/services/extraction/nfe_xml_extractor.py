@@ -251,7 +251,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
             elif itens[0].base_calculo <= 0:
                 itens[0].base_calculo = v_total_nota - itens[0].ipi_despesas
 
-        fornecedor_simples = crt_emitente in ("1", "2") or any(bool(it.csosn) for it in itens)
+        fornecedor_simples = crt_emitente in ("1", "2", "4") or any(bool(it.csosn) for it in itens)
 
         return ExtractedNFData(
             chave_acesso=chave_acesso,
