@@ -25,7 +25,8 @@ class ExtractedItemNF(BaseModel):
     v_total: Decimal      # Valor total correspondente ao item (incluindo rateio de frete/seguro/despesas/IPI se aplicável)
     base_calculo: Decimal # Base de cálculo do ICMS (vBC)
     ipi_despesas: Decimal # IPI + Frete + Seguro + Outras despesas acessórias
-    a_ori: Decimal        # Alíquota de origem extraída do XML ou SPED (pICMS / ALIQ_ICMS), ex: 0.12 para 12%
+    a_ori: Decimal        # Alíquota da operação (pICMS / ALIQ_ICMS), ex: 0.12 para 12%
+    p_cred_sn: Decimal = Decimal("0.00")  # Percentual de crédito do Simples, distinto da A.ORI
     v_icms: Decimal = Decimal("0.00")  # Valor do ICMS destacado (crédito) extraído do documento/item
     origem_mercadoria: Optional[str] = None  # Dígito 0 a 8 indicativo da procedência (nacional, importada, etc.)
     csosn: Optional[str] = None  # Código de Situação da Operação no Simples Nacional (ex: 101, 102, 500)
