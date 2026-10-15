@@ -1,4 +1,4 @@
-import type { ExtractedNote } from './domain';
+import type { ExtractedItem, ExtractedNote } from './domain';
 
 /**
  * Alíquota interestadual de referência (não é crédito fiscal destacado).
@@ -46,7 +46,24 @@ export function parseSpedTaxCode(raw: string): { origemMercadoria: string; csosn
 
 export function isSimplesSupplier(note: ExtractedNote): boolean {
   const crt = String(note.rawMetadata.crt ?? '').trim();
-  return ['1', '2'].includes(crt)
+  return ['1', '2', '4'].includes(crt)
     || note.rawMetadata.fornecedor_simples_nacional === true
     || note.itens.some((item) => Boolean(item.csosn));
+}
+
+/** Só infere A.ORI se faltar pICMS, houver Simples comprovado e a
+ * operação for interestadual. Convênio ICMS 52/91 tem precedência. */
+export function resolveSimpleOriginReference(
+  note: ExtractedNote,
+  item: ExtractedItem,
+  destinationUF: string,
+  agreementApplied: boolean,
+): { rate: number; inferred: boolean } {
+  const originUF = note.ufEmitente.toUpperCase();
+  const targetUF = destinationUF.toUpperCase();
+  if (agreementApplied || item.aOri !== 0 || !isSimplesSupplier(note)
+    || !originUF || !targetUF || originUF === targetUF) {
+    return { rate: item.aOri, inferred: false };
+  }
+  return { rate: resolveInterstateRate(originUF, targetUF, item.origemMercadoria), inferred: true };
 }
