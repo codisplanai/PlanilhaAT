@@ -180,8 +180,8 @@ def normalize_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
-def nfe_sort_key(item: SortableItem) -> tuple[datetime, datetime, int, int]:
-    """Ordena por entrada, emissão, número da NF e subitem."""
+def nfe_sort_key(item: SortableItem) -> tuple[datetime, int, datetime, int]:
+    """Ordena por dia de entrada, número numérico da NF, emissão e subitem."""
     if isinstance(item, Mapping):
         entry_raw = item.get("data_entrada")
         issue_raw = item.get("data_emissao")
@@ -195,11 +195,14 @@ def nfe_sort_key(item: SortableItem) -> tuple[datetime, datetime, int, int]:
 
     entry_date = normalize_datetime(entry_raw)
     issue_date = normalize_datetime(issue_raw) or datetime.min
+    # Sem entrada comprovada, usa apenas o DIA de emissão para ordenar,
+    # sem inferir/preencher uma data de entrada na planilha.
     principal_date = entry_date or issue_date
+    principal_day = datetime.combine(principal_date.date(), datetime.min.time())
     number_digits = re.sub(r"\D", "", str(number_raw))
     number = int(number_digits) if number_digits else 0
 
-    return principal_date, issue_date, number, item_index
+    return principal_day, number, issue_date, item_index
 
 
 def build_header_info(empresa: Empresa, periodo_inicio: date, ie: str) -> dict[str, Any]:

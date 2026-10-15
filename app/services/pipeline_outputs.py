@@ -6,7 +6,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Mapping, Optional
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.constants import (
@@ -23,7 +22,7 @@ from app.models.solicitacao_saida import SolicitacaoSaida
 from app.models.template_xlsx import TemplateXlsx
 from app.services.excel.template_filler import TemplateFiller
 from app.services.local_files import atomic_write, read_bytes_if_exists, remove_file_if_exists
-from app.services.pipeline_helpers import build_header_info, build_spreadsheet_filename
+from app.services.pipeline_helpers import build_header_info, build_spreadsheet_filename, nfe_sort_key
 from app.services.supabase_storage import SupabaseStorageService
 from app.services.templates_admin.template_manager import TemplateManager
 
@@ -124,17 +123,12 @@ class PipelineOutputService:
                         NotaFiscalProcessada.solicitacao_id == solicitacao.id,
                         NotaFiscalProcessada.destino_planilha == saida.tipo,
                     )
-                    .order_by(
-                        func.coalesce(
-                            NotaFiscalProcessada.data_entrada,
-                            NotaFiscalProcessada.data_emissao,
-                        ),
-                        NotaFiscalProcessada.data_emissao,
-                        NotaFiscalProcessada.numero_nota,
-                        NotaFiscalProcessada.item_numero,
-                    )
                     .all()
                 )
+                # Mesmo critério do processamento original: data de entrada,
+                # número da NF em ordem numérica, emissão e subitem.
+                # Não ordenar numero_nota no banco: a coluna é texto.
+                notes.sort(key=nfe_sort_key)
                 rows = [processed_note_to_row(note) for note in notes]
                 filename = os.path.basename(saida.arquivo_path.replace("\\", "/"))
                 output_path = os.path.join(settings.OUTPUTS_DIR, filename)
