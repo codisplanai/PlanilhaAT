@@ -130,6 +130,16 @@ jobs:
           print("Vercel Python runtime dependency manifest is complete.")
           PY
 
+      - name: Install backend dependencies for fiscal regression
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Run fiscal regression tests (Simples, interstate rates, SPED)
+        run: >-
+          python -m pytest -q
+          tests/test_interstate_rate_resolver.py
+          tests/test_extraction_simples_origem.py
+          tests/test_pipeline_simples_aliquota_interestadual.py
+
       - name: Enforce zero-upload fiscal processing on release PRs
         if: github.base_ref == 'main'
         shell: bash
