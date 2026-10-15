@@ -183,7 +183,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     rawMetadata: {
       qtd_itens: itens.length,
       crt: text(emit, 'CRT'),
-      fornecedor_simples_nacional: ['1', '2'].includes(text(emit, 'CRT')) || itens.some((item) => Boolean(item.csosn)),
+      fornecedor_simples_nacional: ['1', '2', '4'].includes(text(emit, 'CRT')) || itens.some((item) => Boolean(item.csosn)),
       emit_nome: text(emit, 'xNome'),
     },
     itens,
