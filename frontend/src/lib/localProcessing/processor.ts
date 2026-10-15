@@ -15,6 +15,7 @@ import type {
 } from '../../types/solicitacao';
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import { calculateTax } from './calculations';
+import { sortRowsByEntryAndNumber } from './rowSorting';
 import {
   CONVENIO_52_91_RATE_ORIGIN,
   classifyConvenio5291,
@@ -242,18 +243,6 @@ function groupKey(
   const ncm = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.ncm : '';
   const cest = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.cest : '';
   return JSON.stringify([destination, aOri, aDst, ncm, cest, mvaPolicyGroup, convenio5291Applied]);
-}
-
-function sortRows(rows: LocalOutputRow[]): void {
-  rows.sort((a, b) => {
-    const aDate = a.data_entrada || a.data_emissao;
-    const bDate = b.data_entrada || b.data_emissao;
-    if (aDate !== bDate) return aDate.localeCompare(bDate);
-    if (a.data_emissao !== b.data_emissao) return a.data_emissao.localeCompare(b.data_emissao);
-    const aNum = Number(cleanDigits(a.numero_nota)) || 0;
-    const bNum = Number(cleanDigits(b.numero_nota)) || 0;
-    return aNum - bNum || a.item_numero - b.item_numero;
-  });
 }
 
 export async function processFiscalLocally(
@@ -736,7 +725,7 @@ export async function processFiscalLocally(
     }
   }
 
-  for (const rows of Object.values(rowsByDestination)) if (rows) sortRows(rows);
+  for (const rows of Object.values(rowsByDestination)) if (rows) sortRowsByEntryAndNumber(rows);
 
   const totalRows = Object.values(rowsByDestination).reduce((sum, rows) => sum + (rows?.length ?? 0), 0);
   let message: string | null = null;
