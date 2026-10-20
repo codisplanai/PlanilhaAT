@@ -1,20 +1,43 @@
 import os
 import json
 import re
-from decimal import Decimal
-from typing import Optional, Dict, Any, List
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from typing import Optional, Dict, Any, List, Tuple
 from app.core.config import settings
 from app.core.exceptions import ValidationException
+
+MVA_ORIGINAL = "original"
+MVA_AJUSTADA = "ajustada"
+
+
+@dataclass(frozen=True)
+class ResultadoMva:
+    """MVA resolvida para um item, ou o motivo de ela ter ficado pendente."""
+
+    mva: Optional[Decimal]
+    coluna: Optional[str]
+    motivo_pendencia: Optional[str] = None
+    itens_anexo: Tuple[str, ...] = ()
+
+    @property
+    def pendente(self) -> bool:
+        return self.mva is None
+
 
 class MvaResolver:
     """
     Resolvedor determinístico de MVA (Margem de Valor Agregado) para Antecipação Tributária.
     Consulta a tabela oficial do Anexo I (storage/data/AnexoI.json) por NCM e Alíquota de Origem (A.ORI).
-    
+
     Suporta:
     - Match exato de NCM e por prefixos (8, 7, 6, 5, 4, 3, 2 dígitos)
     - MVA ajustada conforme a alíquota interestadual (4%, 7%, 12%)
-    - Fallback para MVA padrão (12%), MVA original ou zero
+
+    O pipeline usa `resolver_para_item`, que escolhe a coluna da MVA pelo regime
+    do fornecedor e nunca completa a falta de dado com um valor padrão: quando a
+    MVA não pode ser determinada, devolve o motivo da pendência. `resolve_mva`
+    é a consulta antiga, com valores de fallback, mantida por compatibilidade.
     """
 
     _cache_entries: Optional[List[Dict[str, Any]]] = None
@@ -86,6 +109,7 @@ class MvaResolver:
                         
                         entry = {
                             "ncm": ncm_clean,
+                            "item": item.get("item"),
                             "mva": item.get("mva"),
                             "mva_ajustada": item.get("mva_ajustada"),
                             "mva_original": item.get("mva_original"),
@@ -137,6 +161,24 @@ class MvaResolver:
 
         ori_key = cls._normalize_a_ori_key(a_ori)
 
+        matches = cls._candidatos(entries, clean_ncm, cest)
+        if not matches:
+            return fallback_mva
+
+        resolved_values = {value for entry in matches if (value := cls._value_for_entry(entry, ori_key)) is not None}
+        if len(resolved_values) > 1:
+            raise ValidationException(
+                f"O NCM {clean_ncm} possui mais de uma MVA aplicável. Informe um CEST válido no documento fiscal."
+            )
+        return next(iter(resolved_values), fallback_mva)
+
+    @staticmethod
+    def _candidatos(
+        entries: List[Dict[str, Any]],
+        clean_ncm: str,
+        cest: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        """Itens do Anexo cujo NCM casa com o do documento, refinados pelo CEST."""
         # Buscar melhor match por NCM (do mais específico ao mais geral)
         best_prefix_len = 0
         matches: List[Dict[str, Any]] = []
@@ -160,7 +202,7 @@ class MvaResolver:
                     matches.append(entry)
 
         if not matches:
-            return fallback_mva
+            return matches
 
         clean_cest = re.sub(r"\D", "", str(cest or ""))
         if clean_cest:
@@ -168,12 +210,209 @@ class MvaResolver:
             if cest_matches:
                 matches = cest_matches
 
-        resolved_values = {value for entry in matches if (value := cls._value_for_entry(entry, ori_key)) is not None}
-        if len(resolved_values) > 1:
-            raise ValidationException(
-                f"O NCM {clean_ncm} possui mais de uma MVA aplicável. Informe um CEST válido no documento fiscal."
+        return matches
+
+    @staticmethod
+    def coluna_por_regime(crt: Optional[str], evidencia_csosn: bool) -> Optional[str]:
+        """Coluna do Anexo 1 conforme o regime do fornecedor.
+
+        CRT 1 (Simples Nacional) e 4 (MEI) usam a MVA original; CRT 2 (Simples com
+        excesso de sublimite) e 3 (regime normal) usam a MVA ajustada. Sem CRT
+        (nota vinda só do SPED), vale o código de tributação: CSOSN é exclusivo de
+        CRT 1 e 4, e CST é usado por CRT 2 e 3. CRT com valor desconhecido não
+        permite escolher a coluna e retorna None.
+        """
+        valor = (crt or "").strip()
+        if valor in ("1", "4"):
+            return MVA_ORIGINAL
+        if valor in ("2", "3"):
+            return MVA_AJUSTADA
+        if valor:
+            return None
+        return MVA_ORIGINAL if evidencia_csosn else MVA_AJUSTADA
+
+    @staticmethod
+    def chave_aliquota_interestadual(a_ori: Optional[Decimal]) -> Optional[str]:
+        """Faixa da MVA ajustada (4, 7 ou 12) para a A.ORI do documento.
+
+        Ao contrário de `_normalize_a_ori_key`, não aproxima valores nem assume
+        12%: qualquer alíquota que não seja exatamente 4%, 7% ou 12% retorna None.
+        """
+        if a_ori is None:
+            return None
+        try:
+            valor = Decimal(str(a_ori))
+        except (InvalidOperation, ValueError):
+            return None
+        if valor <= 0:
+            return None
+        percentual = valor * 100 if valor <= 1 else valor
+        for chave in ("4", "7", "12"):
+            if abs(percentual - Decimal(chave)) < Decimal("0.005"):
+                return chave
+        return None
+
+    @staticmethod
+    def _numero(valor: Any) -> Optional[Decimal]:
+        if valor is None or isinstance(valor, bool):
+            return None
+        try:
+            numero = Decimal(str(valor))
+        except (InvalidOperation, ValueError):
+            return None
+        return numero if numero.is_finite() else None
+
+    @classmethod
+    def _valor_da_coluna(
+        cls,
+        entry: Dict[str, Any],
+        coluna: str,
+        chave: Optional[str],
+    ) -> Tuple[Optional[Decimal], bool]:
+        """Valor numérico da coluna no item do Anexo e se o item tem MVA condicional."""
+        campo = "mva_original" if coluna == MVA_ORIGINAL else "mva_ajustada"
+        casos = [caso for caso in (entry.get(campo) or []) if isinstance(caso, dict)]
+        if len(casos) > 1:
+            return None, True
+        if not casos:
+            return None, False
+        if coluna == MVA_ORIGINAL:
+            return cls._numero(casos[0].get("valor")), False
+        aliquotas = casos[0].get("aliquotas") or {}
+        return cls._numero(aliquotas.get(chave)) if chave else None, False
+
+    @staticmethod
+    def _rotulo_itens(itens: Tuple[str, ...], limite: int = 5) -> str:
+        if not itens:
+            return ""
+        if len(itens) == 1:
+            return f", item {itens[0]} do Anexo 1"
+        visiveis = ", ".join(itens[:limite])
+        restantes = len(itens) - limite
+        sufixo = f" e mais {restantes}" if restantes > 0 else ""
+        return f", itens {visiveis}{sufixo} do Anexo 1"
+
+    @staticmethod
+    def _formatar_percentual(valor: Decimal) -> str:
+        texto = f"{valor.quantize(Decimal('0.01')):f}"
+        if texto.endswith(".00"):
+            texto = texto[:-3]
+        return texto.replace(".", ",") + "%"
+
+    @classmethod
+    def resolver_para_item(
+        cls,
+        *,
+        ncm: Optional[str],
+        cest: Optional[str],
+        a_ori: Optional[Decimal],
+        coluna: Optional[str],
+    ) -> ResultadoMva:
+        """MVA de um item de Antecipação Tributária, sem valores de fallback.
+
+        `coluna` vem de `coluna_por_regime`. A MVA ajustada usa a faixa da A.ORI
+        destacada no documento. Fica pendente, com o motivo, quando o NCM não está
+        no Anexo, quando a MVA do item não é numérica (PMPF, Ato COTEPE, preço
+        sugerido), quando é condicional, quando os itens possíveis têm MVAs
+        diferentes e o CEST não desempata, ou quando a A.ORI não permite escolher
+        a faixa da MVA ajustada.
+        """
+        if coluna not in (MVA_ORIGINAL, MVA_AJUSTADA):
+            return ResultadoMva(
+                mva=None,
+                coluna=None,
+                motivo_pendencia=(
+                    "MVA pendente: regime do fornecedor não identificado (CRT ausente ou inválido), "
+                    "sem como escolher entre MVA original e ajustada."
+                ),
             )
-        return next(iter(resolved_values), fallback_mva)
+
+        clean_ncm = re.sub(r"\D", "", str(ncm or ""))
+        if not clean_ncm:
+            return ResultadoMva(
+                mva=None,
+                coluna=coluna,
+                motivo_pendencia="MVA pendente: item sem NCM no documento fiscal.",
+            )
+
+        chave: Optional[str] = None
+        if coluna == MVA_AJUSTADA:
+            chave = cls.chave_aliquota_interestadual(a_ori)
+            if chave is None:
+                a_ori_num = cls._numero(a_ori)
+                if a_ori_num is None or a_ori_num <= 0:
+                    descricao_a_ori = "ausente no documento"
+                else:
+                    percentual = a_ori_num * 100 if a_ori_num <= 1 else a_ori_num
+                    descricao_a_ori = f"de {cls._formatar_percentual(percentual)}"
+                return ResultadoMva(
+                    mva=None,
+                    coluna=coluna,
+                    motivo_pendencia=(
+                        f"MVA pendente: fornecedor em regime normal (MVA ajustada) e A.ORI {descricao_a_ori}; "
+                        "a MVA ajustada só existe para 4%, 7% e 12%."
+                    ),
+                )
+
+        entries = cls._load_anexo_entries()
+        if not entries:
+            return ResultadoMva(
+                mva=None,
+                coluna=coluna,
+                motivo_pendencia="MVA pendente: a tabela do Anexo 1 não está disponível no sistema.",
+            )
+
+        candidatos = cls._candidatos(entries, clean_ncm, cest)
+        itens = tuple(dict.fromkeys(str(entry.get("item")) for entry in candidatos if entry.get("item")))
+        rotulo = cls._rotulo_itens(itens)
+        if not candidatos:
+            return ResultadoMva(
+                mva=None,
+                coluna=coluna,
+                motivo_pendencia=(
+                    f"MVA pendente: NCM {clean_ncm} não encontrado no Anexo 1 carregado no sistema."
+                ),
+            )
+
+        nome_coluna = "original" if coluna == MVA_ORIGINAL else f"ajustada ({chave}%)"
+        valores = set()
+        for entry in candidatos:
+            valor, condicional = cls._valor_da_coluna(entry, coluna, chave)
+            if condicional:
+                return ResultadoMva(
+                    mva=None,
+                    coluna=coluna,
+                    motivo_pendencia=(
+                        f"MVA pendente: o Anexo 1 traz mais de um caso de MVA para o NCM {clean_ncm}{rotulo}, "
+                        "e a escolha depende de informação que não está no documento."
+                    ),
+                    itens_anexo=itens,
+                )
+            if valor is None:
+                return ResultadoMva(
+                    mva=None,
+                    coluna=coluna,
+                    motivo_pendencia=(
+                        f"MVA pendente: o Anexo 1 não traz MVA {nome_coluna} numérica para o NCM {clean_ncm}{rotulo} "
+                        "(o item usa outra base, como PMPF ou preço sugerido, ou está sem valor na tabela)."
+                    ),
+                    itens_anexo=itens,
+                )
+            valores.add(valor)
+
+        if len(valores) > 1:
+            lista = " / ".join(cls._formatar_percentual(v) for v in sorted(valores))
+            return ResultadoMva(
+                mva=None,
+                coluna=coluna,
+                motivo_pendencia=(
+                    f"MVA pendente: o NCM {clean_ncm} tem mais de uma MVA {nome_coluna} possível ({lista}){rotulo}, "
+                    "e o CEST do documento não identificou o item."
+                ),
+                itens_anexo=itens,
+            )
+
+        return ResultadoMva(mva=next(iter(valores)), coluna=coluna, itens_anexo=itens)
 
     @classmethod
     def _value_for_entry(cls, entry: Dict[str, Any], ori_key: Optional[str]) -> Optional[Decimal]:

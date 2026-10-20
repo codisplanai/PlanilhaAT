@@ -48,6 +48,11 @@ CSOSNS_SIMPLES: Final = frozenset(
     {"101", "102", "103", "201", "202", "203", "300", "400", "500", "900"}
 )
 
+# Item de Antecipação Tributária cuja MVA não pôde ser determinada pelo Anexo 1.
+# Fica fora da planilha e aparece na conferência de itens excluídos para
+# tratamento manual, em vez de ser calculado com MVA zero.
+TIPO_EXCLUSAO_MVA_PENDENTE: Final = "mva_pendente"
+
 ROLE_ADMIN: Final = "admin"
 ROLE_OPERADOR: Final = "operador"
 CARGO_POR_ROLE: Final = {

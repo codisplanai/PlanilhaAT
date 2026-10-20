@@ -72,9 +72,12 @@ export interface LocalProcessingContext {
 
 export interface LocalMvaEntry {
   ncm: string;
+  /** Número do item no Anexo 1 (ex.: "3.3.1"). */
+  item?: string | null;
   mva?: number | string | null;
-  mva_ajustada?: Array<{ aliquotas?: Record<string, number | string | null> }> | null;
-  mva_original?: Array<{ valor?: number | string | null }> | null;
+  /** Mais de um caso indica MVA condicional (ex.: contrato de fidelidade). */
+  mva_ajustada?: Array<{ caso?: string | null; aliquotas?: Record<string, number | string | null> }> | null;
+  mva_original?: Array<{ caso?: string | null; valor?: number | string | null }> | null;
   cest?: string[] | null;
   descricao?: string | null;
 }
