@@ -49,7 +49,7 @@ export interface ItemExcluido {
   descricao: string;
   descricao_confiavel: boolean;
   motivo: string;
-  tipo_exclusao: 'mercadoria' | 'aliquotas_iguais';
+  tipo_exclusao: 'mercadoria' | 'aliquotas_iguais' | 'mva_pendente';
   regras_aplicadas?: JsonObject[];
   v_total?: number | null;
   base_calculo?: number | null;

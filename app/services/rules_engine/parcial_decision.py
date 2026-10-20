@@ -40,7 +40,7 @@ MOTIVO_LABELS: Dict[str, str] = {
 @dataclass
 class DecisaoExclusaoItem:
     excluido: bool
-    tipo_exclusao: Optional[str] = None  # 'mercadoria' ou 'aliquotas_iguais'
+    tipo_exclusao: Optional[str] = None  # 'mercadoria', 'aliquotas_iguais' ou 'mva_pendente'
     motivo: Optional[str] = None
     regras_aplicadas: List[Dict[str, Any]] = field(default_factory=list)
     v_total: Optional[Decimal] = None

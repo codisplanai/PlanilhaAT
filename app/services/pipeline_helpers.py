@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Protocol, Union
 
+from app.constants import TIPO_EXCLUSAO_MVA_PENDENTE
 from app.models.empresa import Empresa
 from app.services.extraction.base import ExtractedNFData
 from app.services.extraction.data_entrada_matcher import DataEntradaNormalizer
@@ -170,6 +171,26 @@ def serialize_excluded_item(
         }
     )
     return serialized
+
+
+def no_output_message(excluded_items: list[dict[str, Any]]) -> str:
+    """Mensagem de uma solicitação concluída sem planilha, só com itens excluídos.
+
+    Item com MVA pendente não é "nada a recolher": precisa de tratamento manual,
+    então a mensagem diz isso em vez de indicar que não há imposto.
+    """
+    pending =[item for item in excluded_items if item.get("tipo_exclusao") == TIPO_EXCLUSAO_MVA_PENDENTE]
+    if not pending:
+        return "Nenhum item a recolher na Parcial"
+    if len(pending) == len(excluded_items):
+        return (
+            "Nenhuma planilha gerada: itens da Antecipação Tributária com MVA pendente "
+            "precisam de tratamento manual (ver itens excluídos)"
+        )
+    return (
+        "Nenhum item a recolher na Parcial, e há itens da Antecipação Tributária com MVA "
+        "pendente que precisam de tratamento manual (ver itens excluídos)"
+    )
 
 
 def normalize_datetime(value: Any) -> Optional[datetime]:

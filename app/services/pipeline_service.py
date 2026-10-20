@@ -21,7 +21,11 @@ from app.services.rules_engine.cfop_resolver import CfopResolver, ResolucaoCfop
 from app.services.rules_engine.interstate_rate_resolver import InterstateRateResolver
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.rules_engine.revenda_antecipacao_policy import RevendaAntecipacaoTributariaPolicy
-from app.services.rules_engine.parcial_decision import ParcialExclusionService, DESTINOS_PARCIAL
+from app.services.rules_engine.parcial_decision import (
+    DESTINOS_PARCIAL,
+    DecisaoExclusaoItem,
+    ParcialExclusionService,
+)
 from app.services.rules_engine.descricao_matcher import normalizar
 from app.services.calculation.factory import CalculatorFactory
 from app.services.validation.sanity_checker import SanityChecker
@@ -41,6 +45,7 @@ from app.constants import (
     ANTECIPACAO_TRIBUTARIA,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
+    TIPO_EXCLUSAO_MVA_PENDENTE,
     TIPOS_PLANILHA_LEGADO,
 )
 from app.services.pipeline_helpers import (
@@ -50,6 +55,7 @@ from app.services.pipeline_helpers import (
     ignored_note,
     is_cfop_uso_consumo_ativo,
     nfe_sort_key,
+    no_output_message,
     serialize_excluded_item,
 )
 
@@ -279,6 +285,17 @@ class ProcessingPipelineService:
                     crt_fornecedor in ("1", "2", "4")
                     or bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
                     or any(bool(it.csosn) for it in nf_data.itens)
+                )
+                # Coluna da MVA do Anexo 1 (fluxo geral da Tributária). Decidida pelo CRT,
+                # e não por is_fornecedor_simples: o CRT 2 conta como Simples para a A.ORI
+                # e o DIFAL, mas usa a MVA ajustada. Sem CRT (nota só do SPED), a
+                # evidência é o CSOSN, exclusivo de CRT 1 e 4.
+                coluna_mva_nota = MvaResolver.coluna_por_regime(
+                    crt_fornecedor,
+                    evidencia_csosn=(
+                        bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
+                        or any(bool(it.csosn) for it in nf_data.itens)
+                    ),
                 )
 
                 grupos: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[Any]] = {}
@@ -521,11 +538,35 @@ class ProcessingPipelineService:
                                 fornecedor_simples=is_fornecedor_simples,
                             )
                         else:
-                            mva_item = MvaResolver.resolve_mva(
+                            # A faixa da MVA ajustada vem da A.ORI destacada no documento,
+                            # antes de inferência (Simples) ou limite por redução.
+                            resultado_mva = MvaResolver.resolver_para_item(
                                 ncm=item.ncm,
-                                a_ori=a_ori,
                                 cest=item.cest,
+                                a_ori=a_ori_original,
+                                coluna=coluna_mva_nota,
                             )
+                            if resultado_mva.pendente:
+                                itens_excluidos.append(
+                                    serialize_excluded_item(
+                                        nf_data,
+                                        item,
+                                        filename,
+                                        destino_item,
+                                        DecisaoExclusaoItem(
+                                            excluido=True,
+                                            tipo_exclusao=TIPO_EXCLUSAO_MVA_PENDENTE,
+                                            motivo=resultado_mva.motivo_pendencia,
+                                            v_total=item.v_total,
+                                            base_calculo=item.base_calculo,
+                                            ipi_despesas=item.ipi_despesas,
+                                            a_ori=a_ori_original,
+                                            a_dst=a_dst,
+                                        ),
+                                    )
+                                )
+                                continue
+                            mva_item = resultado_mva.mva
 
                     key = (
                         destino_item,
@@ -803,7 +844,7 @@ class ProcessingPipelineService:
                         ignored_notes=notas_ignoradas,
                         excluded_items=itens_excluidos,
                         evaluation_warnings=avisos_avaliacao,
-                        message="Nenhum item a recolher na Parcial",
+                        message=no_output_message(itens_excluidos),
                     )
 
                 if any("não destinada para revenda pelo usuário" in str(n.get("motivo", "")) for n in notas_ignoradas):

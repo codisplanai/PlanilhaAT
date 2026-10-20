@@ -17,7 +17,7 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterTipo, setFilterTipo] = useState<'todos' | 'mercadoria' | 'aliquotas_iguais'>('todos');
+  const [filterTipo, setFilterTipo] = useState<'todos' | ItemExcluido['tipo_exclusao']>('todos');
 
   const filteredItens = useMemo(() => {
     return itens.filter((item) => {
@@ -37,6 +37,7 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
 
   const countMercadoria = useMemo(() => itens.filter((i) => i.tipo_exclusao === 'mercadoria').length, [itens]);
   const countAliquotasIguais = useMemo(() => itens.filter((i) => i.tipo_exclusao === 'aliquotas_iguais').length, [itens]);
+  const countMvaPendente = useMemo(() => itens.filter((i) => i.tipo_exclusao === 'mva_pendente').length, [itens]);
 
   if (!itens || itens.length === 0) return null;
 
@@ -50,7 +51,9 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-                Conferência de Itens Excluídos da Parcial
+                {countMvaPendente > 0
+                  ? 'Conferência de Itens Excluídos e Pendentes'
+                  : 'Conferência de Itens Excluídos da Parcial'}
               </h3>
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700">
                 {itens.length} {itens.length === 1 ? 'item' : 'itens'}
@@ -58,6 +61,14 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
             </div>
             <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
               Itens desconsiderados automaticamente por exclusão legal de mercadorias (BA) ou alíquotas iguais (sem valor a recolher).
+              {countMvaPendente > 0 && (
+                <>
+                  {' '}
+                  <span className="font-semibold text-rose-700">
+                    Itens com MVA pendente ficaram fora da planilha da Antecipação Tributária e precisam de tratamento manual.
+                  </span>
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -117,6 +128,19 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
               >
                 Alíquotas Iguais ({countAliquotasIguais})
               </button>
+              {countMvaPendente > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFilterTipo('mva_pendente')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    filterTipo === 'mva_pendente'
+                      ? 'bg-rose-700 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  MVA Pendente ({countMvaPendente})
+                </button>
+              )}
             </div>
 
             <div className="relative sm:w-64">
@@ -158,6 +182,7 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredItens.map((item, idx) => {
                     const isMercadoria = item.tipo_exclusao === 'mercadoria';
+                    const isMvaPendente = item.tipo_exclusao === 'mva_pendente';
                     return (
                       <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                         <td className="py-2.5 px-3 whitespace-nowrap">
@@ -190,7 +215,11 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
                         </td>
                         <td className="py-2.5 px-3 max-w-sm">
                           <div className="flex items-center gap-1.5 mb-0.5">
-                            {isMercadoria ? (
+                            {isMvaPendente ? (
+                              <Badge variant="error" size="sm">
+                                MVA Pendente (tratar manualmente)
+                              </Badge>
+                            ) : isMercadoria ? (
                               <Badge variant="warning" size="sm">
                                 Commodity / Exclusão
                               </Badge>
