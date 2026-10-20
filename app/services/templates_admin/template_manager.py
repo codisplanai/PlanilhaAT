@@ -61,13 +61,23 @@ class TemplateManager:
             raise ValidationException(f"Declaração de mapeamento de campos inválida ou incompleta: {str(e)}")
 
         # Validar integralmente antes de persistir localmente ou na nuvem.
+        detected_active_sheet = None
         try:
-            workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=False, read_only=True)
+            workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=False, read_only=False)
             if validated_mapping.sheet_name and validated_mapping.sheet_name.lower() != "auto":
                 if validated_mapping.sheet_name not in workbook.sheetnames:
                     raise ValidationException(
                         f"A aba '{validated_mapping.sheet_name}' declarada no mapeamento não existe no arquivo."
                     )
+            else:
+                visible_sheets = [
+                    s for s in workbook.sheetnames
+                    if getattr(workbook[s], "sheet_state", "visible") == "visible"
+                ]
+                # Se há apenas uma única aba visível (ex.: modelos com abas ocultas de rascunho),
+                # vincula explicitamente a ela para evitar fallback incorreto em abas ocultas.
+                if len(visible_sheets) == 1:
+                    detected_active_sheet = visible_sheets[0]
             workbook.close()
         except ValidationException:
             raise
@@ -134,6 +144,8 @@ class TemplateManager:
             )
 
         mapping_payload = validated_mapping.dict()
+        if (not mapping_payload.get("sheet_name") or mapping_payload.get("sheet_name") == "auto") and detected_active_sheet:
+            mapping_payload["sheet_name"] = detected_active_sheet
         extra_options = dict(mapping_payload.get("extra_options") or {})
         extra_options[SAFETY_MARGIN_KEY] = cls.get_safety_margin(db, clean_tipo)
         mapping_payload["extra_options"] = extra_options

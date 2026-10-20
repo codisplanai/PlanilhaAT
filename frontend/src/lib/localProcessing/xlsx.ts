@@ -111,7 +111,14 @@ function getCellValue(cell: Element, sharedStrings: string[]): string {
   return raw;
 }
 
-function workbookSheets(entries: Map<string, Uint8Array>): Array<{ name: string; path: string }> {
+export interface SheetDescriptor {
+  name: string;
+  path: string;
+  hidden?: boolean;
+  active?: boolean;
+}
+
+export function workbookSheets(entries: Map<string, Uint8Array>): SheetDescriptor[] {
   const workbookRaw = entries.get('xl/workbook.xml');
   const relsRaw = entries.get('xl/_rels/workbook.xml.rels');
   if (!workbookRaw || !relsRaw) throw new Error('XLSX inválido: workbook ou relacionamentos ausentes.');
@@ -128,9 +135,20 @@ function workbookSheets(entries: Map<string, Uint8Array>): Array<{ name: string;
     }
   }
 
-  return Array.from(workbook.getElementsByTagNameNS(XML_NS, 'sheet')).map((sheet) => {
+  const workbookView = workbook.getElementsByTagNameNS(XML_NS, 'workbookView')[0];
+  const activeTabAttr = workbookView?.getAttribute('activeTab');
+  const activeTabIndex = activeTabAttr ? Number.parseInt(activeTabAttr, 10) : 0;
+
+  return Array.from(workbook.getElementsByTagNameNS(XML_NS, 'sheet')).map((sheet, index) => {
     const id = sheet.getAttributeNS(REL_NS, 'id') || sheet.getAttribute('r:id') || '';
-    return { name: sheet.getAttribute('name') ?? '', path: relMap.get(id) ?? '' };
+    const state = sheet.getAttribute('state') ?? '';
+    const isHidden = state === 'hidden' || state === 'veryHidden';
+    return {
+      name: sheet.getAttribute('name') ?? '',
+      path: relMap.get(id) ?? '',
+      hidden: isHidden,
+      active: index === activeTabIndex,
+    };
   }).filter((sheet) => Boolean(sheet.path));
 }
 
@@ -333,11 +351,11 @@ export async function parseEntrySheet(buffer: ArrayBuffer): Promise<EntrySheetRe
   return records;
 }
 
-function worksheetForTemplate(
+export function worksheetForTemplate(
   entries: Map<string, Uint8Array>,
   mapping: LocalTemplateDescriptor['mapeamento_campos'],
   competencia: { month: number; year: number },
-): { name: string; path: string } {
+): SheetDescriptor {
   const sheets = workbookSheets(entries);
   if (sheets.length === 0) throw new Error('O template não contém abas.');
 
@@ -356,13 +374,26 @@ function worksheetForTemplate(
     `${String(competencia.month).padStart(2, '0')}-${competencia.year}`,
     `${String(competencia.month).padStart(2, '0')}/${competencia.year}`,
     `${String(competencia.month).padStart(2, '0')}_${competencia.year}`,
+    `${String(competencia.month).padStart(2, '0')}-${competencia.year} FCP`,
+    String(competencia.month),
+    String(competencia.month).padStart(2, '0'),
   ].map((value) => value.toUpperCase());
 
-  return (
-    sheets.find((sheet) => candidates.includes(sheet.name.trim().toUpperCase()))
-    ?? sheets.find((sheet) => sheet.name.trim().toUpperCase().startsWith(`${String(competencia.month).padStart(2, '0')}-${competencia.year}`))
-    ?? sheets[0]
-  );
+  // Prioriza abas visíveis do template; se todas forem ocultas, usa o conjunto total como último recurso
+  const visibleSheets = sheets.filter((sheet) => !sheet.hidden);
+  const candidatePool = visibleSheets.length > 0 ? visibleSheets : sheets;
+
+  const matched =
+    candidatePool.find((sheet) => candidates.includes(sheet.name.trim().toUpperCase()))
+    ?? candidatePool.find((sheet) => sheet.name.trim().toUpperCase().startsWith(`${String(competencia.month).padStart(2, '0')}-${competencia.year}`));
+
+  if (matched) return matched;
+
+  // Se nenhuma corresponder ao mês/ano, seleciona a aba ativa no Excel (se visível)
+  const activeSheet = candidatePool.find((sheet) => sheet.active);
+  if (activeSheet) return activeSheet;
+
+  return candidatePool[0] ?? sheets[0];
 }
 
 const SINGLE_PERIOD_SHEET_TYPES = new Set<LocalTemplateDescriptor['tipo']>([
