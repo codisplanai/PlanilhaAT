@@ -511,13 +511,27 @@ class ProcessingPipelineService:
                             )
                             continue
 
+                    mva_item = Decimal("0.00")
+                    if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO):
+                        if revenda_tributaria_config:
+                            mva_item = RevendaAntecipacaoTributariaPolicy.resolve_mva(
+                                config=revenda_tributaria_config,
+                                grupo=mva_policy_group or "demais",
+                                a_ori=a_ori,
+                                fornecedor_simples=is_fornecedor_simples,
+                            )
+                        else:
+                            mva_item = MvaResolver.resolve_mva(
+                                ncm=item.ncm,
+                                a_ori=a_ori,
+                                cest=item.cest,
+                            )
+
                     key = (
                         destino_item,
                         a_ori,
                         a_dst,
-                        item.ncm if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) else "",
-                        item.cest if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) else "",
-                        mva_policy_group if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) else "",
+                        mva_item,
                     )
                     if key not in grupos:
                         grupos[key] = []
@@ -532,10 +546,14 @@ class ProcessingPipelineService:
                         info_mva_policy[key] = {
                             "grupo": mva_policy_group,
                             "fonte": mva_policy_source,
+                            "mva": mva_item,
                         }
                     grupos[key].append(item)
                     resolucoes[key].append(resolucao)
                     resolucoes_cfop[key].append(resolucao_cfop)
+                    if not info_mva_policy[key]["grupo"] and mva_policy_group:
+                        info_mva_policy[key]["grupo"] = mva_policy_group
+                        info_mva_policy[key]["fonte"] = mva_policy_source
                     if a_ori_limitada:
                         info_a_ori[key]["limitada"] = True
                         info_a_ori[key]["original"] = str(a_ori_original)
@@ -573,7 +591,7 @@ class ProcessingPipelineService:
                 split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
 
                 for grupo_key, itens_objs in grupos.items():
-                    destino_grupo, a_ori, a_dst, _group_ncm, _group_cest, mva_policy_group = grupo_key
+                    destino_grupo, a_ori, a_dst, mva_grupo = grupo_key
                     split_index = split_index_por_destino[destino_grupo]
 
                     # Se a nota inteira produziu exatamente 1 bucket/grupo (nenhum item descartado e
@@ -616,24 +634,9 @@ class ProcessingPipelineService:
                         )
                         continue
 
-                    mva_grupo = Decimal("0.00")
                     aliq_simples = "N"
                     fornecedor_simples = is_fornecedor_simples
-                    if destino_grupo in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO):
-                        if revenda_tributaria_config:
-                            mva_grupo = RevendaAntecipacaoTributariaPolicy.resolve_mva(
-                                config=revenda_tributaria_config,
-                                grupo=mva_policy_group or "demais",
-                                a_ori=a_ori,
-                                fornecedor_simples=fornecedor_simples,
-                            )
-                        else:
-                            mva_grupo = MvaResolver.resolve_mva(
-                                ncm=ncm_grupo,
-                                a_ori=a_ori,
-                                cest=itens_objs[0].cest if itens_objs else None,
-                            )
-                    elif destino_grupo == DIFAL:
+                    if destino_grupo == DIFAL:
                         if is_fornecedor_simples:
                             aliq_simples = "S"
                         else:

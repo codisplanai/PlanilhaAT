@@ -1,11 +1,11 @@
 import type { LocalFiscalInput } from '../../types/localProcessing';
 import type { NotaIgnorada } from '../../types/solicitacao';
 import type { EntrySheetRecord, ExtractedNote, ParsedFiscalSources } from './domain';
-import { parseNfeXml } from './xml';
-import { parseSped } from './sped';
-import { parseEntrySheet } from './xlsx';
-import { readZip } from './zip';
-import { crossingKeys, matchEntryCfop, matchEntryDate, matchEntryRecords } from './entryMatching';
+import { parseNfeXml } from './xml.ts';
+import { parseSped } from './sped.ts';
+import { parseEntrySheet } from './xlsx.ts';
+import { readZip } from './zip.ts';
+import { crossingKeys, matchEntryCfop, matchEntryDate, matchEntryRecords } from './entryMatching.ts';
 
 // Reexportado para preservar os pontos de importação já existentes.
 export { crossingKeys, matchEntryCfop, matchEntryDate, matchEntryRecords };
