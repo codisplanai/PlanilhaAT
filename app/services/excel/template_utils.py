@@ -69,6 +69,11 @@ def select_worksheet(
         for actual_name in workbook.sheetnames:
             if actual_name.strip().upper().startswith(prefix):
                 return workbook[actual_name], month, year
+    if workbook.active and getattr(workbook.active, "sheet_state", "visible") == "visible":
+        return workbook.active, month, year
+    for ws in workbook.worksheets:
+        if getattr(ws, "sheet_state", "visible") == "visible":
+            return ws, month, year
 
     return workbook.active, month, year
 
