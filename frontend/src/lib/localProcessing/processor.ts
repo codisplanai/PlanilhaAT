@@ -13,10 +13,10 @@ import type {
   NotaIgnorada,
   TipoPlanilha,
 } from '../../types/solicitacao';
-import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
-import { calculateTax } from './calculations';
-import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate';
-import { sortRowsByEntryAndNumber } from './rowSorting';
+import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain.ts';
+import { calculateTax } from './calculations.ts';
+import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
+import { sortRowsByEntryAndNumber } from './rowSorting.ts';
 import {
   CONVENIO_52_91_RATE_ORIGIN,
   classifyConvenio5291,
@@ -24,7 +24,7 @@ import {
   fullIcmsCode,
   normalizeConvenioDescription,
   resolveConvenio5291Application,
-} from './convenio5291';
+} from './convenio5291.ts';
 import {
   classifyRevendaMva,
   evaluatePartialMerchandiseExclusion,
@@ -38,16 +38,16 @@ import {
   resolveOriginRate,
   resolveRevendaMva,
   shouldExcludeEqualRates,
-} from './rules';
+} from './rules.ts';
 import {
   isUsoConsumoAtivo,
   loadLocalFiscalSources,
   matchEntryCfop,
   matchEntryDate,
-} from './sources';
-import { selectTemplateForRows } from './templateSelection';
-import { fillTemplateLocally } from './xlsx';
-import { buildSpreadsheetFilename } from './filename';
+} from './sources.ts';
+import { selectTemplateForRows } from './templateSelection.ts';
+import { fillTemplateLocally } from './xlsx.ts';
+import { buildSpreadsheetFilename } from './filename.ts';
 
 const BONUS_SUFFIXES = new Set(['910', '911', '949']);
 const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
@@ -218,6 +218,7 @@ interface Group {
   destination: TipoPlanilha;
   aOri: number;
   aDst: number;
+  mva: number;
   items: ExtractedItem[];
   rateResolutions: TaxRateResolution[];
   cfopResolutions: CfopResolution[];
@@ -235,17 +236,14 @@ interface Group {
   convenio5291Motivos: string[];
 }
 
-function groupKey(
+export function groupKey(
   destination: TipoPlanilha,
   aOri: number,
   aDst: number,
-  item: ExtractedItem,
-  mvaPolicyGroup: Group['mvaPolicyGroup'],
+  mva: number,
   convenio5291Applied: boolean,
 ): string {
-  const ncm = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.ncm : '';
-  const cest = TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? item.cest : '';
-  return JSON.stringify([destination, aOri, aDst, ncm, cest, mvaPolicyGroup, convenio5291Applied]);
+  return JSON.stringify([destination, aOri, aDst, mva, convenio5291Applied]);
 }
 
 export async function processFiscalLocally(
@@ -564,11 +562,23 @@ export async function processFiscalLocally(
         }
       }
 
-      const key = groupKey(destination, aOri, effectiveADst, item, mvaPolicyGroup, Boolean(convenio?.applied));
+      const itemMva = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+        ? revendaAntecipacaoConfig
+          ? resolveRevendaMva(
+            revendaAntecipacaoConfig,
+            mvaPolicyGroup || 'demais',
+            aOri,
+            supplierIsSimples,
+          )
+          : resolveMva(context, item.ncm, aOri, item.cest)
+        : 0;
+
+      const key = groupKey(destination, aOri, effectiveADst, itemMva, Boolean(convenio?.applied));
       const group = groups.get(key) ?? {
         destination,
         aOri,
         aDst: effectiveADst,
+        mva: itemMva,
         items: [],
         rateResolutions: [],
         cfopResolutions: [],
@@ -594,6 +604,10 @@ export async function processFiscalLocally(
       group.aOriFixed ||= originRate.fixed;
       group.aOriLimitWaived ||= originRate.limitWaived;
       group.aOriInferredSimples ||= aOriInferredSimples;
+      if (!group.mvaPolicyGroup && mvaPolicyGroup) {
+        group.mvaPolicyGroup = mvaPolicyGroup;
+        group.mvaPolicySource = mvaPolicySource;
+      }
       if (item.pCredSN && !group.pCredSN.includes(item.pCredSN)) group.pCredSN.push(item.pCredSN);
       group.convenio5291Manual ||= Boolean(
         convenio?.applied && convenio.classification.status === 'revisar',
@@ -652,16 +666,7 @@ export async function processFiscalLocally(
       const description = group.items.length === 1
         ? first?.descricao ?? ''
         : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
-      const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)
-        ? revendaAntecipacaoConfig
-          ? resolveRevendaMva(
-            revendaAntecipacaoConfig,
-            group.mvaPolicyGroup || 'demais',
-            group.aOri,
-            supplierIsSimples,
-          )
-          : resolveMva(context, ncm, group.aOri, first?.cest)
-        : 0;
+      const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? group.mva : 0;
       const aliqSimples = group.destination === 'difal' && supplierIsSimples ? 'S' : 'N';
 
       const calculation = calculateTax(group.destination, {
