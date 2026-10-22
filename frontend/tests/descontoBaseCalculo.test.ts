@@ -120,4 +120,90 @@ test('Extração SPED Fiscal com Desconto em C170: ajusta baseCalculo para valor
   assert.equal(note.itens[0].vDesc, 992.16);
 });
 
+test('Processamento Local: gera linha da planilha com v_total e base_calculo líquidos de desconto', async () => {
+  const { processFiscalLocally } = await import('../src/lib/localProcessing/processor.ts');
+  const xml = `
+    <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+      <infNFe Id="NFe35260000000000000000550010000012341000012345">
+        <ide><nNF>1234</nNF><serie>1</serie><dhEmi>2026-04-10T10:00:00-03:00</dhEmi></ide>
+        <emit><CNPJ>11111111000191</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+        <dest><CNPJ>12345678000195</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+        <total><ICMSTot><vBC>8268.00</vBC><vICMS>992.16</vICMS><vProd>8268.00</vProd><vDesc>992.16</vDesc><vNF>7275.84</vNF></ICMSTot></total>
+        <det nItem="1">
+          <prod><cProd>1</cProd><xProd>MERCADORIA</xProd><NCM>84189900</NCM><CFOP>6102</CFOP><vProd>8268.00</vProd><vDesc>992.16</vDesc></prod>
+          <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>8268.00</vBC><pICMS>12.00</pICMS><vICMS>992.16</vICMS></ICMS00></imposto></det>
+      </infNFe>
+    </NFe>`;
+  const { parseNfeXml: _parseNfeXml } = await import('../src/lib/localProcessing/xml.ts');
+
+  const context: any = {
+    empresa: {
+      id: 1,
+      razao_social: 'Empresa Teste',
+      cnpj: '12345678000195',
+      inscricao_estadual: null,
+      uf: 'BA',
+      perfil_regras_id: 1,
+      optante_simples_nacional: false,
+      a_ori_fixa_parcial: null,
+    },
+    perfil: { id: 1, nome: 'Padrão Geral', configuracoes_extras: {} },
+    regras_aliquotas: [{
+      id: 1, perfil_regras_id: 1, uf: 'BA', ncm: null, aliquota: 0.205,
+      parametros_extras: {}, criado_em: '', atualizado_em: '',
+    }],
+    regras_cfop: [{
+      id: 1, perfil_regras_id: null, cfop_sufixo: '102', destino: 'antecipacao_parcial',
+      criado_em: '', atualizado_em: '',
+    }],
+    regras_reducao: [],
+    regras_reclassificacao: [],
+    regras_exclusao_parcial: [],
+    margens_seguranca_templates: {},
+    templates_ativos: [{
+      id: 1,
+      tipo: 'antecipacao_parcial',
+      versao: 1,
+      capacidade_linhas: 100,
+      arquivo_hash: 'hash',
+      mapeamento_campos: {
+        start_row: 4,
+        columns: { v_total: 'E', base_calculo: 'F' },
+      },
+    }],
+    mva_anexo: [],
+  };
+
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const templatePath = fs.existsSync('storage/templates/modelo_padrao_antecipacao_parcial.xlsx')
+    ? path.resolve('storage/templates/modelo_padrao_antecipacao_parcial.xlsx')
+    : path.resolve('../storage/templates/modelo_padrao_antecipacao_parcial.xlsx');
+  const templateBuf = fs.readFileSync(templatePath);
+  const templateBytes = new Map<number, ArrayBuffer>([
+    [1, templateBuf.buffer.slice(templateBuf.byteOffset, templateBuf.byteOffset + templateBuf.byteLength)],
+  ]);
+
+  const xmlBlob = new Blob([xml], { type: 'application/xml' });
+  const xmlFile = new File([xmlBlob], 'teste.xml');
+
+  const result = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-desconto',
+      periodoInicio: '2026-04-01',
+      periodoFim: '2026-04-30',
+      context,
+      input: { xmlFiles: [xmlFile], spedFile: null, entrySheet: null },
+    },
+    templateBytes,
+  );
+
+  assert.equal(result.notasProcessadas.length, 1);
+  const row = result.notasProcessadas[0];
+  assert.equal(row.v_total, 7275.84);
+  assert.equal(row.base_calculo, 7275.84);
+});
+
+
+
 

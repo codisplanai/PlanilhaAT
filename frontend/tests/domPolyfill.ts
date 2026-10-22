@@ -13,6 +13,41 @@ class SimpleElement {
     this.attributes = new Map(Object.entries(attributes));
   }
 
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, String(value));
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
+  appendChild(child: SimpleElement): SimpleElement {
+    this.children.push(child);
+    return child;
+  }
+
+  removeChild(child: SimpleElement): SimpleElement {
+    const idx = this.children.indexOf(child);
+    if (idx !== -1) {
+      this.children.splice(idx, 1);
+    }
+    return child;
+  }
+
+  insertBefore(newNode: SimpleElement, referenceNode: SimpleElement | null): SimpleElement {
+    if (!referenceNode) {
+      this.children.push(newNode);
+      return newNode;
+    }
+    const idx = this.children.indexOf(referenceNode);
+    if (idx === -1) {
+      this.children.push(newNode);
+    } else {
+      this.children.splice(idx, 0, newNode);
+    }
+    return newNode;
+  }
+
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }
@@ -67,11 +102,13 @@ class SimpleDocument extends SimpleElement {
     this.documentElement = root;
     this.children = [root];
   }
+
+  createElementNS(_ns: string, name: string): SimpleElement {
+    return new SimpleElement(name);
+  }
 }
 
 export function installDomParserPolyfill(): void {
-  if (typeof globalThis.DOMParser !== 'undefined') return;
-
   globalThis.DOMParser = class MockDOMParser {
     parseFromString(text: string, _type: string) {
       const clean = text.replace(/<\?xml[\s\S]*?\?>/, '').trim();
@@ -114,4 +151,32 @@ export function installDomParserPolyfill(): void {
       return new SimpleDocument(root ?? new SimpleElement('root')) as unknown as XMLDocument;
     }
   } as unknown as typeof DOMParser;
+
+  if (typeof globalThis.XMLSerializer === 'undefined') {
+    globalThis.XMLSerializer = class MockXMLSerializer {
+      serializeToString(root: SimpleElement): string {
+        const serialize = (node: SimpleElement): string => {
+          if (node.tagName === '#document') {
+            return node.children.map(serialize).join('');
+          }
+          let attrs = '';
+          for (const [k, v] of node.attributes.entries()) {
+            attrs += ` ${k}="${String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`;
+          }
+          if (node.children.length === 0 && !node.textContent) {
+            return `<${node.tagName}${attrs}/>`;
+          }
+          let content = '';
+          if (node.textContent) {
+            content += String(node.textContent).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          }
+          for (const child of node.children) {
+            content += serialize(child);
+          }
+          return `<${node.tagName}${attrs}>${content}</${node.tagName}>`;
+        };
+        return serialize(root);
+      }
+    } as unknown as typeof XMLSerializer;
+  }
 }

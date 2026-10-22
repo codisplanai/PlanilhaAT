@@ -680,12 +680,15 @@ export async function processFiscalLocally(
       const originalBaseXml = useNoteTotal && note.vBcNota > 0
         ? note.vBcNota
         : group.items.reduce((sum, item) => sum + Number(item.baseCalculoXml ?? item.baseCalculo), 0);
+      let ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
+      const maxBaseLiquida = Math.max(0, vTotal - ipi);
       let base = group.convenio5291Applied
         ? group.items.reduce((sum, item) => sum + Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))), 0)
         : (useNoteTotal && note.vBcNota > 0
-          ? note.vBcNota
+          ? ((note.vDescNota ?? 0) > 0 && note.vBcNota > maxBaseLiquida
+              ? Math.max(0, Math.min(note.vBcNota - (note.vDescNota ?? 0), maxBaseLiquida))
+              : note.vBcNota)
           : group.items.reduce((sum, item) => sum + item.baseCalculo, 0));
-      let ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
       const reducedBaseEvidence = group.items.some(
         (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
       );
