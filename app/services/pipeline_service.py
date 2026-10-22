@@ -647,8 +647,15 @@ class ProcessingPipelineService:
 
                     if usar_total_nota:
                         v_total_grupo = nf_data.v_total_nota
-                        v_bc_grupo = nf_data.v_bc_nota if nf_data.v_bc_nota > 0 else sum(it.base_calculo for it in itens_objs)
                         ipi_despesas_grupo = sum(it.ipi_despesas for it in itens_objs)
+                        if nf_data.v_bc_nota > 0:
+                            max_base_grupo = max(Decimal("0.00"), v_total_grupo - ipi_despesas_grupo)
+                            if nf_data.v_desc_nota > 0 and nf_data.v_bc_nota > max_base_grupo:
+                                v_bc_grupo = max(Decimal("0.00"), min(nf_data.v_bc_nota - nf_data.v_desc_nota, max_base_grupo))
+                            else:
+                                v_bc_grupo = nf_data.v_bc_nota
+                        else:
+                            v_bc_grupo = sum(it.base_calculo for it in itens_objs)
                     else:
                         v_total_grupo = sum(it.v_total for it in itens_objs)
                         v_bc_grupo = sum(it.base_calculo for it in itens_objs)
