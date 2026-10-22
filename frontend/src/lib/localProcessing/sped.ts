@@ -55,6 +55,7 @@ interface C100State {
   vIcmsNota: number;
   vIpiNota: number;
   vDespesasNota: number;
+  vDescNota: number;
 }
 
 interface C190State {
@@ -134,11 +135,14 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         descricaoConfiavel: false,
         vItem: current.vTotalNota,
         vTotal: current.vTotalNota,
-        baseCalculo: current.vBcNota,
+        baseCalculo: (current.vDescNota > 0 && current.vBcNota > Math.max(0, current.vTotalNota - current.vIpiNota))
+          ? Math.max(0, Math.min(current.vBcNota - current.vDescNota, current.vTotalNota - current.vIpiNota))
+          : current.vBcNota,
         baseCalculoXml: current.vBcNota,
         baseSemIpi: Math.max(0, current.vTotalNota - current.vIpiNota),
         ipiDespesas: current.vIpiNota,
         vIpi: current.vIpiNota,
+        vDesc: current.vDescNota,
         aOri: 0,
         vIcms: current.vIcmsNota,
         origemMercadoria: '',
@@ -167,6 +171,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       vTotalNota: current.vTotalNota,
       vBcNota: current.vBcNota,
       vIcmsNota: current.vIcmsNota,
+      vDescNota: current.vDescNota,
       origemExtracao: 'sped',
       rawMetadata: {
         origem: 'sped_fiscal',
@@ -254,6 +259,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vIcmsNota: decimal(fields[22]),
         vIpiNota: decimal(fields[25]),
         vDespesasNota: vFrete + vSeg + vOut,
+        vDescNota: decimal(fields[14]),
       };
       currentItems = [];
       currentC190 = [];
@@ -280,7 +286,12 @@ export function parseSped(text: string, filename: string): SpedParseResult {
 
       let baseCalculo: number;
       if (vBcIcms > 0) {
-        baseCalculo = vBcIcms;
+        const baseLiquidaMax = Math.max(0, vTotal - vIpi);
+        if (vDesc > 0 && vBcIcms > baseLiquidaMax) {
+          baseCalculo = Math.max(0, Math.min(vBcIcms - vDesc, baseLiquidaMax));
+        } else {
+          baseCalculo = vBcIcms;
+        }
       } else if (vBcPis > 0 && vBcPis < vTotal) {
         baseCalculo = vBcPis;
       } else {
@@ -302,6 +313,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         baseSemIpi: Math.max(0, vTotal - vIpi),
         ipiDespesas,
         vIpi,
+        vDesc,
         aOri,
         vIcms,
         origemMercadoria: taxCode.origemMercadoria,

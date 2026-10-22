@@ -267,13 +267,20 @@ export const NovaSolicitacaoPage: React.FC = () => {
                     resultadoSolicitacao.cfops_sem_regra &&
                     Object.keys(resultadoSolicitacao.cfops_sem_regra).length > 0
                   );
+                  // Item com MVA pendente não é "nada a recolher": precisa de tratamento manual.
+                  const temMvaPendente = Boolean(
+                    resultadoSolicitacao.itens_excluidos?.some((item) => item.tipo_exclusao === 'mva_pendente')
+                  );
+                  const semPlanilhaPorMvaPendente = temMvaPendente && resultadoSolicitacao.total_notas_processadas === 0;
                   const todosExcluidos = resultadoSolicitacao.total_notas_processadas === 0 &&
                     (resultadoSolicitacao.itens_excluidos && resultadoSolicitacao.itens_excluidos.length > 0) &&
-                    !hasCfopsSemRegra;
+                    !hasCfopsSemRegra &&
+                    !temMvaPendente;
                   const temAvisos = !todosExcluidos && (
                     (resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0) ||
                     (resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => Boolean(s.aviso) || !hasLocalArtifact(s.tipo))) ||
-                    hasCfopsSemRegra
+                    hasCfopsSemRegra ||
+                    temMvaPendente
                   );
                   const temArquivos = hasAnyLocalArtifact;
 
@@ -307,6 +314,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       <h2 className="text-lg sm:text-xl font-black tracking-tight">
                         {todosExcluidos
                           ? 'Nenhum item a recolher na Parcial'
+                          : semPlanilhaPorMvaPendente
+                          ? 'Itens com MVA Pendente'
                           : temAvisos
                           ? 'Apuração Concluída com Avisos Fiscais'
                           : 'Planilha(s) Gerada(s) com Sucesso!'}
@@ -322,6 +331,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
                       >
                         {todosExcluidos
                           ? 'Todos os itens de Antecipação Parcial foram desconsiderados conforme as regras de exclusão de commodities e/ou alíquotas iguais (A.ORI = A.DST).'
+                          : temMvaPendente
+                          ? 'Há itens da Antecipação Tributária com MVA pendente: eles ficaram fora da planilha e precisam de tratamento manual (veja a conferência de itens excluídos).'
                           : temAvisos
                           ? 'Algumas notas ou itens exigiram atenção e foram desconsiderados pelas regras de sanidade, mas os dados válidos foram apurados.'
                           : 'Cada item foi roteado pelo CFOP para a planilha correspondente. Uma mesma NF-e pode aparecer em mais de uma planilha.'}

@@ -22,7 +22,7 @@ class Solicitacao(Base):
     arquivo_saida_path = Column(String(500), nullable=True)
     total_notas_processadas = Column(Integer, default=0, nullable=False)
     notas_ignoradas = Column(JSON, default=list, nullable=False)  # Lista com registros de notas ignoradas e seus motivos
-    itens_excluidos = Column(JSON, default=list, nullable=False)  # Registros estruturados de itens excluídos da Parcial (mercadoria / alíquotas iguais)
+    itens_excluidos = Column(JSON, default=list, nullable=False)  # Registros estruturados de itens excluídos: Parcial (mercadoria / alíquotas iguais) e Tributária com MVA pendente
     avisos_avaliacao = Column(JSON, default=list, nullable=False)  # Avisos de avaliação incompleta (ex: SPED sem C170)
     cfops_sem_regra = Column(JSON, default=dict, nullable=False)  # Resumo agregado {sufixo_cfop: qtd_itens} de itens descartados por CFOP sem regra cadastrada
     criado_em = Column(DateTime, default=utcnow_naive, nullable=False)

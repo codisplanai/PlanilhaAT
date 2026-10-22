@@ -27,6 +27,8 @@ export interface ExtractedItem {
   /** CST (2 dígitos) ou CSOSN (3 dígitos), sem o dígito de origem. */
   cstIcms?: string;
   pRedBC?: number;
+  /** Desconto comercial destacado no item (tag vDesc). */
+  vDesc?: number;
 }
 
 export interface ExtractedNote {
@@ -43,6 +45,8 @@ export interface ExtractedNote {
   vTotalNota: number;
   vBcNota: number;
   vIcmsNota: number;
+  /** Desconto comercial total destacado na nota (tag vDesc no total da NF-e). */
+  vDescNota?: number;
   origemExtracao: 'xml' | 'sped';
   rawMetadata: Record<string, string | number | boolean | null>;
   itens: ExtractedItem[];

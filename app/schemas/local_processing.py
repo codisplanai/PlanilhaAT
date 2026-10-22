@@ -196,6 +196,7 @@ class LocalMvaOriginalOut(BaseModel):
 
 class LocalMvaEntryOut(BaseModel):
     ncm: str
+    item: Optional[str] = None
     mva: Optional[float] = None
     mva_ajustada: Optional[List[LocalMvaAjustadaOut]] = None
     mva_original: Optional[List[LocalMvaOriginalOut]] = None

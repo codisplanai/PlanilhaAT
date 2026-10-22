@@ -1,5 +1,5 @@
 import type { LocalProcessingContext, LocalMvaEntry } from '../../types/localProcessing';
-import type { CfopResolution, ExtractedItem, TaxRateResolution } from './domain';
+import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import type { TipoPlanilha } from '../../types/solicitacao';
 import type { MvaAntecipacaoTributariaConfig } from '../../types/perfil';
 import { calculateTax } from './calculations.ts';
@@ -428,29 +428,52 @@ export function shouldExcludeEqualRates(
     : { excluded: false };
 }
 
-function mvaValue(entry: LocalMvaEntry, key: string): number | null {
-  for (const adjusted of entry.mva_ajustada ?? []) {
-    const raw = adjusted.aliquotas?.[key] ?? adjusted.aliquotas?.['12'];
-    if (raw != null && Number.isFinite(Number(raw))) return Number(raw);
+/** Coluna do Anexo 1 usada no fluxo geral da Antecipação Tributária. */
+export type MvaColumn = 'original' | 'ajustada';
+
+/**
+ * Coluna da MVA conforme o regime do fornecedor.
+ * CRT 1 (Simples Nacional) e 4 (MEI) usam a MVA original; CRT 2 (Simples com
+ * excesso de sublimite) e 3 (regime normal) usam a MVA ajustada. Sem CRT (nota
+ * vinda só do SPED), vale o código de tributação: CSOSN é exclusivo de CRT 1 e 4,
+ * e CST é usado por CRT 2 e 3. CRT com valor desconhecido retorna null.
+ * Não substitui isSimplesSupplier, que segue valendo para A.ORI, DIFAL e para a
+ * política especial do passo a passo.
+ */
+export function mvaColumnForNote(note: ExtractedNote): MvaColumn | null {
+  const crt = String(note.rawMetadata.crt ?? '').trim();
+  if (crt === '1' || crt === '4') return 'original';
+  if (crt === '2' || crt === '3') return 'ajustada';
+  if (crt) return null;
+  const csosnEvidence = note.rawMetadata.fornecedor_simples_nacional === true
+    || note.itens.some((item) => Boolean(item.csosn));
+  return csosnEvidence ? 'original' : 'ajustada';
+}
+
+/** Faixa da MVA ajustada (4, 7 ou 12) para a A.ORI do documento, sem aproximar nem presumir 12%. */
+export function interstateRateKey(aOri: number | null | undefined): '4' | '7' | '12' | null {
+  if (aOri == null || !Number.isFinite(aOri) || aOri <= 0) return null;
+  const percent = aOri <= 1 ? aOri * 100 : aOri;
+  for (const key of ['4', '7', '12'] as const) {
+    if (Math.abs(percent - Number(key)) < 0.005) return key;
   }
-  if (entry.mva != null && Number.isFinite(Number(entry.mva))) return Number(entry.mva);
-  const original = entry.mva_original?.[0]?.valor;
-  if (original != null && Number.isFinite(Number(original))) return Number(original);
   return null;
 }
 
-export function resolveMva(context: LocalProcessingContext, ncm: string, aOri: number, cest?: string): number {
-  const cleanNcm = ncm.replace(/\D/g, '');
-  if (!cleanNcm) return 0;
-  const key = aOri <= 0 ? '12' : aOri <= 0.05 || (aOri >= 3.5 && aOri <= 4.5)
-    ? '4'
-    : aOri <= 0.09 || (aOri >= 6.5 && aOri <= 7.5)
-      ? '7'
-      : '12';
+export type MvaResolution =
+  | { status: 'ok'; mva: number; column: MvaColumn; anexoItems: string[] }
+  | { status: 'pendente'; motivo: string; column: MvaColumn | null; anexoItems: string[] };
 
+function toFiniteNumber(raw: unknown): number | null {
+  if (raw == null || raw === '' || typeof raw === 'boolean') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function findMvaCandidates(entries: LocalMvaEntry[], cleanNcm: string, cest?: string): LocalMvaEntry[] {
   let best = 0;
   let matches: LocalMvaEntry[] = [];
-  for (const entry of context.mva_anexo) {
+  for (const entry of entries) {
     const candidate = String(entry.ncm ?? '').replace(/\D/g, '');
     let length = 0;
     if (cleanNcm.startsWith(candidate)) length = candidate.length;
@@ -461,17 +484,150 @@ export function resolveMva(context: LocalProcessingContext, ncm: string, aOri: n
       matches = [entry];
     } else if (length === best) matches.push(entry);
   }
-  if (matches.length === 0) return 0;
+  if (matches.length === 0) return matches;
 
   const cleanCest = String(cest ?? '').replace(/\D/g, '');
   if (cleanCest) {
     const cestMatches = matches.filter((entry) => String(entry.cest ?? '').replace(/\D/g, '') === cleanCest);
     if (cestMatches.length > 0) matches = cestMatches;
   }
+  return matches;
+}
 
-  const values = [...new Set(matches.map((entry) => mvaValue(entry, key)).filter((value): value is number => value != null))];
-  if (values.length > 1) {
-    throw new Error(`O NCM ${cleanNcm} possui mais de uma MVA aplicável. Informe um CEST válido no documento fiscal.`);
+function columnValue(
+  entry: LocalMvaEntry,
+  column: MvaColumn,
+  key: string | null,
+): { value: number | null; conditional: boolean } {
+  const cases = (column === 'original' ? entry.mva_original : entry.mva_ajustada) ?? [];
+  if (cases.length > 1) return { value: null, conditional: true };
+  if (cases.length === 0) return { value: null, conditional: false };
+  if (column === 'original') {
+    return { value: toFiniteNumber((cases[0] as { valor?: unknown }).valor), conditional: false };
   }
-  return values[0] ?? 0;
+  const rates = (cases[0] as { aliquotas?: Record<string, unknown> }).aliquotas ?? {};
+  return { value: key ? toFiniteNumber(rates[key]) : null, conditional: false };
+}
+
+function anexoItemsLabel(items: string[], limit = 5): string {
+  if (items.length === 0) return '';
+  if (items.length === 1) return `, item ${items[0]} do Anexo 1`;
+  const rest = items.length - limit;
+  return `, itens ${items.slice(0, limit).join(', ')}${rest > 0 ? ` e mais ${rest}` : ''} do Anexo 1`;
+}
+
+function formatPercent(value: number): string {
+  const text = value.toFixed(2);
+  return `${(text.endsWith('.00') ? text.slice(0, -3) : text).replace('.', ',')}%`;
+}
+
+/**
+ * MVA de um item de Antecipação Tributária no fluxo geral, sem valores de fallback.
+ * A MVA ajustada usa a faixa da A.ORI destacada no documento. Quando a MVA não pode
+ * ser determinada, retorna o motivo da pendência em vez de MVA zero ou de um erro
+ * que interromperia todo o processamento.
+ */
+export function resolveMvaForItem(
+  context: LocalProcessingContext,
+  ncm: string,
+  cest: string | undefined,
+  aOri: number | null | undefined,
+  column: MvaColumn | null,
+): MvaResolution {
+  if (!column) {
+    return {
+      status: 'pendente',
+      column: null,
+      anexoItems: [],
+      motivo: 'MVA pendente: regime do fornecedor não identificado (CRT ausente ou inválido), sem como escolher entre MVA original e ajustada.',
+    };
+  }
+
+  const cleanNcm = String(ncm ?? '').replace(/\D/g, '');
+  if (!cleanNcm) {
+    return { status: 'pendente', column, anexoItems: [], motivo: 'MVA pendente: item sem NCM no documento fiscal.' };
+  }
+
+  let key: '4' | '7' | '12' | null = null;
+  if (column === 'ajustada') {
+    key = interstateRateKey(aOri);
+    if (!key) {
+      const rate = toFiniteNumber(aOri);
+      const description = rate == null || rate <= 0
+        ? 'ausente no documento'
+        : `de ${formatPercent(rate <= 1 ? rate * 100 : rate)}`;
+      return {
+        status: 'pendente',
+        column,
+        anexoItems: [],
+        motivo: `MVA pendente: fornecedor em regime normal (MVA ajustada) e A.ORI ${description}; a MVA ajustada só existe para 4%, 7% e 12%.`,
+      };
+    }
+  }
+
+  if (context.mva_anexo.length === 0) {
+    return {
+      status: 'pendente',
+      column,
+      anexoItems: [],
+      motivo: 'MVA pendente: a tabela do Anexo 1 não está disponível no sistema.',
+    };
+  }
+
+  const candidates = findMvaCandidates(context.mva_anexo, cleanNcm, cest);
+  const anexoItems = [...new Set(candidates.map((entry) => entry.item).filter((item): item is string => Boolean(item)))];
+  const label = anexoItemsLabel(anexoItems);
+  if (candidates.length === 0) {
+    return {
+      status: 'pendente',
+      column,
+      anexoItems,
+      motivo: `MVA pendente: NCM ${cleanNcm} não encontrado no Anexo 1 carregado no sistema.`,
+    };
+  }
+
+  const columnName = column === 'original' ? 'original' : `ajustada (${key}%)`;
+  const values = new Set<number>();
+  for (const entry of candidates) {
+    const { value, conditional } = columnValue(entry, column, key);
+    if (conditional) {
+      return {
+        status: 'pendente',
+        column,
+        anexoItems,
+        motivo: `MVA pendente: o Anexo 1 traz mais de um caso de MVA para o NCM ${cleanNcm}${label}, e a escolha depende de informação que não está no documento.`,
+      };
+    }
+    if (value == null) {
+      return {
+        status: 'pendente',
+        column,
+        anexoItems,
+        motivo: `MVA pendente: o Anexo 1 não traz MVA ${columnName} numérica para o NCM ${cleanNcm}${label} (o item usa outra base, como PMPF ou preço sugerido, ou está sem valor na tabela).`,
+      };
+    }
+    values.add(value);
+  }
+
+  if (values.size > 1) {
+    const list = [...values].sort((a, b) => a - b).map(formatPercent).join(' / ');
+    return {
+      status: 'pendente',
+      column,
+      anexoItems,
+      motivo: `MVA pendente: o NCM ${cleanNcm} tem mais de uma MVA ${columnName} possível (${list})${label}, e o CEST do documento não identificou o item.`,
+    };
+  }
+
+  return { status: 'ok', mva: [...values][0], column, anexoItems };
+}
+
+/** Mensagem de um processamento concluído sem planilha, só com itens excluídos. */
+export function noOutputMessage(excluded: Array<{ tipo_exclusao: string }>): string {
+  const pending = excluded.filter((item) => item.tipo_exclusao === 'mva_pendente').length;
+  if (pending === 0) return 'Nenhum item a recolher na Parcial';
+  if (pending === excluded.length) {
+    return 'Nenhuma planilha gerada: itens da Antecipação Tributária com MVA pendente precisam de tratamento manual (ver itens excluídos)';
+  }
+  return 'Nenhum item a recolher na Parcial, e há itens da Antecipação Tributária com MVA pendente que precisam de tratamento manual (ver itens excluídos)';
 }

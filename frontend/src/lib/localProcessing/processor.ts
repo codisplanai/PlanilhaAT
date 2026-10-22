@@ -29,12 +29,14 @@ import {
   classifyRevendaMva,
   evaluatePartialMerchandiseExclusion,
   getRevendaAntecipacaoConfig,
+  mvaColumnForNote,
+  noOutputMessage,
   normalizeDescription,
   redirectRevendaToAntecipacaoTributaria,
   routePaidEarlyDestination,
   resolveCfop,
   resolveDestinationRate,
-  resolveMva,
+  resolveMvaForItem,
   resolveOriginRate,
   resolveRevendaMva,
   shouldExcludeEqualRates,
@@ -369,6 +371,10 @@ export async function processFiscalLocally(
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, sources.entryRecords) : null;
 
     const supplierIsSimples = isSimplesSupplier(note);
+    // Coluna da MVA no fluxo geral da Tributária: decidida pelo CRT, e não por
+    // supplierIsSimples (o CRT 2 conta como Simples para A.ORI e DIFAL, mas usa a
+    // MVA ajustada). A política especial do passo a passo segue com supplierIsSimples.
+    const mvaColumn = mvaColumnForNote(note);
     const groups = new Map<string, Group>();
     let classifiedItems = 0;
 
@@ -562,16 +568,50 @@ export async function processFiscalLocally(
         }
       }
 
-      const itemMva = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
-        ? revendaAntecipacaoConfig
-          ? resolveRevendaMva(
+      let itemMva = 0;
+      if (TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
+        if (revendaAntecipacaoConfig) {
+          itemMva = resolveRevendaMva(
             revendaAntecipacaoConfig,
             mvaPolicyGroup || 'demais',
             aOri,
             supplierIsSimples,
-          )
-          : resolveMva(context, item.ncm, aOri, item.cest)
-        : 0;
+          );
+        } else {
+          // A faixa da MVA ajustada vem da A.ORI destacada no documento, antes de
+          // inferência (Simples), alíquota fixa ou limite por redução.
+          const mvaResolution = resolveMvaForItem(context, item.ncm, item.cest, originalAOri, mvaColumn);
+          if (mvaResolution.status === 'pendente') {
+            excluded.push({
+              chave_acesso: note.chaveAcesso,
+              numero_nota: note.numeroNota,
+              serie: note.serie,
+              item_numero: item.itemNumero,
+              arquivo: note.filename,
+              destino: destination,
+              ncm: item.ncm,
+              descricao: item.descricao,
+              descricao_confiavel: item.descricaoConfiavel,
+              motivo: mvaResolution.motivo,
+              tipo_exclusao: 'mva_pendente',
+              regras_aplicadas: [],
+              v_total: item.vTotal,
+              base_calculo: item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo,
+              ipi_despesas: item.ipiDespesas,
+              a_ori: originalAOri,
+              a_dst: effectiveADst,
+            });
+            diagnostic?.event('warning', 'calculo', 'Item da Antecipação Tributária sem MVA determinável: ficou fora da planilha.', {
+              numeroNota: note.numeroNota,
+              itemNumero: item.itemNumero,
+              ncm: item.ncm,
+              colunaMva: mvaResolution.column ?? 'indefinida',
+            });
+            continue;
+          }
+          itemMva = mvaResolution.mva;
+        }
+      }
 
       const key = groupKey(destination, aOri, effectiveADst, itemMva, Boolean(convenio?.applied));
       const group = groups.get(key) ?? {
@@ -640,12 +680,15 @@ export async function processFiscalLocally(
       const originalBaseXml = useNoteTotal && note.vBcNota > 0
         ? note.vBcNota
         : group.items.reduce((sum, item) => sum + Number(item.baseCalculoXml ?? item.baseCalculo), 0);
+      let ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
+      const maxBaseLiquida = Math.max(0, vTotal - ipi);
       let base = group.convenio5291Applied
         ? group.items.reduce((sum, item) => sum + Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))), 0)
         : (useNoteTotal && note.vBcNota > 0
-          ? note.vBcNota
+          ? ((note.vDescNota ?? 0) > 0 && note.vBcNota > maxBaseLiquida
+              ? Math.max(0, Math.min(note.vBcNota - (note.vDescNota ?? 0), maxBaseLiquida))
+              : note.vBcNota)
           : group.items.reduce((sum, item) => sum + item.baseCalculo, 0));
-      let ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
       const reducedBaseEvidence = group.items.some(
         (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
       );
@@ -781,7 +824,7 @@ export async function processFiscalLocally(
         `Nenhum item correspondeu a um CFOP com regra de roteamento cadastrada (${Object.keys(missingCfops).sort().join(', ')}).`,
       );
     }
-    if (excluded.length > 0) message = 'Nenhum item a recolher na Parcial';
+    if (excluded.length > 0) message = noOutputMessage(excluded);
     else if (ignored.length > 0) {
       throw new Error('Nenhuma NF-e válida para apuração interestadual foi encontrada no período informado.');
     } else {
