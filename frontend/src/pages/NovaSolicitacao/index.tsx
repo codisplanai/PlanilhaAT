@@ -487,7 +487,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
 
                 {/* Conferência de Itens Excluídos da Parcial */}
                 {resultadoSolicitacao.itens_excluidos && resultadoSolicitacao.itens_excluidos.length > 0 && (
-                  <ItensExcluidosSection itens={resultadoSolicitacao.itens_excluidos} />
+                  <ItensExcluidosSection itens={resultadoSolicitacao.itens_excluidos} xmlFiles={xmlFiles} />
                 )}
 
                 {/* Resumo das Notas Fiscais Processadas */}
@@ -566,6 +566,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
         isOpen={showModalBonificacao}
         onClose={cancelarModalBonificacao}
         notas={pendenciasBonificacao}
+        xmlFiles={xmlFiles}
         onConfirm={confirmarBonificacoesEProcessar}
         isProcessing={isProcessing}
       />
@@ -574,6 +575,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
         isOpen={showModalConvenio5291}
         onClose={cancelarModalConvenio5291}
         itens={pendenciasConvenio5291}
+        xmlFiles={xmlFiles}
         onConfirm={confirmarConvenio5291EProcessar}
         isProcessing={isProcessing}
       />

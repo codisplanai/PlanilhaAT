@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./planilha_at.db"
     
     # Supabase Integration
+    # Credencial exclusiva do backend; nunca expor no runtime-config.js.
+    MEUDANFE_API_KEY: Optional[str] = None
+
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None

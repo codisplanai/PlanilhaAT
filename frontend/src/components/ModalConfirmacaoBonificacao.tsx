@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { Modal } from './ui/Modal';
+import { DanfeButton } from './DanfeButton';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { formatCurrency } from '../lib/formatters';
@@ -20,6 +21,7 @@ export interface ModalConfirmacaoBonificacaoProps {
   isOpen: boolean;
   onClose: () => void;
   notas: NotaBonificacaoPendencia[];
+  xmlFiles?: File[];
   onConfirm: (decisoes: Record<string, boolean>) => void;
   isProcessing?: boolean;
 }
@@ -28,6 +30,7 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
   isOpen,
   onClose,
   notas,
+  xmlFiles,
   onConfirm,
   isProcessing = false,
 }) => {
@@ -209,6 +212,11 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                         </button>
                       </div>
                     )}
+
+                    <div className="pt-1">
+                      <DanfeButton chaveAcesso={nota.chave_acesso} numeroNota={nota.numero_nota} xmlFiles={xmlFiles} />
+                      <p className="mt-1 text-[10px] text-slate-500">O XML é enviado somente ao solicitar o DANFE. Busca apenas pela chave pode custar R$ 0,03.</p>
+                    </div>
 
                     {/* Motivo da Sugestão */}
                     <div className="text-[11px] text-slate-500 italic">
