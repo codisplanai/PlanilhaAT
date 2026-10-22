@@ -139,6 +139,7 @@ jobs:
           tests/test_interstate_rate_resolver.py
           tests/test_extraction_simples_origem.py
           tests/test_pipeline_simples_aliquota_interestadual.py
+          tests/test_meu_danfe.py
 
       - name: Enforce zero-upload fiscal processing on release PRs
         if: github.base_ref == 'main'
