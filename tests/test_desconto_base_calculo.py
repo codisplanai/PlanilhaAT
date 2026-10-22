@@ -192,3 +192,65 @@ def test_pipeline_preenche_v_total_e_base_calculo_liquidos(db_session):
     assert nota.v_total == Decimal("7275.84")
     assert nota.base_calculo == Decimal("7275.84")
 
+
+def test_pipeline_simples_nacional_com_desconto(db_session):
+    from datetime import date
+    from app.models.empresa import Empresa
+    from app.models.perfil_regras import PerfilRegras
+    from app.models.regra_aliquota import RegraAliquotaDestino
+    from app.models.solicitacao import Solicitacao
+    from app.models.template_xlsx import TemplateXlsx
+    from app.services.pipeline_service import ProcessingPipelineService
+    from app.core.seeds import seed_default_templates
+
+    seed_default_templates(db_session)
+    template = db_session.query(TemplateXlsx).filter(TemplateXlsx.tipo == "antecipacao_parcial", TemplateXlsx.ativo == True).first()
+    perfil = PerfilRegras(nome="Perfil Simples Desconto")
+    db_session.add(perfil)
+    db_session.commit()
+    db_session.add(RegraAliquotaDestino(perfil_regras_id=perfil.id, uf="BA", aliquota=Decimal("0.2050"), descricao="BA"))
+    empresa = Empresa(razao_social="EMPRESA SIMPLES", cnpj="12345678000195", uf="BA", perfil_regras_id=perfil.id)
+    db_session.add(empresa)
+    db_session.commit()
+
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
+      <NFe>
+        <infNFe Id="NFe35260198765432000180550010000009991000000888">
+          <ide><nNF>888</nNF><serie>1</serie><dhEmi>2026-04-15T10:00:00-03:00</dhEmi></ide>
+          <emit><CNPJ>98765432000180</CNPJ><enderEmit><UF>SP</UF></enderEmit><CRT>1</CRT></emit>
+          <dest><CNPJ>12345678000195</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+          <det nItem="1">
+            <prod>
+              <NCM>84189900</NCM><CFOP>6102</CFOP><xProd>MERCADORIA SIMPLES</xProd>
+              <vProd>5000.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vDesc>500.00</vDesc>
+            </prod>
+            <imposto>
+              <ICMS><ICMSSN102><orig>0</orig><CSOSN>102</CSOSN></ICMSSN102></ICMS>
+            </imposto>
+          </det>
+          <total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vProd>5000.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vDesc>500.00</vDesc><vIPI>0.00</vIPI><vNF>4500.00</vNF></ICMSTot></total>
+        </infNFe>
+      </NFe>
+    </nfeProc>"""
+
+    solicitacao = Solicitacao(
+        empresa_id=empresa.id,
+        periodo_inicio=date(2026, 4, 1),
+        periodo_fim=date(2026, 4, 30),
+        tipo_planilha="antecipacao_parcial",
+        template_id=template.id,
+        status="pendente",
+    )
+    db_session.add(solicitacao)
+    db_session.commit()
+
+    service = ProcessingPipelineService(db_session)
+    res = service.process_solicitacao(solicitacao.id, xml_files_bytes=[("888.xml", xml)])
+    assert res.status == "concluido"
+    assert len(res.notas_processadas) == 1
+    nota = res.notas_processadas[0]
+    assert nota.v_total == Decimal("4500.00")
+    assert nota.base_calculo == Decimal("4500.00")
+
+
