@@ -134,6 +134,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
         v_total_nota = self._get_decimal(icms_tot, "vNF")
         v_bc_nota = self._get_decimal(icms_tot, "vBC")
         v_icms_nota = self._get_decimal(icms_tot, "vICMS")
+        v_desc_nota = self._get_decimal(icms_tot, "vDesc")
 
         # Itens da Nota (<det>)
         itens: list[ExtractedItemNF] = []
@@ -218,13 +219,19 @@ class NFeXMLExtractor(BaseNFEExtractor):
             # Valor Total do Item (V.Total daquele item)
             # V.Total = vProd + vFrete + vSeg + vOutro + vIPI - vDesc
             v_total_item = v_prod + v_despesas + v_ipi - v_desc
+            base_sem_ipi = max(Decimal("0.00"), v_total_item - v_ipi)
 
             # A base total da capa nunca pode ser atribuída arbitrariamente a um
             # dos itens de uma NF-e com múltiplos produtos.
             # Se a base do item for zero (ex: Simples Nacional ou CST 60),
-            # a base da mercadoria é apurada como v_total - v_ipi (frete/despesas integram a base de ICMS)
+            # a base da mercadoria é apurada como v_total - v_ipi (frete/despesas integram a base de ICMS).
+            # Quando a base destacada vier sem o desconto deduzido (v_bc_item > base_sem_ipi)
+            # e houver desconto comercial informado, deduz o desconto comercial para apuração
+            # líquida da base de cálculo.
             if v_bc_item == Decimal("0.00"):
-                v_bc_item = v_total_item - v_ipi
+                v_bc_item = base_sem_ipi
+            elif v_desc > Decimal("0.00") and v_bc_item > base_sem_ipi:
+                v_bc_item = max(Decimal("0.00"), min(v_bc_item - v_desc, base_sem_ipi))
 
             itens.append(ExtractedItemNF(
                 item_numero=item_numero,
@@ -241,15 +248,20 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 v_icms=v_icms_item,
                 origem_mercadoria=origem_mercadoria,
                 csosn=csosn_item,
+                v_desc=v_desc,
             ))
 
         # Se houver discrepância e houver apenas 1 item, ajustar v_total_item com v_total_nota
         if len(itens) == 1 and v_total_nota > 0:
             itens[0].v_total = v_total_nota
+            max_base_nota = max(Decimal("0.00"), v_total_nota - itens[0].ipi_despesas)
             if v_bc_nota > 0:
-                itens[0].base_calculo = v_bc_nota
+                if v_desc_nota > Decimal("0.00") and v_bc_nota > max_base_nota:
+                    itens[0].base_calculo = max(Decimal("0.00"), min(v_bc_nota - v_desc_nota, max_base_nota))
+                else:
+                    itens[0].base_calculo = v_bc_nota
             elif itens[0].base_calculo <= 0:
-                itens[0].base_calculo = v_total_nota - itens[0].ipi_despesas
+                itens[0].base_calculo = max_base_nota
 
         fornecedor_simples = crt_emitente in ("1", "2", "4") or any(bool(it.csosn) for it in itens)
 
@@ -266,6 +278,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
             v_total_nota=v_total_nota,
             v_bc_nota=v_bc_nota,
             v_icms_nota=v_icms_nota,
+            v_desc_nota=v_desc_nota,
             itens=itens,
             raw_metadata={
                 "qtd_itens": len(itens),
