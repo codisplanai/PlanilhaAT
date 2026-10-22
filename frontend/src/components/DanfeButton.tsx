@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, FileText } from 'lucide-react';
 
 import { apiClient, getErrorMessage } from '../api/client';
@@ -12,10 +12,6 @@ interface DanfeButtonProps {
   numeroNota?: string;
   className?: string;
 }
-
-// Apenas durante a sessão em memória. Não persiste PDFs/chaves no navegador.
-const pdfCache = new Map<string, Blob>();
-const MAX_CACHED_PDFS = 5;
 
 function decodeXml(bytes: ArrayBuffer | Uint8Array): string {
   const buffer = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -78,6 +74,8 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
 }) => {
   const chave = (chaveAcesso ?? '').replace(/\D/g, '');
   const valid = chave.length === 44;
+  // Cache apenas desta instância; é descartado quando a tela de revisão desmonta.
+  const cachedPdf = useRef<{ chave: string; pdf: Blob } | null>(null);
   const [loading, setLoading] = useState(false);
   const [needsPaidLookup, setNeedsPaidLookup] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -97,7 +95,7 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
     setNeedsPaidLookup(false);
     let consultedWithXml = false;
     try {
-      let pdf = pdfCache.get(chave);
+      let pdf = cachedPdf.current?.chave === chave ? cachedPdf.current.pdf : undefined;
       if (!pdf) {
         const xml = await findXmlForDanfe(chave, xmlFiles);
         consultedWithXml = Boolean(xml);
@@ -111,10 +109,7 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
           throw new Error('O serviço não retornou um PDF válido.');
         }
         pdf = data;
-        if (pdfCache.size >= MAX_CACHED_PDFS) {
-          pdfCache.delete(pdfCache.keys().next().value!);
-        }
-        pdfCache.set(chave, pdf);
+        cachedPdf.current = { chave, pdf };
       }
       setPdfUrl(URL.createObjectURL(pdf));
     } catch (cause) {
