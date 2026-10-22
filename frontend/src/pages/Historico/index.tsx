@@ -14,6 +14,7 @@ import { getErrorMessage } from '../../api/client';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
+import { DanfeButton } from '../../components/DanfeButton';
 import { Card } from '../../components/ui/Card';
 import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
@@ -445,6 +446,7 @@ export const HistoricoPage: React.FC = () => {
                         <tr key={idx} className="hover:bg-amber-50/50">
                           <td className="py-2 px-2.5 font-semibold text-slate-900">
                             NF-e nº {ign.numero_nota} {ign.serie ? `(${ign.serie})` : ''}
+                            <div className="mt-1.5"><DanfeButton chaveAcesso={ign.chave_acesso} numeroNota={ign.numero_nota} /></div>
                           </td>
                           <td className="py-2 px-2.5 text-slate-700 font-mono">
                             {ign.data_emissao || '-'}
@@ -526,7 +528,10 @@ export const HistoricoPage: React.FC = () => {
                     <tbody className="divide-y divide-slate-100">
                       {solicitacaoDetalhada.notas_processadas.map((item, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-2.5 px-3 font-semibold text-slate-900">{item.numero_nota}</td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-900">
+                            {item.numero_nota}
+                            <div className="mt-1.5"><DanfeButton chaveAcesso={item.chave_acesso} numeroNota={item.numero_nota} /></div>
+                          </td>
                           <td className="py-2.5 px-3 text-center">
                             <span className="inline-flex items-center justify-center font-bold text-[10px] bg-blue-50 text-blue-900 px-2 py-0.5 rounded border border-blue-200/80">
                               {item.uf_emitente || '-'}

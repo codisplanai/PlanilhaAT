@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.endpoints.auth import router as auth_router
+from app.api.endpoints.danfe import router as danfe_router
 from app.api.endpoints.empresas import router as empresas_router
 from app.api.endpoints.perfis_regras import router as perfis_regras_router
 from app.api.endpoints.processamento_local import router as processamento_local_router
@@ -15,6 +16,7 @@ from app.api.endpoints.usuarios import router as usuarios_router
 
 ROUTERS = (
     auth_router,
+    danfe_router,
     perfis_regras_router,
     processamento_local_router,
     empresas_router,

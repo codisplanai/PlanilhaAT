@@ -3,6 +3,7 @@ import { AlertTriangle, Check, Copy, FileSpreadsheet, PackageSearch } from 'luci
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
+import { DanfeButton } from './DanfeButton';
 import { useManagedTimeout } from '../hooks/useManagedTimeout';
 import { formatCurrency, formatPercent } from '../lib/formatters';
 import type { Convenio5291Pendencia } from '../types/solicitacao';
@@ -11,6 +12,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   itens: Convenio5291Pendencia[];
+  xmlFiles?: File[];
   onConfirm: (decisoes: Record<string, boolean>) => void;
   isProcessing?: boolean;
 }
@@ -23,6 +25,7 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
   isOpen,
   onClose,
   itens,
+  xmlFiles,
   onConfirm,
   isProcessing = false,
 }) => {
@@ -145,6 +148,8 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
                   </div>
 
                   <div className="shrink-0 space-y-2 lg:w-[280px]">
+                    <DanfeButton chaveAcesso={item.chave_acesso} numeroNota={item.numero_nota} xmlFiles={xmlFiles} />
+                    <p className="text-[10px] leading-relaxed text-slate-500">Consulte a nota antes da decisão. Busca apenas pela chave pode custar R$ 0,03.</p>
                     <div className="grid grid-cols-2 gap-2">
                       <Button type="button" variant={applying ? 'outline' : 'secondary'} onClick={() => setDecision(item, false)}>
                         Não aplicar
