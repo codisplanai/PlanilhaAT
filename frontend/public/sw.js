@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'planaut-pwa-v1';
+const CACHE_VERSION = 'planaut-pwa-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_URL = '/offline.html';

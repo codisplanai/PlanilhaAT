@@ -289,17 +289,26 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          DISPATCH_OUTPUT="$(gh workflow run vercel-deploy.yml \
+          BEFORE_ID="$(gh run list --workflow vercel-deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+
+          gh workflow run vercel-deploy.yml \
             --ref main \
             -f target=production \
             -f release_sha="$TARGET_SHA" \
-            -f release_version="$VERSION")"
+            -f release_version="$VERSION"
 
-          echo "$DISPATCH_OUTPUT"
-          RUN_ID="${DISPATCH_OUTPUT##*/}"
+          RUN_ID=""
+          for attempt in $(seq 1 30); do
+            sleep 2
+            CANDIDATE_ID="$(gh run list --workflow vercel-deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+            if [[ "$CANDIDATE_ID" =~ ^[0-9]+$ ]] && (( CANDIDATE_ID > BEFORE_ID )); then
+              RUN_ID="$CANDIDATE_ID"
+              break
+            fi
+          done
 
           if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
-            echo "::error::Could not resolve the dispatched Vercel workflow run from: $DISPATCH_OUTPUT"
+            echo "::error::Could not resolve the dispatched Vercel workflow run."
             exit 1
           fi
 
