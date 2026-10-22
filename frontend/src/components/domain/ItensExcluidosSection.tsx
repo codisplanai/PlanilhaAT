@@ -3,16 +3,19 @@ import { Search, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
 import type { ItemExcluido } from '../../types/solicitacao';
 import { formatCurrency, formatPercent } from '../../lib/formatters';
 import { Badge } from '../ui/Badge';
+import { DanfeButton } from '../DanfeButton';
 import { PlanilhaBadge } from './PlanilhaBadge';
 import type { TipoPlanilha } from '../../types/solicitacao';
 
 interface ItensExcluidosSectionProps {
   itens: ItemExcluido[];
+  xmlFiles?: File[];
   defaultExpanded?: boolean;
 }
 
 export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
   itens,
+  xmlFiles,
   defaultExpanded = true,
 }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
@@ -191,6 +194,9 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
                           </div>
                           <div className="text-[10px] text-slate-400 font-mono">
                             Item {item.item_numero}
+                          </div>
+                          <div className="mt-2">
+                            <DanfeButton chaveAcesso={item.chave_acesso} numeroNota={item.numero_nota} xmlFiles={xmlFiles} />
                           </div>
                         </td>
                         <td className="py-2.5 px-3 whitespace-nowrap">
