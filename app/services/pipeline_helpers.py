@@ -113,6 +113,8 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
             nf_sped.v_bc_nota = nf_xml.v_bc_nota
         if nf_xml.v_icms_nota > Decimal("0.00"):
             nf_sped.v_icms_nota = nf_xml.v_icms_nota
+        if nf_xml.v_desc_nota > Decimal("0.00"):
+            nf_sped.v_desc_nota = nf_xml.v_desc_nota
         return
 
 

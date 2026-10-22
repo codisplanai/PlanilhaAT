@@ -60,6 +60,7 @@ export function enrichSpedWithXml(sped: ExtractedNote, xml: ExtractedNote): void
   if (xml.vTotalNota > 0) sped.vTotalNota = xml.vTotalNota;
   if (xml.vBcNota > 0) sped.vBcNota = xml.vBcNota;
   if (xml.vIcmsNota > 0) sped.vIcmsNota = xml.vIcmsNota;
+  if ((xml.vDescNota ?? 0) > 0) sped.vDescNota = xml.vDescNota;
 }
 
 function decodeText(bytes: ArrayBuffer | Uint8Array): string {

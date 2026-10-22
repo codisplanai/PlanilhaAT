@@ -73,6 +73,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
   const vTotalNota = number(icmsTot, 'vNF');
   const vBcNota = number(icmsTot, 'vBC');
   const vIcmsNota = number(icmsTot, 'vICMS');
+  const vDescNota = number(icmsTot, 'vDesc');
 
   const itens: ExtractedItem[] = [];
   for (const det of Array.from(infNFe.children).filter((node) => node.localName === 'det')) {
@@ -127,7 +128,11 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     const vTotal = vProd + vDespesas + vIpi - vDesc;
     const baseCalculoXml = baseCalculo;
     const baseSemIpi = Math.max(0, vProd + vDespesas - vDesc);
-    if (baseCalculo <= 0) baseCalculo = Math.max(0, vTotal - vIpi);
+    if (baseCalculo <= 0) {
+      baseCalculo = Math.max(0, vTotal - vIpi);
+    } else if (vDesc > 0 && baseCalculo > baseSemIpi) {
+      baseCalculo = Math.max(0, Math.min(baseCalculo - vDesc, baseSemIpi));
+    }
 
     const rawItem = det.getAttribute('nItem') ?? String(itens.length + 1);
     const parsedItem = Number.parseInt(rawItem, 10);
@@ -147,6 +152,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
       baseSemIpi,
       ipiDespesas,
       vIpi,
+      vDesc,
       aOri,
       vIcms,
       pCredSN: pCredSN > 1 ? pCredSN / 100 : pCredSN,
@@ -159,9 +165,15 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
 
   if (itens.length === 1 && vTotalNota > 0) {
     itens[0].vTotal = vTotalNota;
-    if (vBcNota > 0) itens[0].baseCalculo = vBcNota;
-    else if (itens[0].baseCalculo <= 0) {
-      itens[0].baseCalculo = Math.max(0, vTotalNota - itens[0].ipiDespesas);
+    const maxBaseLiquida = Math.max(0, vTotalNota - itens[0].ipiDespesas);
+    if (vBcNota > 0) {
+      if (vDescNota > 0 && vBcNota > maxBaseLiquida) {
+        itens[0].baseCalculo = Math.max(0, Math.min(vBcNota - vDescNota, maxBaseLiquida));
+      } else {
+        itens[0].baseCalculo = vBcNota;
+      }
+    } else if (itens[0].baseCalculo <= 0) {
+      itens[0].baseCalculo = maxBaseLiquida;
     }
   }
 
@@ -179,6 +191,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     vTotalNota,
     vBcNota,
     vIcmsNota,
+    vDescNota,
     origemExtracao: 'xml',
     rawMetadata: {
       qtd_itens: itens.length,

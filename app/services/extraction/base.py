@@ -30,6 +30,7 @@ class ExtractedItemNF(BaseModel):
     v_icms: Decimal = Decimal("0.00")  # Valor do ICMS destacado (crédito) extraído do documento/item
     origem_mercadoria: Optional[str] = None  # Dígito 0 a 8 indicativo da procedência (nacional, importada, etc.)
     csosn: Optional[str] = None  # Código de Situação da Operação no Simples Nacional (ex: 101, 102, 500)
+    v_desc: Decimal = Decimal("0.00")  # Desconto comercial destacado no item (tag vDesc)
 
 class ExtractedNFData(BaseModel):
     chave_acesso: str = ""
@@ -39,11 +40,12 @@ class ExtractedNFData(BaseModel):
     uf_emitente: str = ""
     cnpj_destinatario: str = ""
     uf_destinatario: str = ""
-    data_emissao: datetime
+    data_emissao: Optional[datetime] = None
     data_entrada: Optional[date] = None
     v_total_nota: Decimal
     v_bc_nota: Decimal
     v_icms_nota: Decimal = Decimal("0.00")
+    v_desc_nota: Decimal = Decimal("0.00")  # Desconto comercial total da nota (tag vDesc)
     itens: List[ExtractedItemNF]
     raw_metadata: Dict[str, Any] = Field(default_factory=dict)
     origem_extracao: str = "xml"  # "xml" ou "sped"

@@ -141,6 +141,11 @@ class SpedFiscalExtractor:
 
             # Se ainda assim não houver itens, gera 1 item consolidado da capa C100
             if not current_itens:
+                max_base_c100 = max(Decimal("0.00"), current_c100["v_total_nota"] - current_c100["v_ipi_nota"])
+                base_c100 = current_c100["v_bc_nota"]
+                v_desc_c100 = current_c100.get("v_desc_nota", Decimal("0.00"))
+                if v_desc_c100 > Decimal("0.00") and base_c100 > max_base_c100:
+                    base_c100 = max(Decimal("0.00"), min(base_c100 - v_desc_c100, max_base_c100))
                 current_itens.append(ExtractedItemNF(
                     item_numero=1,
                     ncm="00000000",
@@ -149,10 +154,11 @@ class SpedFiscalExtractor:
                     descricao_confiavel=False,
                     v_item=current_c100["v_total_nota"],
                     v_total=current_c100["v_total_nota"],
-                    base_calculo=current_c100["v_bc_nota"],
+                    base_calculo=base_c100,
                     ipi_despesas=current_c100["v_ipi_nota"],
                     a_ori=Decimal("0.00"),
-                    v_icms=current_c100["v_icms_nota"]
+                    v_icms=current_c100["v_icms_nota"],
+                    v_desc=v_desc_c100,
                 ))
 
             # Resolver CNPJ e UF do emitente a partir do cadastro 0150
@@ -191,6 +197,7 @@ class SpedFiscalExtractor:
                 v_total_nota=current_c100["v_total_nota"],
                 v_bc_nota=current_c100["v_bc_nota"],
                 v_icms_nota=current_c100["v_icms_nota"],
+                v_desc_nota=current_c100.get("v_desc_nota", Decimal("0.00")),
                 itens=current_itens,
                 raw_metadata={
                     "origem": "sped_fiscal",
@@ -384,13 +391,18 @@ class SpedFiscalExtractor:
                 if v_total_item <= 0 and vl_item > 0:
                     v_total_item = vl_item
 
+                base_sem_ipi = max(Decimal("0.00"), v_total_item - vl_ipi)
+
                 # Determinação correta de Base de Cálculo e IPI
                 if vl_bc_icms > Decimal("0.00"):
-                    bc_item = vl_bc_icms
+                    if vl_desc > Decimal("0.00") and vl_bc_icms > base_sem_ipi:
+                        bc_item = max(Decimal("0.00"), min(vl_bc_icms - vl_desc, base_sem_ipi))
+                    else:
+                        bc_item = vl_bc_icms
                 elif vl_bc_pis > Decimal("0.00") and vl_bc_pis < v_total_item:
                     bc_item = vl_bc_pis
                 else:
-                    bc_item = v_total_item - vl_ipi
+                    bc_item = base_sem_ipi
                 ipi_despesas_item = vl_ipi
 
                 current_itens.append(ExtractedItemNF(
@@ -407,6 +419,7 @@ class SpedFiscalExtractor:
                     v_icms=vl_icms,
                     origem_mercadoria=origem_mercadoria,
                     csosn=csosn,
+                    v_desc=vl_desc,
                 ))
 
             # 6. Registro C190: Registro Analítico (Fallback)
