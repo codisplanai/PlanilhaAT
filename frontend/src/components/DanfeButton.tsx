@@ -95,10 +95,12 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
     setLoading(true);
     setError(null);
     setNeedsPaidLookup(false);
+    let consultedWithXml = false;
     try {
       let pdf = pdfCache.get(chave);
       if (!pdf) {
         const xml = await findXmlForDanfe(chave, xmlFiles);
+        consultedWithXml = Boolean(xml);
         setSource(xml ? 'xml' : 'chave');
         const { data } = await apiClient.post<Blob>(
           '/danfe/pdf',
@@ -118,7 +120,7 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
     } catch (cause) {
       const status = cause && typeof cause === 'object'
         ? (cause as { response?: { status?: number } }).response?.status : undefined;
-      if (status === 404 && !autorizarBusca && source !== 'xml') {
+      if (status === 404 && !autorizarBusca && !consultedWithXml) {
         // Consulta por chave ainda ausente só é enviada após confirmação do custo.
         setNeedsPaidLookup(true);
       } else {
