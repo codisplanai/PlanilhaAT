@@ -79,6 +79,7 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
   const chave = (chaveAcesso ?? '').replace(/\D/g, '');
   const valid = chave.length === 44;
   const [loading, setLoading] = useState(false);
+  const [needsPaidLookup, setNeedsPaidLookup] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<'xml' | 'chave' | null>(null);
@@ -89,10 +90,11 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
     };
   }, [pdfUrl]);
 
-  const visualizar = async () => {
+  const visualizar = async (autorizarBusca = false) => {
     if (!valid || loading) return;
     setLoading(true);
     setError(null);
+    setNeedsPaidLookup(false);
     try {
       let pdf = pdfCache.get(chave);
       if (!pdf) {
@@ -100,7 +102,7 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
         setSource(xml ? 'xml' : 'chave');
         const { data } = await apiClient.post<Blob>(
           '/danfe/pdf',
-          { chave_acesso: chave, xml, buscar_por_chave: !xml },
+          { chave_acesso: chave, xml, buscar_por_chave: !xml && autorizarBusca },
           { responseType: 'blob', timeout: 60_000 },
         );
         if (!(data instanceof Blob) || !data.type.includes('pdf')) {
@@ -114,7 +116,14 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
       }
       setPdfUrl(URL.createObjectURL(pdf));
     } catch (cause) {
-      setError(await pdfErrorMessage(cause));
+      const status = cause && typeof cause === 'object'
+        ? (cause as { response?: { status?: number } }).response?.status : undefined;
+      if (status === 404 && !autorizarBusca && source !== 'xml') {
+        // Consulta por chave ainda ausente só é enviada após confirmação do custo.
+        setNeedsPaidLookup(true);
+      } else {
+        setError(await pdfErrorMessage(cause));
+      }
     } finally {
       setLoading(false);
     }
@@ -128,13 +137,21 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
         <Button
           type="button"
           variant="outline"
-          onClick={() => void visualizar()}
+          onClick={() => void visualizar(false)}
           isLoading={loading}
           leftIcon={<FileText className="h-4 w-4" />}
           className="w-full sm:w-auto"
         >
           Visualizar DANFE
         </Button>
+        {needsPaidLookup && (
+          <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            <p>O DANFE ainda não consta no Meu DANFE. A busca por chave pode custar R$ 0,03 e envia a chave ao fornecedor.</p>
+            <Button type="button" variant="outline" onClick={() => void visualizar(true)} isLoading={loading}>
+              Autorizar busca pela chave
+            </Button>
+          </div>
+        )}
         {error && (
           <p role="alert" className="mt-1.5 text-xs leading-relaxed text-red-700">{error}</p>
         )}
