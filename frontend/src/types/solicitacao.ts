@@ -137,6 +137,7 @@ export interface NotaBonificacaoPendencia {
 }
 
 export interface Convenio5291Pendencia {
+  anexo?: 'I' | 'II';
   decision_key: string;
   chave_acesso: string;
   numero_nota: string;
