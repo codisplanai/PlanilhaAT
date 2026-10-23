@@ -21,8 +21,8 @@ export function assertSpedBelongsToCompany(
   spedCompanyInfo: ParsedFiscalSources['spedCompanyInfo'],
   selectedCnpj: string,
 ): void {
-  const spedCnpj = String(spedCompanyInfo.cnpj ?? '').replace(/\\D/g, '');
-  const companyCnpj = String(selectedCnpj ?? '').replace(/\\D/g, '');
+  const spedCnpj = String(spedCompanyInfo.cnpj ?? '').replace(/\D/g, '');
+  const companyCnpj = String(selectedCnpj ?? '').replace(/\D/g, '');
   if (!spedCnpj) {
     throw new Error('O SPED Fiscal não informa um CNPJ de estabelecimento válido no registro 0000.');
   }
