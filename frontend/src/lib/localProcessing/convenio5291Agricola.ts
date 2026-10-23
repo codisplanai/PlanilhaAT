@@ -125,8 +125,8 @@ const mismatchesByNcm: Record<string, string[]> = {
 };
 const obviousMismatch = ['ESMERILHADEIRA', 'LIXADEIRA', 'FURADEIRA'];
 const safeByItem: Record<string, string[]> = {
-  '5.1': ['PA AGRICOLA', 'PA QUADRADA', 'PA DE BICO'],
-  '5.3': ['ENXADA', 'PICARETA', 'ANCINHO', 'SACHO'],
+  // Ferramentas manuais genéricas (pás, enxadas e picaretas) podem servir à
+  // construção civil. Não automatizar apenas por seu nome ou NCM.
   '8': ['SECADOR AGRICOLA'],
   '13.1': ['ARADO DE DISCO'],
   '13.2': ['ENXADA ROTATIVA'],
