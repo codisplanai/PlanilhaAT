@@ -17,6 +17,7 @@ import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } 
 import { calculateTax } from './calculations.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
 import { sortRowsByEntryAndNumber } from './rowSorting.ts';
+import { classifyAnexoII, resolveAnexoIIApplication } from './convenio5291Agricola.ts';
 import {
   CONVENIO_52_91_RATE_ORIGIN,
   classifyConvenio5291,
@@ -148,7 +149,8 @@ function convenio5291PreAnalysis(
   decisions: Record<string, boolean> | undefined,
 ): Convenio5291Pendencia[] {
   const config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
-  if (!config?.enabled || companyUf.toUpperCase() !== 'BA') return [];
+  const agricolaConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_ii;
+  if ((!config?.enabled && !agricolaConfig?.enabled) || companyUf.toUpperCase() !== 'BA') return [];
 
   const revendaConfig = getRevendaAntecipacaoConfig(context);
   const pending: Convenio5291Pendencia[] = [];
@@ -177,13 +179,22 @@ function convenio5291PreAnalysis(
       destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
       if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
 
-      const classification = classifyConvenio5291(config, note, item, companyUf);
+      // A prioridade agrícola aplica-se EXCLUSIVAMENTE à Parcial; DIFAL mantém
+      // integralmente o tratamento industrial anterior.
+      const agricola = PARTIAL_DESTINATIONS.has(destination)
+        ? classifyAnexoII(agricolaConfig, note, item, companyUf)
+        : null;
+      const anexo = agricola && agricola.status !== 'fora_catalogo' ? 'II' : 'I';
+      const classification = anexo === 'II'
+        ? agricola!
+        : classifyConvenio5291(config, note, item, companyUf);
       if (classification.status !== 'revisar') continue;
 
       const decisionKey = convenioDecisionKey(note, item);
       if (typeof decisions?.[decisionKey] === 'boolean') continue;
 
       pending.push({
+        anexo,
         decision_key: decisionKey,
         chave_acesso: note.chaveAcesso,
         numero_nota: note.numeroNota,
@@ -236,6 +247,7 @@ interface Group {
   convenio5291Manual: boolean;
   convenio5291OrigemAliquota: string;
   convenio5291Motivos: string[];
+  convenio5291Anexo: 'I' | 'II' | '';
 }
 
 export function groupKey(
@@ -309,6 +321,7 @@ export async function processFiscalLocally(
   const hasEntrySource = Boolean(request.input.spedFile) || Boolean(request.input.entrySheet) || sources.entryRecords.length > 0;
   const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
   const convenio5291Config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
+  const convenio5291AgricolaConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_ii;
   const convenioPending = convenio5291PreAnalysis(
     sources.notes,
     periodoInicio,
@@ -476,15 +489,19 @@ export async function processFiscalLocally(
       }
 
       const rate = resolveDestinationRate(context, item);
-      const convenio = CONVENIO_52_91_DESTINATIONS.has(destination)
-        ? resolveConvenio5291Application(
-          convenio5291Config,
-          note,
-          item,
-          context.empresa.uf,
-          request.convenio5291Decisions,
-        )
-        : null;
+      // Nenhuma mudança de regra para DIFAL ou Tributária/ST.
+      const possivelAgricola = PARTIAL_DESTINATIONS.has(destination)
+        ? resolveAnexoIIApplication(
+          convenio5291AgricolaConfig, note, item, context.empresa.uf, request.convenio5291Decisions,
+        ) : null;
+      const usarAgricola = possivelAgricola?.classification.status !== 'fora_catalogo' && Boolean(possivelAgricola);
+      const convenio = usarAgricola
+        ? { ...possivelAgricola!, anexo: 'II' as const }
+        : CONVENIO_52_91_DESTINATIONS.has(destination)
+          ? { ...resolveConvenio5291Application(
+            convenio5291Config, note, item, context.empresa.uf, request.convenio5291Decisions,
+          ), anexo: 'I' as const }
+          : null;
       const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
       const originalAOri = item.aOri;
       const effectiveRate = convenio?.applied
@@ -636,6 +653,7 @@ export async function processFiscalLocally(
         ),
         convenio5291OrigemAliquota: convenio?.origemAliquota ?? '',
         convenio5291Motivos: convenio?.applied ? [convenio.classification.motivo] : [],
+        convenio5291Anexo: convenio?.applied ? convenio.anexo : '',
       };
       group.items.push(item);
       group.rateResolutions.push(effectiveRate);
@@ -772,6 +790,7 @@ export async function processFiscalLocally(
           a_ori_inferida_simples: group.aOriInferredSimples,
           p_cred_sn: group.pCredSN.length ? group.pCredSN : null,
           convenio_52_91_aplicado: group.convenio5291Applied,
+          convenio_52_91_anexo: group.convenio5291Anexo || null,
           convenio_52_91_decisao_manual: group.convenio5291Manual,
           convenio_52_91_motivo: group.convenio5291Motivos.join('; ') || null,
           convenio_52_91_origem_aliquota: group.convenio5291OrigemAliquota || null,
