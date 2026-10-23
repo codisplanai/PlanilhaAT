@@ -115,10 +115,15 @@ export const isAnexoIINcm = (ncm: string): boolean => INDEX.has(String(ncm).repl
 
 // Match semântico determinístico; requisitos técnicos (potência, IBAMA, tipo de bomba,
 // uso, capacidade e destinação) continuam exigindo revisão humana, mesmo com termo.
-const obviousMismatch = [
-  'ESMERILHADEIRA', 'LIXADEIRA', 'FURADEIRA', 'CAIXA D AGUA',
-  'CAIXA DAGUA', 'GRELHA DE PIA', 'MANGUEIRA SOLTA', 'REGISTRO DE ESFERA',
-];
+// Exclusões de descrição evidenciadas nos XMLs de entrada da COMAPEL.
+ // Aplicadas por NCM, para evitar rejeitar outros itens jurídicos legítimos.
+const mismatchesByNcm: Record<string, string[]> = {
+  '39173290': ['TUBO PEBD', 'TUBO POLIETILENO', 'MANGUEIRA'],
+  '39251000': ['CAIXA D AGUA', 'CAIXA DAGUA', 'RESERVATORIO DE AGUA'],
+  '73269090': ['GRELHA', 'ABRACADEIRA', 'JUNTA DO CILINDRO', 'GARFO DE PINTURA', 'SUPORTE P ROLO'],
+  '84672999': ['ESMERILHADEIRA', 'LIXADEIRA', 'FURADEIRA'],
+};
+const obviousMismatch = ['ESMERILHADEIRA', 'LIXADEIRA', 'FURADEIRA'];
 const safeByItem: Record<string, string[]> = {
   '5.1': ['PA AGRICOLA', 'PA QUADRADA', 'PA DE BICO'],
   '5.3': ['ENXADA', 'PICARETA', 'ANCINHO', 'SACHO'],
@@ -170,7 +175,7 @@ export function classifyAnexoII(
     motivo: ajuste.motivo || 'Exclusão deste produto pelo Perfil de Regras.',
     sugestaoAplicar: false, ajusteId: ajuste.id,
   };
-  if (matches(d, obviousMismatch)) return {
+  if (matches(d, obviousMismatch) || matches(d, mismatchesByNcm[ncm] ?? [])) return {
     ...base, ...identify, status: 'nao_aplicar',
     motivo: 'Descrição incompatível com a mercadoria específica prevista no item legal.',
     sugestaoAplicar: false,
