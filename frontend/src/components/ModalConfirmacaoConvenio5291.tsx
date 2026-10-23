@@ -140,6 +140,13 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
                       <div><span className="block text-slate-400">pRedBC</span><strong>{formatPercent(item.p_red_bc)}</strong></div>
                       <div><span className="block text-slate-400">vBC da NF-e</span><strong>{formatCurrency(item.v_bc_xml)}</strong></div>
                       <div><span className="block text-slate-400">Base proposta</span><strong>{formatCurrency(item.base_sem_ipi)}</strong></div>
+                      {item.anexo === 'II' && (
+                        <>
+                          <div><span className="block text-slate-400">Carga efetiva na NF-e</span><strong>{item.carga_efetiva_xml != null ? formatPercent(item.carga_efetiva_xml) : 'Sem destaque'}</strong></div>
+                          <div><span className="block text-slate-400">Origem prevista · Anexo II</span><strong>{item.carga_origem_convenio != null ? formatPercent(item.carga_origem_convenio) : '—'}</strong></div>
+                          <div><span className="block text-slate-400">Carga interna BA · Anexo II</span><strong>{formatPercent(item.carga_interna_convenio ?? 0.056)}</strong></div>
+                        </>
+                      )}
                     </div>
 
                     <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
