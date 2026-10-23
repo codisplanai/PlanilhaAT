@@ -741,6 +741,42 @@ export async function processFiscalLocally(
         isSimples: Boolean(context.empresa.optante_simples_nacional),
       });
 
+      // Na Parcial agrícola não se gera planilha de imposto negativo ou zerado:
+      // quando a carga interestadual supera a interna pode não existir
+      // diferença a antecipar (RICMS/BA, art. 266). Registrar todos os itens.
+      if (group.convenio5291Anexo === 'II' && calculation.valorDevido <= 0) {
+        const reason = 'Convênio ICMS 52/91, Anexo II: sem diferença positiva de antecipação parcial após confrontar débito interno de 5,60% com crédito de origem.';
+        for (const fiscalItem of group.items) {
+          excluded.push({
+            chave_acesso: note.chaveAcesso,
+            numero_nota: note.numeroNota,
+            serie: note.serie,
+            item_numero: fiscalItem.itemNumero,
+            arquivo: note.filename,
+            destino: group.destination,
+            ncm: fiscalItem.ncm,
+            descricao: fiscalItem.descricao,
+            descricao_confiavel: fiscalItem.descricaoConfiavel,
+            motivo: reason,
+            tipo_exclusao: 'mercadoria',
+            regras_aplicadas: [],
+            v_total: fiscalItem.vTotal,
+            base_calculo: fiscalItem.baseSemIpi ?? fiscalItem.baseCalculo,
+            ipi_despesas: fiscalItem.ipiDespesas,
+            a_ori: group.aOri,
+            a_dst: group.aDst,
+          });
+        }
+        diagnostic?.event('info', 'calculo', reason, {
+          numeroNota: note.numeroNota,
+          anexo: 'II',
+          itens: group.items.length,
+          cargaOrigem: group.aOri,
+          cargaDestino: group.aDst,
+        });
+        continue;
+      }
+
       const effectiveEntryDate = EARLY_DESTINATIONS.has(group.destination) ? null : entryDate;
       const effectiveEntryOrigin = EARLY_DESTINATIONS.has(group.destination) ? null : entryOrigin;
       const rateOrigins = [...new Set(group.rateResolutions.map((item) => item.origem))].sort();
