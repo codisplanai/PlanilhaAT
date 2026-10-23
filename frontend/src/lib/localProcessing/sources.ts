@@ -13,6 +13,28 @@ export { crossingKeys, matchEntryCfop, matchEntryDate, matchEntryRecords };
 const USO_CONSUMO_CFOPS = new Set(['2556', '2407', '2551', '1556', '1407', '1551']);
 const USO_CONSUMO_SUFFIXES = new Set(['556', '407', '551']);
 
+/**
+ * Impede misturar a EFD Fiscal de um estabelecimento com XMLs de outro.
+ * Matriz e filial possuem escrituração própria, ainda que compartilhem raiz CNPJ.
+ */
+export function assertSpedBelongsToCompany(
+  spedCompanyInfo: ParsedFiscalSources['spedCompanyInfo'],
+  selectedCnpj: string,
+): void {
+  const spedCnpj = String(spedCompanyInfo.cnpj ?? '').replace(/\\D/g, '');
+  const companyCnpj = String(selectedCnpj ?? '').replace(/\\D/g, '');
+  if (!spedCnpj) {
+    throw new Error('O SPED Fiscal não informa um CNPJ de estabelecimento válido no registro 0000.');
+  }
+  if (spedCnpj !== companyCnpj) {
+    throw new Error(
+      `O SPED Fiscal pertence ao CNPJ ${spedCnpj}, mas a empresa selecionada tem CNPJ ${companyCnpj}. ` +
+      'Selecione o SPED do mesmo estabelecimento (matriz ou filial) dos XMLs. ' +
+      'Não é permitido misturar escriturações de CNPJs distintos.',
+    );
+  }
+}
+
 export function isUsoConsumoAtivo(cfop?: string | null): boolean {
   const clean = String(cfop ?? '').replace(/\D/g, '');
   return USO_CONSUMO_CFOPS.has(clean) || (clean.length >= 3 && USO_CONSUMO_SUFFIXES.has(clean.slice(-3)));
