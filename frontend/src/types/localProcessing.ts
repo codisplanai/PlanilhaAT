@@ -3,6 +3,7 @@ import type {
   ItemExcluido,
   NotaBonificacaoPendencia,
   Convenio5291Pendencia,
+  Convenio5291Decision,
   NotaFiscalProcessada,
   NotaIgnorada,
   Solicitacao,
@@ -95,7 +96,7 @@ export interface LocalProcessingRequest {
   context: LocalProcessingContext;
   input: LocalFiscalInput;
   bonusDecisions?: Record<string, boolean>;
-  convenio5291Decisions?: Record<string, boolean>;
+  convenio5291Decisions?: Record<string, Convenio5291Decision>;
   diagnostic?: DiagnosticRecorder;
 }
 

@@ -8,6 +8,7 @@ import type {
 import type {
   AvisoAvaliacao,
   Convenio5291Pendencia,
+  Convenio5291Decision,
   ItemExcluido,
   NotaBonificacaoPendencia,
   NotaIgnorada,
@@ -17,6 +18,7 @@ import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } 
 import { calculateTax } from './calculations.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
 import { sortRowsByEntryAndNumber } from './rowSorting.ts';
+import { classifyAnexoII, resolveAnexoIIApplication } from './convenio5291Agricola.ts';
 import {
   CONVENIO_52_91_RATE_ORIGIN,
   classifyConvenio5291,
@@ -145,10 +147,11 @@ function convenio5291PreAnalysis(
   context: LocalProcessingRequest['context'],
   entryRecords: Parameters<typeof matchEntryCfop>[1],
   bonusDecisions: Record<string, boolean> | undefined,
-  decisions: Record<string, boolean> | undefined,
+  decisions: Record<string, Convenio5291Decision> | undefined,
 ): Convenio5291Pendencia[] {
   const config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
-  if (!config?.enabled || companyUf.toUpperCase() !== 'BA') return [];
+  const agricolaConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_ii;
+  if ((!config?.enabled && !agricolaConfig?.enabled) || companyUf.toUpperCase() !== 'BA') return [];
 
   const revendaConfig = getRevendaAntecipacaoConfig(context);
   const pending: Convenio5291Pendencia[] = [];
@@ -177,13 +180,25 @@ function convenio5291PreAnalysis(
       destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
       if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
 
-      const classification = classifyConvenio5291(config, note, item, companyUf);
+      // A prioridade agrícola aplica-se EXCLUSIVAMENTE à Parcial; DIFAL mantém
+      // integralmente o tratamento industrial anterior.
+      const agricola = PARTIAL_DESTINATIONS.has(destination)
+        ? classifyAnexoII(agricolaConfig, note, item, companyUf)
+        : null;
+      const anexo = agricola && agricola.status !== 'fora_catalogo' ? 'II' : 'I';
+      const classification = anexo === 'II'
+        ? agricola!
+        : classifyConvenio5291(config, note, item, companyUf);
       if (classification.status !== 'revisar') continue;
 
       const decisionKey = convenioDecisionKey(note, item);
-      if (typeof decisions?.[decisionKey] === 'boolean') continue;
+      if (typeof decisions?.[decisionKey] === 'boolean' || decisions?.[decisionKey] === 'anexo_i') continue;
 
+      const alternativeIndustrial = anexo === 'II' && Boolean(config?.enabled)
+        && !['fora_catalogo', 'nao_aplicar'].includes(classifyConvenio5291(config, note, item, companyUf).status);
       pending.push({
+        anexo,
+        alternativa_anexo_i: alternativeIndustrial,
         decision_key: decisionKey,
         chave_acesso: note.chaveAcesso,
         numero_nota: note.numeroNota,
@@ -197,6 +212,14 @@ function convenio5291PreAnalysis(
         descricao_normalizada: normalizeConvenioDescription(item.descricao),
         cst: fullIcmsCode(item),
         p_icms: item.aOri,
+        carga_efetiva_xml: Number(item.vIcms ?? 0) > 0 && Number(item.baseSemIpi ?? 0) > 0
+          ? Number(item.vIcms) / Number(item.baseSemIpi)
+          : null,
+        carga_origem_convenio: anexo === 'II'
+          ? (classification.operacaoQuatroPorCento ? 0.04
+            : ['SP', 'MG', 'RJ', 'PR', 'SC', 'RS'].includes(note.ufEmitente.toUpperCase()) ? 0.041 : 0.07)
+          : null,
+        carga_interna_convenio: anexo === 'II' ? 0.056 : null,
         p_red_bc: Number(item.pRedBC ?? 0) > 1
           ? Number(item.pRedBC ?? 0) / 100
           : Number(item.pRedBC ?? 0),
@@ -236,6 +259,7 @@ interface Group {
   convenio5291Manual: boolean;
   convenio5291OrigemAliquota: string;
   convenio5291Motivos: string[];
+  convenio5291Anexo: 'I' | 'II' | '';
 }
 
 export function groupKey(
@@ -309,6 +333,10 @@ export async function processFiscalLocally(
   const hasEntrySource = Boolean(request.input.spedFile) || Boolean(request.input.entrySheet) || sources.entryRecords.length > 0;
   const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
   const convenio5291Config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
+  const convenio5291AgricolaConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_ii;
+  const industrialDecisions = request.convenio5291Decisions && Object.fromEntries(
+    Object.entries(request.convenio5291Decisions).map(([key, choice]) => [key, choice === true || choice === 'anexo_i']),
+  );
   const convenioPending = convenio5291PreAnalysis(
     sources.notes,
     periodoInicio,
@@ -476,15 +504,22 @@ export async function processFiscalLocally(
       }
 
       const rate = resolveDestinationRate(context, item);
-      const convenio = CONVENIO_52_91_DESTINATIONS.has(destination)
-        ? resolveConvenio5291Application(
-          convenio5291Config,
-          note,
-          item,
-          context.empresa.uf,
-          request.convenio5291Decisions,
-        )
-        : null;
+      // Nenhuma mudança de regra para DIFAL ou Tributária/ST.
+      const possivelAgricola = PARTIAL_DESTINATIONS.has(destination)
+        ? resolveAnexoIIApplication(
+          convenio5291AgricolaConfig, note, item, context.empresa.uf, request.convenio5291Decisions,
+        ) : null;
+      const escolherIndustrial = request.convenio5291Decisions?.[convenioDecisionKey(note, item)] === 'anexo_i';
+      const usarAgricola = Boolean(possivelAgricola)
+        && possivelAgricola?.classification.status !== 'fora_catalogo'
+        && !escolherIndustrial;
+      const convenio = usarAgricola
+        ? { ...possivelAgricola!, anexo: 'II' as const }
+        : CONVENIO_52_91_DESTINATIONS.has(destination)
+          ? { ...resolveConvenio5291Application(
+            convenio5291Config, note, item, context.empresa.uf, industrialDecisions,
+          ), anexo: 'I' as const }
+          : null;
       const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
       const originalAOri = item.aOri;
       const effectiveRate = convenio?.applied
@@ -636,6 +671,7 @@ export async function processFiscalLocally(
         ),
         convenio5291OrigemAliquota: convenio?.origemAliquota ?? '',
         convenio5291Motivos: convenio?.applied ? [convenio.classification.motivo] : [],
+        convenio5291Anexo: convenio?.applied ? convenio.anexo : '',
       };
       group.items.push(item);
       group.rateResolutions.push(effectiveRate);
@@ -655,7 +691,7 @@ export async function processFiscalLocally(
       if (convenio?.applied && !group.convenio5291Motivos.includes(convenio.classification.motivo)) {
         group.convenio5291Motivos.push(convenio.classification.motivo);
       }
-      if (convenio?.classification.status === 'revisar' && typeof request.convenio5291Decisions?.[convenio.decisionKey] === 'boolean') {
+      if (convenio?.classification.status === 'revisar' && request.convenio5291Decisions?.[convenio.decisionKey] !== undefined) {
         diagnostic?.event('info', 'validacao', 'Decisão do usuário para o Convênio ICMS 52/91 aplicada.', {
           chaveAcesso: note.chaveAcesso,
           numeroNota: note.numeroNota,
@@ -723,6 +759,42 @@ export async function processFiscalLocally(
         isSimples: Boolean(context.empresa.optante_simples_nacional),
       });
 
+      // Na Parcial agrícola não se gera planilha de imposto negativo ou zerado:
+      // quando a carga interestadual supera a interna pode não existir
+      // diferença a antecipar (RICMS/BA, art. 266). Registrar todos os itens.
+      if (group.convenio5291Anexo === 'II' && calculation.valorDevido <= 0) {
+        const reason = 'Convênio ICMS 52/91, Anexo II: sem diferença positiva de antecipação parcial após confrontar débito interno de 5,60% com crédito de origem.';
+        for (const fiscalItem of group.items) {
+          excluded.push({
+            chave_acesso: note.chaveAcesso,
+            numero_nota: note.numeroNota,
+            serie: note.serie,
+            item_numero: fiscalItem.itemNumero,
+            arquivo: note.filename,
+            destino: group.destination,
+            ncm: fiscalItem.ncm,
+            descricao: fiscalItem.descricao,
+            descricao_confiavel: fiscalItem.descricaoConfiavel,
+            motivo: reason,
+            tipo_exclusao: 'mercadoria',
+            regras_aplicadas: [],
+            v_total: fiscalItem.vTotal,
+            base_calculo: fiscalItem.baseSemIpi ?? fiscalItem.baseCalculo,
+            ipi_despesas: fiscalItem.ipiDespesas,
+            a_ori: group.aOri,
+            a_dst: group.aDst,
+          });
+        }
+        diagnostic?.event('info', 'calculo', reason, {
+          numeroNota: note.numeroNota,
+          anexo: 'II',
+          itens: group.items.length,
+          cargaOrigem: group.aOri,
+          cargaDestino: group.aDst,
+        });
+        continue;
+      }
+
       const effectiveEntryDate = EARLY_DESTINATIONS.has(group.destination) ? null : entryDate;
       const effectiveEntryOrigin = EARLY_DESTINATIONS.has(group.destination) ? null : entryOrigin;
       const rateOrigins = [...new Set(group.rateResolutions.map((item) => item.origem))].sort();
@@ -772,6 +844,7 @@ export async function processFiscalLocally(
           a_ori_inferida_simples: group.aOriInferredSimples,
           p_cred_sn: group.pCredSN.length ? group.pCredSN : null,
           convenio_52_91_aplicado: group.convenio5291Applied,
+          convenio_52_91_anexo: group.convenio5291Anexo || null,
           convenio_52_91_decisao_manual: group.convenio5291Manual,
           convenio_52_91_motivo: group.convenio5291Motivos.join('; ') || null,
           convenio_52_91_origem_aliquota: group.convenio5291OrigemAliquota || null,

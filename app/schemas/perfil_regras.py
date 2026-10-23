@@ -88,9 +88,9 @@ def _validar_config_mva(value: Any) -> Dict[str, Any]:
 
 
 
-def _validar_config_convenio_52_91(value: Any) -> Dict[str, Any]:
+def _validar_config_convenio_52_91(value: Any, key: str = "convenio_icms_52_91_anexo_i") -> Dict[str, Any]:
     if not isinstance(value, dict):
-        raise ValueError("convenio_icms_52_91_anexo_i deve ser um objeto")
+        raise ValueError(f"{key} deve ser um objeto")
 
     res = dict(value)
     for campo in (
@@ -101,12 +101,12 @@ def _validar_config_convenio_52_91(value: Any) -> Dict[str, Any]:
     ):
         val = res.get(campo)
         if type(val) is not bool:
-            raise ValueError(f"convenio_icms_52_91_anexo_i.{campo} deve ser booleano")
+            raise ValueError(f"{key}.{campo} deve ser booleano")
         res[campo] = val
 
     ajustes = res.get("ajustes", [])
     if not isinstance(ajustes, list):
-        raise ValueError("convenio_icms_52_91_anexo_i.ajustes deve ser uma lista")
+        raise ValueError(f"{key}.ajustes deve ser uma lista")
 
     normalized = []
     ids = set()
@@ -197,6 +197,11 @@ def _validar_e_normalizar_configuracoes_extras(value: Optional[Dict[str, Any]]) 
     if "convenio_icms_52_91_anexo_i" in res:
         res["convenio_icms_52_91_anexo_i"] = _validar_config_convenio_52_91(
             res["convenio_icms_52_91_anexo_i"]
+        )
+
+    if "convenio_icms_52_91_anexo_ii" in res:
+        res["convenio_icms_52_91_anexo_ii"] = _validar_config_convenio_52_91(
+            res["convenio_icms_52_91_anexo_ii"], "convenio_icms_52_91_anexo_ii"
         )
 
     return res
