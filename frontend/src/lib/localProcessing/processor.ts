@@ -44,6 +44,7 @@ import {
   shouldExcludeEqualRates,
 } from './rules.ts';
 import {
+  assertSpedBelongsToCompany,
   isUsoConsumoAtivo,
   loadLocalFiscalSources,
   matchEntryCfop,
@@ -286,6 +287,9 @@ export async function processFiscalLocally(
   }
 
   const sources = await loadLocalFiscalSources(request.input, periodoInicio, periodoFim);
+  if (request.input.spedFile) {
+    assertSpedBelongsToCompany(sources.spedCompanyInfo, context.empresa.cnpj);
+  }
   diagnostic?.event('info', 'leitura', 'Fontes fiscais interpretadas.', {
     notasLidas: sources.notes.length,
     registrosEntrada: sources.entryRecords.length,
