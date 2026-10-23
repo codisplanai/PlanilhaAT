@@ -212,6 +212,14 @@ function convenio5291PreAnalysis(
         descricao_normalizada: normalizeConvenioDescription(item.descricao),
         cst: fullIcmsCode(item),
         p_icms: item.aOri,
+        carga_efetiva_xml: Number(item.vIcms ?? 0) > 0 && Number(item.baseSemIpi ?? 0) > 0
+          ? Number(item.vIcms) / Number(item.baseSemIpi)
+          : null,
+        carga_origem_convenio: anexo === 'II'
+          ? (classification.operacaoQuatroPorCento ? 0.04
+            : ['SP', 'MG', 'RJ', 'PR', 'SC', 'RS'].includes(note.ufEmitente.toUpperCase()) ? 0.041 : 0.07)
+          : null,
+        carga_interna_convenio: anexo === 'II' ? 0.056 : null,
         p_red_bc: Number(item.pRedBC ?? 0) > 1
           ? Number(item.pRedBC ?? 0) / 100
           : Number(item.pRedBC ?? 0),
