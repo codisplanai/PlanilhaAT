@@ -18,7 +18,7 @@ interface Props {
 }
 
 function groupIdentity(item: Convenio5291Pendencia): string {
-  return `${item.ncm}|${item.descricao_normalizada}`;
+  return `${item.anexo ?? 'I'}|${item.ncm}|${item.descricao_normalizada}`;
 }
 
 export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
@@ -104,12 +104,18 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
                         <PackageSearch className="h-4 w-4 text-slate-500" />
                         NF-e {item.numero_nota} · Item {item.item_numero}
                       </span>
+                      <Badge size="sm" variant="purple">Anexo {item.anexo ?? 'I'}</Badge>
                       <Badge size="sm" variant="purple">NCM {item.ncm}</Badge>
                       {item.cst && <Badge size="sm" variant={item.cst.endsWith('20') ? 'warning' : 'neutral'}>CST {item.cst}</Badge>}
                     </div>
 
                     <p className="text-xs font-semibold text-slate-800">{item.fornecedor || 'Fornecedor não identificado'}</p>
                     <p className="text-xs leading-relaxed text-slate-700">{item.descricao}</p>
+                    {item.item_legal && (
+                      <p className="text-xs leading-relaxed text-slate-700">
+                        <strong>Convênio 52/91 · Anexo {item.anexo ?? 'I'} · item {item.item_legal}:</strong> {item.descricao_legal}
+                      </p>
+                    )}
 
                     {item.chave_acesso && (
                       <div className="flex items-center gap-2">
@@ -155,7 +161,7 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
                         Não aplicar
                       </Button>
                       <Button type="button" variant={applying ? 'primary' : 'outline'} onClick={() => setDecision(item, true)}>
-                        Aplicar Convênio
+                        Aplicar Anexo {item.anexo ?? 'I'}
                       </Button>
                     </div>
                     {identicalCount > 1 && (
