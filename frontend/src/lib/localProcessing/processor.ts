@@ -8,6 +8,7 @@ import type {
 import type {
   AvisoAvaliacao,
   Convenio5291Pendencia,
+  Convenio5291Decision,
   ItemExcluido,
   NotaBonificacaoPendencia,
   NotaIgnorada,
@@ -146,7 +147,7 @@ function convenio5291PreAnalysis(
   context: LocalProcessingRequest['context'],
   entryRecords: Parameters<typeof matchEntryCfop>[1],
   bonusDecisions: Record<string, boolean> | undefined,
-  decisions: Record<string, boolean> | undefined,
+  decisions: Record<string, Convenio5291Decision> | undefined,
 ): Convenio5291Pendencia[] {
   const config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
   const agricolaConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_ii;
@@ -191,10 +192,13 @@ function convenio5291PreAnalysis(
       if (classification.status !== 'revisar') continue;
 
       const decisionKey = convenioDecisionKey(note, item);
-      if (typeof decisions?.[decisionKey] === 'boolean') continue;
+      if (typeof decisions?.[decisionKey] === 'boolean' || decisions?.[decisionKey] === 'anexo_i') continue;
 
+      const alternativeIndustrial = anexo === 'II' && Boolean(config?.enabled)
+        && !['fora_catalogo', 'nao_aplicar'].includes(classifyConvenio5291(config, note, item, companyUf).status);
       pending.push({
         anexo,
+        alternativa_anexo_i: alternativeIndustrial,
         decision_key: decisionKey,
         chave_acesso: note.chaveAcesso,
         numero_nota: note.numeroNota,
@@ -322,6 +326,9 @@ export async function processFiscalLocally(
   const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
   const convenio5291Config = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
   const convenio5291AgricolaConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_ii;
+  const industrialDecisions = request.convenio5291Decisions && Object.fromEntries(
+    Object.entries(request.convenio5291Decisions).map(([key, choice]) => [key, choice === true || choice === 'anexo_i']),
+  );
   const convenioPending = convenio5291PreAnalysis(
     sources.notes,
     periodoInicio,
@@ -494,12 +501,15 @@ export async function processFiscalLocally(
         ? resolveAnexoIIApplication(
           convenio5291AgricolaConfig, note, item, context.empresa.uf, request.convenio5291Decisions,
         ) : null;
-      const usarAgricola = possivelAgricola?.classification.status !== 'fora_catalogo' && Boolean(possivelAgricola);
+      const escolherIndustrial = request.convenio5291Decisions?.[convenioDecisionKey(note, item)] === 'anexo_i';
+      const usarAgricola = Boolean(possivelAgricola)
+        && possivelAgricola?.classification.status !== 'fora_catalogo'
+        && !escolherIndustrial;
       const convenio = usarAgricola
         ? { ...possivelAgricola!, anexo: 'II' as const }
         : CONVENIO_52_91_DESTINATIONS.has(destination)
           ? { ...resolveConvenio5291Application(
-            convenio5291Config, note, item, context.empresa.uf, request.convenio5291Decisions,
+            convenio5291Config, note, item, context.empresa.uf, industrialDecisions,
           ), anexo: 'I' as const }
           : null;
       const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
@@ -673,7 +683,7 @@ export async function processFiscalLocally(
       if (convenio?.applied && !group.convenio5291Motivos.includes(convenio.classification.motivo)) {
         group.convenio5291Motivos.push(convenio.classification.motivo);
       }
-      if (convenio?.classification.status === 'revisar' && typeof request.convenio5291Decisions?.[convenio.decisionKey] === 'boolean') {
+      if (convenio?.classification.status === 'revisar' && request.convenio5291Decisions?.[convenio.decisionKey] !== undefined) {
         diagnostic?.event('info', 'validacao', 'Decisão do usuário para o Convênio ICMS 52/91 aplicada.', {
           chaveAcesso: note.chaveAcesso,
           numeroNota: note.numeroNota,
