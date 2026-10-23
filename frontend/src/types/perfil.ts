@@ -47,6 +47,7 @@ export interface PerfilConfiguracoesExtras extends JsonObject {
   politica_aliquotas_iguais_ufs?: string[];
   mva_revenda_antecipacao_tributaria?: MvaAntecipacaoTributariaConfig;
   convenio_icms_52_91_anexo_i?: Convenio5291Config;
+  convenio_icms_52_91_anexo_ii?: Convenio5291Config;
 }
 
 export interface PerfilRegras {
