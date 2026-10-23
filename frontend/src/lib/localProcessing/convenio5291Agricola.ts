@@ -7,6 +7,7 @@
  */
 import type { Convenio5291Config } from '../../types/perfil';
 import type { ExtractedItem, ExtractedNote } from './domain';
+import type { Convenio5291Decision } from '../../types/solicitacao';
 import {
   convenioDecisionKey, fullIcmsCode, normalizeConvenioDescription,
   type Convenio5291Applied, type Convenio5291Classification,
@@ -212,7 +213,7 @@ export function resolveAnexoIIApplication(
   note: ExtractedNote,
   product: ExtractedItem,
   destinationUF: string,
-  decisions?: Record<string, boolean>,
+  decisions?: Record<string, Convenio5291Decision>,
 ): Convenio5291Applied {
   const classification = classifyAnexoII(config, note, product, destinationUF);
   const decisionKey = convenioDecisionKey(note, product);
