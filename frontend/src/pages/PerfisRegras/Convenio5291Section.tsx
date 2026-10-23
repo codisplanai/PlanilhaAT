@@ -13,6 +13,7 @@ import type { Convenio5291Adjustment, Convenio5291Config, PerfilRegras } from '.
 
 interface Props {
   perfil: PerfilRegras;
+  anexo?: 'I' | 'II';
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -31,9 +32,11 @@ function clone(config: Convenio5291Config): Convenio5291Config {
 
 const newId = () => `ajuste-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChange }) => {
+export const Convenio5291Section: React.FC<Props> = ({ perfil, anexo = 'I', open, onOpenChange }) => {
   const queryClient = useQueryClient();
-  const config = perfil.configuracoes_extras?.convenio_icms_52_91_anexo_i;
+  const agricola = anexo === 'II';
+  const configKey = agricola ? 'convenio_icms_52_91_anexo_ii' : 'convenio_icms_52_91_anexo_i';
+  const config = perfil.configuracoes_extras?.[configKey];
   const [draft, setDraft] = useState<Convenio5291Config>(clone(config ?? { ...DEFAULT_CONFIG, enabled: false }));
   const [error, setError] = useState<string | null>(null);
 
@@ -49,7 +52,7 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
     mutationFn: (payload: Convenio5291Config) => perfisApi.atualizar(perfil.id, {
       configuracoes_extras: {
         ...(perfil.configuracoes_extras || {}),
-        convenio_icms_52_91_anexo_i: payload,
+        [configKey]: payload,
       },
     }),
     onSuccess: async () => {
@@ -71,8 +74,8 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
       collapsible
       open={open}
       onOpenChange={onOpenChange}
-      title="Convênio ICMS 52/91 — Anexo I"
-      subtitle="Redução de base para máquinas, aparelhos e equipamentos industriais, com catálogo legal central e ajustes por perfil."
+      title={`Convênio ICMS 52/91 — Anexo ${anexo}`}
+      subtitle={agricola ? "Máquinas e implementos agrícolas — somente Antecipação Parcial." : "Redução de base para máquinas, aparelhos e equipamentos industriais, com catálogo legal central e ajustes por perfil."}
       summary={
         <div className="flex items-center gap-2">
           <Badge variant={draft.enabled ? 'success' : 'neutral'} size="sm">{draft.enabled ? 'Ativo' : 'Inativo'}</Badge>
@@ -92,9 +95,9 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
                 Itens seguros são aplicados automaticamente. Itens ambíguos pausam o processamento para confirmação do usuário; CST X20 e pRedBC aparecem como indícios, nunca como prova isolada.
               </p>
               <div className="mt-3 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-2">
-                <span>A.DEST Bahia: <strong>8,80%</strong></span>
-                <span>A.ORIG Sul/Sudeste exceto ES: <strong>5,14%</strong></span>
-                <span>Demais origens interestaduais: <strong>8,80%</strong></span>
+                <span>Carga interna Bahia: <strong>{agricola ? "5,60%" : "8,80%"}</strong></span>
+                <span>Origem Sul/Sudeste exceto ES: <strong>{agricola ? "4,10%" : "5,14%"}</strong></span>
+                <span>Demais origens interestaduais: <strong>{agricola ? "7,00%" : "8,80%"}</strong></span>
                 <span>Operação 4%: <strong>revisão manual</strong></span>
               </div>
             </div>
@@ -116,7 +119,7 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
             <div>
               <p className="text-xs font-bold text-slate-800">Catálogo fiscal central</p>
               <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                A relação legal não é apagada por ajustes do perfil. Alterações abaixo apenas sobrescrevem o comportamento operacional para NCM/descrição e vigência informadas.
+                A relação legal não é apagada por ajustes do perfil. Alterações apenas alteram o comportamento operacional, sem dispensar requisitos jurídicos. O Anexo II se aplica somente à Antecipação Parcial.
               </p>
               <a
                 href="https://www.confaz.fazenda.gov.br/legislacao/convenios/1991/CV052_91"
