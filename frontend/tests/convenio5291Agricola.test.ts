@@ -102,3 +102,10 @@ test('ajuste por perfil pode excluir sem apagar catálogo legal', () => {
   assert.equal(result.status,'nao_aplicar');
   assert.equal(result.ajusteId,'no');
 });
+
+test('pás e enxadas genéricas exigem revisão do uso agrícola, não aplicação automática', () => {
+  const pa = classifyAnexoII(config, invoice(), product({ncm:'82011000',descricao:'PA DE BICO EM ACO'}),'BA');
+  const enxada = classifyAnexoII(config, invoice(), product({ncm:'82013000',descricao:'ENXADA FORJADA'}),'BA');
+  assert.equal(pa.status, 'revisar');
+  assert.equal(enxada.status, 'revisar');
+});
