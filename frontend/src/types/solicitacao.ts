@@ -155,6 +155,9 @@ export interface Convenio5291Pendencia {
   cst: string;
   p_icms: number;
   p_red_bc: number;
+  carga_efetiva_xml?: number | null;
+  carga_origem_convenio?: number | null;
+  carga_interna_convenio?: number | null;
   v_bc_xml: number;
   base_sem_ipi: number;
   motivo: string;
