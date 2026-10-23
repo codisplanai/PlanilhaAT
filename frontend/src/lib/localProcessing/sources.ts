@@ -44,19 +44,30 @@ export function enrichSpedWithXml(sped: ExtractedNote, xml: ExtractedNote): void
 
   if (xml.itens.length === 0) return;
 
-  const spedCfopByItem = new Map(
-    sped.itens
-      .filter((item) => item.cfop && isUsoConsumoAtivo(item.cfop))
-      .map((item) => [item.itemNumero, item.cfop]),
-  );
-  const spedCfops = sped.itens.map((item) => item.cfop).filter(Boolean);
-  const allUsage = spedCfops.length > 0 && spedCfops.every((cfop) => isUsoConsumoAtivo(cfop));
-  const predominant = spedCfops[0] || '2556';
+  // O XML contém o CFOP de emissão (5xxx/6xxx); o SPED C170 contém o
+  // CFOP efetivamente escriturado pelo destinatário (1xxx/2xxx).
+  // Só relacionar CFOPs distintos item a item se quantidade, números dos
+  // itens e NCMs conferirem. Caso contrário, usar o CFOP uniforme do SPED
+  // quando existir; nunca atribuir arbitrariamente um C170 a outro item.
+  const spedByItem = new Map(sped.itens.map((item) => [item.itemNumero, item]));
+  const matchingSpedItems = xml.itens.length === sped.itens.length
+    && xml.itens.every((item) => {
+      const spedItem = spedByItem.get(item.itemNumero);
+      return Boolean(spedItem?.cfop)
+        && (spedItem?.ncm === '00000000' || spedItem?.ncm === item.ncm);
+    });
+  const cfops = [...new Set(sped.itens.map((item) => item.cfop).filter(Boolean))];
+  const uniformSpedCfop = cfops.length === 1 ? cfops[0] : null;
 
   sped.itens = xml.itens.map((item) => ({
     ...item,
-    cfop: allUsage ? predominant : (spedCfopByItem.get(item.itemNumero) || item.cfop),
+    cfop: (matchingSpedItems ? spedByItem.get(item.itemNumero)?.cfop : null)
+      || uniformSpedCfop
+      || item.cfop,
   }));
+  sped.rawMetadata.cfop_origem = matchingSpedItems
+    ? 'sped_c170_por_item'
+    : uniformSpedCfop ? 'sped_cfop_uniforme' : 'xml_sem_correspondencia_segura';
   if (xml.vTotalNota > 0) sped.vTotalNota = xml.vTotalNota;
   if (xml.vBcNota > 0) sped.vBcNota = xml.vBcNota;
   if (xml.vIcmsNota > 0) sped.vIcmsNota = xml.vIcmsNota;
