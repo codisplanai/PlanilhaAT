@@ -136,8 +136,11 @@ export interface NotaBonificacaoPendencia {
   motivo_sugestao: string;
 }
 
+export type Convenio5291Decision = boolean | 'anexo_i';
+
 export interface Convenio5291Pendencia {
   anexo?: 'I' | 'II';
+  alternativa_anexo_i?: boolean;
   decision_key: string;
   chave_acesso: string;
   numero_nota: string;
