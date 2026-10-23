@@ -10,7 +10,7 @@ import type { ExtractedItem, ExtractedNote } from './domain';
 import {
   convenioDecisionKey, fullIcmsCode, normalizeConvenioDescription,
   type Convenio5291Applied, type Convenio5291Classification,
-} from './convenio5291';
+} from './convenio5291.ts';
 
 export const ANEXO_II_VALID_UNTIL = '2026-12-31';
 export const ANEXO_II_SAFE_FROM = '2020-01-01';
