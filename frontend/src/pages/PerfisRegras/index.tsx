@@ -46,6 +46,7 @@ type SectionKey =
   | 'aliquotasIguais'
   | 'reducoes'
   | 'convenio5291'
+  | 'convenio5291Agricola'
   | 'exclusoes'
   | 'mva'
   | 'padrao'
@@ -57,6 +58,7 @@ type SectionKey =
 const SECTION_KEYS: SectionKey[] = [
   'reducoes',
   'convenio5291',
+  'convenio5291Agricola',
   'excecoes',
   'padrao',
   'limiteAori',
@@ -98,6 +100,7 @@ const collapsedSections = (): Record<SectionKey, boolean> => ({
   aliquotasIguais: false,
   reducoes: false,
   convenio5291: false,
+  convenio5291Agricola: false,
   exclusoes: false,
   mva: false,
   padrao: false,
@@ -373,6 +376,13 @@ export const PerfisRegrasPage: React.FC = () => {
                 perfil={activePerfil}
                 open={openSections.convenio5291}
                 onOpenChange={(open) => setSectionOpen('convenio5291', open)}
+              />
+              <Convenio5291Section
+                key={`${activePerfil.id}-agricola`}
+                anexo="II"
+                perfil={activePerfil}
+                open={openSections.convenio5291Agricola}
+                onOpenChange={(open) => setSectionOpen('convenio5291Agricola', open)}
               />
 
               {/* Nível 3a — exceção por NCM, sobrescreve a base da UF */}
