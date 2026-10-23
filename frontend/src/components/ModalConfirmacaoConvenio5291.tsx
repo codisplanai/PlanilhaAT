@@ -6,14 +6,14 @@ import { Modal } from './ui/Modal';
 import { DanfeButton } from './DanfeButton';
 import { useManagedTimeout } from '../hooks/useManagedTimeout';
 import { formatCurrency, formatPercent } from '../lib/formatters';
-import type { Convenio5291Pendencia } from '../types/solicitacao';
+import type { Convenio5291Pendencia, Convenio5291Decision } from '../types/solicitacao';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   itens: Convenio5291Pendencia[];
   xmlFiles?: File[];
-  onConfirm: (decisoes: Record<string, boolean>) => void;
+  onConfirm: (decisoes: Record<string, Convenio5291Decision>) => void;
   isProcessing?: boolean;
 }
 
@@ -29,19 +29,19 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
   onConfirm,
   isProcessing = false,
 }) => {
-  const [decisoes, setDecisoes] = useState<Record<string, boolean>>({});
+  const [decisoes, setDecisoes] = useState<Record<string, Convenio5291Decision>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const copyTimeout = useManagedTimeout();
 
   useEffect(() => {
-    const initial: Record<string, boolean> = {};
+    const initial: Record<string, Convenio5291Decision> = {};
     itens.forEach((item) => {
       initial[item.decision_key] = item.sugestao_aplicar;
     });
     setDecisoes(initial);
   }, [itens]);
 
-  const setDecision = (item: Convenio5291Pendencia, value: boolean, identical = false) => {
+  const setDecision = (item: Convenio5291Pendencia, value: Convenio5291Decision, identical = false) => {
     setDecisoes((current) => {
       const next = { ...current, [item.decision_key]: value };
       if (identical) {
@@ -55,7 +55,7 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
   };
 
   const totals = useMemo(() => {
-    const apply = itens.filter((item) => decisoes[item.decision_key] === true).length;
+    const apply = itens.filter((item) => decisoes[item.decision_key] === true || decisoes[item.decision_key] === 'anexo_i').length;
     return { apply, normal: itens.length - apply };
   }, [decisoes, itens]);
 
@@ -90,7 +90,8 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
 
         <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
           {itens.map((item) => {
-            const applying = decisoes[item.decision_key] === true;
+            const selected = decisoes[item.decision_key];
+            const applying = selected === true || selected === 'anexo_i';
             const identicalCount = itens.filter((candidate) => groupIdentity(candidate) === groupIdentity(item)).length;
             return (
               <div
@@ -156,18 +157,23 @@ export const ModalConfirmacaoConvenio5291: React.FC<Props> = ({
                   <div className="shrink-0 space-y-2 lg:w-[280px]">
                     <DanfeButton chaveAcesso={item.chave_acesso} numeroNota={item.numero_nota} xmlFiles={xmlFiles} />
                     <p className="text-[10px] leading-relaxed text-slate-500">Consulte a nota antes da decisão. Busca apenas pela chave pode custar R$ 0,03.</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className={`grid gap-2 ${item.alternativa_anexo_i ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2'}`}>
                       <Button type="button" variant={applying ? 'outline' : 'secondary'} onClick={() => setDecision(item, false)}>
                         Não aplicar
                       </Button>
-                      <Button type="button" variant={applying ? 'primary' : 'outline'} onClick={() => setDecision(item, true)}>
+                      {item.alternativa_anexo_i && (
+                        <Button type="button" variant={selected === 'anexo_i' ? 'primary' : 'outline'} onClick={() => setDecision(item, 'anexo_i')}>
+                          Anexo I
+                        </Button>
+                      )}
+                      <Button type="button" variant={selected === true ? 'primary' : 'outline'} onClick={() => setDecision(item, true)}>
                         Aplicar Anexo {item.anexo ?? 'I'}
                       </Button>
                     </div>
                     {identicalCount > 1 && (
                       <button
                         type="button"
-                        onClick={() => setDecision(item, applying, true)}
+                        onClick={() => setDecision(item, selected ?? false, true)}
                         className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
                       >
                         Aplicar esta decisão aos {identicalCount} itens idênticos
