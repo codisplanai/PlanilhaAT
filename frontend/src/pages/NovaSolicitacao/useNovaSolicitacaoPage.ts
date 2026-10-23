@@ -14,6 +14,7 @@ import type {
 } from '../../types/localProcessing';
 import type {
   Convenio5291Pendencia,
+  Convenio5291Decision,
   NotaBonificacaoPendencia,
   Solicitacao,
   TipoPlanilha,
@@ -192,7 +193,7 @@ export function useNovaSolicitacaoPage() {
   const executeLocalProcessing = async (
     requestId: string,
     bonusDecisions?: Record<string, boolean>,
-    convenio5291Decisions?: Record<string, boolean>,
+    convenio5291Decisions?: Record<string, Convenio5291Decision>,
     diagnostic: DiagnosticRecorder | null = activeDiagnosticRef.current,
   ): Promise<void> => {
     if (!selectedEmpresa) return;
@@ -445,7 +446,7 @@ export function useNovaSolicitacaoPage() {
     }
   };
 
-  const confirmarConvenio5291EProcessar = async (decisoes: Record<string, boolean>) => {
+  const confirmarConvenio5291EProcessar = async (decisoes: Record<string, Convenio5291Decision>) => {
     if (processingGuardRef.current) return;
     if (!solicitacaoIdAtiva) return;
     processingGuardRef.current = true;
