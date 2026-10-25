@@ -10,6 +10,9 @@ from app.core.exceptions import ValidationException
 MVA_ORIGINAL = "original"
 MVA_AJUSTADA = "ajustada"
 
+# Código CEST no formato 00.000.00 (com ou sem pontos).
+_PADRAO_CEST = re.compile(r"\d{2}\.?\d{3}\.?\d{2}")
+
 
 @dataclass(frozen=True)
 class ResultadoMva:
@@ -178,7 +181,11 @@ class MvaResolver:
         clean_ncm: str,
         cest: Optional[str],
     ) -> List[Dict[str, Any]]:
-        """Itens do Anexo cujo NCM casa com o do documento, refinados pelo CEST."""
+        """Busca antiga, usada só por `resolve_mva`: prefixo mais longo e CEST opcional.
+
+        O fluxo da Antecipação Tributária usa `_candidatos_por_ncm` e
+        `_cests_do_item`, que não descartam itens antes de olhar o CEST.
+        """
         # Buscar melhor match por NCM (do mais específico ao mais geral)
         best_prefix_len = 0
         matches: List[Dict[str, Any]] = []
@@ -211,6 +218,39 @@ class MvaResolver:
                 matches = cest_matches
 
         return matches
+
+    @staticmethod
+    def _candidatos_por_ncm(entries: List[Dict[str, Any]], clean_ncm: str) -> List[Dict[str, Any]]:
+        """Todos os itens do Anexo cujo código casa com o NCM do documento.
+
+        Não descarta itens de código mais curto: itens com o mesmo NCM são
+        separados pelo CEST, não pelo tamanho do código no Anexo.
+        """
+        candidatos: List[Dict[str, Any]] = []
+        for entry in entries:
+            codigo = str(entry.get("ncm") or "")
+            if not codigo:
+                continue
+            if clean_ncm.startswith(codigo) or (len(clean_ncm) >= 4 and codigo.startswith(clean_ncm)):
+                candidatos.append(entry)
+        return candidatos
+
+    @staticmethod
+    def _cests_do_item(entry: Dict[str, Any]) -> set:
+        """CESTs de um item do Anexo, só com dígitos (um item pode ter mais de um)."""
+        bruto = entry.get("cest")
+        valores = bruto if isinstance(bruto, (list, tuple)) else [bruto]
+        cests = set()
+        for valor in valores:
+            if valor is None:
+                continue
+            for achado in _PADRAO_CEST.findall(str(valor)):
+                cests.add(re.sub(r"\D", "", achado))
+        return cests
+
+    @staticmethod
+    def _formatar_cest(cest: str) -> str:
+        return f"{cest[:2]}.{cest[2:5]}.{cest[5:]}" if len(cest) == 7 else cest
 
     @staticmethod
     def coluna_por_regime(crt: Optional[str], evidencia_csosn: bool) -> Optional[str]:
@@ -311,11 +351,17 @@ class MvaResolver:
         """MVA de um item de Antecipação Tributária, sem valores de fallback.
 
         `coluna` vem de `coluna_por_regime`. A MVA ajustada usa a faixa da A.ORI
-        destacada no documento. Fica pendente, com o motivo, quando o NCM não está
-        no Anexo, quando a MVA do item não é numérica (PMPF, Ato COTEPE, preço
-        sugerido), quando é condicional, quando os itens possíveis têm MVAs
-        diferentes e o CEST não desempata, ou quando a A.ORI não permite escolher
-        a faixa da MVA ajustada.
+        destacada no documento.
+
+        Itens possíveis: todos os itens do Anexo cujo código casa com o NCM. Com
+        CEST no documento, fica só o item desse CEST; se nenhum item possível tem
+        esse CEST, há divergência entre NCM e CEST e o item fica pendente. Sem CEST,
+        a MVA só é usada se for a mesma em todos os itens possíveis.
+
+        Fica pendente, com o motivo, quando o NCM não está no Anexo, quando o CEST
+        diverge do NCM, quando a MVA do item não é numérica (PMPF, Ato COTEPE,
+        preço sugerido), quando é condicional, quando os itens possíveis têm MVAs
+        diferentes, ou quando a A.ORI não permite escolher a faixa da MVA ajustada.
         """
         if coluna not in (MVA_ORIGINAL, MVA_AJUSTADA):
             return ResultadoMva(
@@ -362,9 +408,7 @@ class MvaResolver:
                 motivo_pendencia="MVA pendente: a tabela do Anexo 1 não está disponível no sistema.",
             )
 
-        candidatos = cls._candidatos(entries, clean_ncm, cest)
-        itens = tuple(dict.fromkeys(str(entry.get("item")) for entry in candidatos if entry.get("item")))
-        rotulo = cls._rotulo_itens(itens)
+        candidatos = cls._candidatos_por_ncm(entries, clean_ncm)
         if not candidatos:
             return ResultadoMva(
                 mva=None,
@@ -373,6 +417,26 @@ class MvaResolver:
                     f"MVA pendente: NCM {clean_ncm} não encontrado no Anexo 1 carregado no sistema."
                 ),
             )
+
+        clean_cest = re.sub(r"\D", "", str(cest or ""))
+        if clean_cest:
+            com_cest = [entry for entry in candidatos if clean_cest in cls._cests_do_item(entry)]
+            if not com_cest:
+                itens_ncm = tuple(dict.fromkeys(str(entry.get("item")) for entry in candidatos if entry.get("item")))
+                return ResultadoMva(
+                    mva=None,
+                    coluna=coluna,
+                    motivo_pendencia=(
+                        f"MVA pendente: divergência entre NCM e CEST. O CEST {cls._formatar_cest(clean_cest)} "
+                        f"do documento não corresponde a nenhum item do Anexo 1 para o NCM "
+                        f"{clean_ncm}{cls._rotulo_itens(itens_ncm)}."
+                    ),
+                    itens_anexo=itens_ncm,
+                )
+            candidatos = com_cest
+
+        itens = tuple(dict.fromkeys(str(entry.get("item")) for entry in candidatos if entry.get("item")))
+        rotulo = cls._rotulo_itens(itens)
 
         nome_coluna = "original" if coluna == MVA_ORIGINAL else f"ajustada ({chave}%)"
         valores = set()
@@ -402,12 +466,17 @@ class MvaResolver:
 
         if len(valores) > 1:
             lista = " / ".join(cls._formatar_percentual(v) for v in sorted(valores))
+            falta = (
+                "e o CEST do documento não identificou um único item."
+                if clean_cest
+                else "e o documento não traz CEST para identificar o item."
+            )
             return ResultadoMva(
                 mva=None,
                 coluna=coluna,
                 motivo_pendencia=(
                     f"MVA pendente: o NCM {clean_ncm} tem mais de uma MVA {nome_coluna} possível ({lista}){rotulo}, "
-                    "e o CEST do documento não identificou o item."
+                    f"{falta}"
                 ),
                 itens_anexo=itens,
             )

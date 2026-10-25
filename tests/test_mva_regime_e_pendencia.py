@@ -12,6 +12,7 @@ Regras decididas:
 """
 
 import json
+import os
 from datetime import date
 from decimal import Decimal
 
@@ -65,6 +66,16 @@ ANEXO_TESTE = [
             _ajustada(107.43, 100.95, 90.15, caso="demais casos"),
         ],
         "mva_original": [_original(36.56, caso="índice de fidelidade"), _original(71.78, caso="demais casos")],
+    },
+    # Código curto (2202) com dois CESTs e código longo (220210) com outro CEST e
+    # outra MVA: o NCM 2202.10.00 casa com os dois itens.
+    {
+        "ncm": "2202", "item": "3.7", "cest": ["03.007.00", "03.008.00"], "descricao": "Águas aromatizadas",
+        "mva_ajustada": [_ajustada(158.42, 150.34, 136.88)], "mva_original": [_original(114.0)],
+    },
+    {
+        "ncm": "220210", "item": "3.9", "cest": ["03.010.00"], "descricao": "Refrigerantes em vidro descartável",
+        "mva_ajustada": [_ajustada(165.08, 156.80, 142.99)], "mva_original": [_original(114.0)],
     },
 ]
 
@@ -191,6 +202,62 @@ def test_regime_desconhecido_fica_pendente(anexo_teste):
     )
     assert resultado.pendente
     assert "regime do fornecedor não identificado" in resultado.motivo_pendencia
+
+
+@pytest.mark.parametrize(
+    "cest, mva_esperada, itens",
+    [
+        ("03.007.00", Decimal("158.42"), ("3.7",)),  # item de código mais curto não é descartado
+        ("0300800", Decimal("158.42"), ("3.7",)),    # segundo CEST do mesmo item
+        ("03.010.00", Decimal("165.08"), ("3.9",)),
+    ],
+)
+def test_cest_escolhe_entre_itens_de_codigos_diferentes(anexo_teste, cest, mva_esperada, itens):
+    resultado = MvaResolver.resolver_para_item(
+        ncm="22021000", cest=cest, a_ori=Decimal("0.04"), coluna=MVA_AJUSTADA
+    )
+    assert resultado.mva == mva_esperada
+    assert resultado.itens_anexo == itens
+
+
+def test_sem_cest_itens_de_codigos_diferentes_com_mvas_diferentes_ficam_pendentes(anexo_teste):
+    resultado = MvaResolver.resolver_para_item(
+        ncm="22021000", cest="", a_ori=Decimal("0.04"), coluna=MVA_AJUSTADA
+    )
+    assert resultado.pendente
+    assert "158,42% / 165,08%" in resultado.motivo_pendencia
+    assert "não traz CEST" in resultado.motivo_pendencia
+    assert resultado.itens_anexo == ("3.7", "3.9")
+
+
+def test_cest_divergente_do_ncm_fica_pendente_em_vez_de_ser_ignorado(anexo_teste):
+    resultado = MvaResolver.resolver_para_item(
+        ncm="22021000", cest="03.003.00", a_ori=Decimal("0.04"), coluna=MVA_AJUSTADA
+    )
+    assert resultado.pendente
+    assert "divergência entre NCM e CEST" in resultado.motivo_pendencia
+    assert "CEST 03.003.00" in resultado.motivo_pendencia
+    assert resultado.itens_anexo == ("3.7", "3.9")
+
+
+def test_tabela_real_agua_aromatizada_recebe_a_mva_do_item_3_7():
+    caminho_real = MvaResolver._bundled_anexo_file_path
+    if not os.path.exists(caminho_real):
+        pytest.skip("Tabela do Anexo 1 não disponível.")
+    caminho_anterior = MvaResolver._anexo_file_path
+    MvaResolver.set_custom_path(caminho_real)
+    try:
+        com_cest = MvaResolver.resolver_para_item(
+            ncm="22021000", cest="0300700", a_ori=Decimal("0.04"), coluna=MVA_AJUSTADA
+        )
+        sem_cest = MvaResolver.resolver_para_item(
+            ncm="22021000", cest="", a_ori=Decimal("0.04"), coluna=MVA_AJUSTADA
+        )
+    finally:
+        MvaResolver.set_custom_path(caminho_anterior)
+    assert com_cest.mva == Decimal("158.42")
+    assert com_cest.itens_anexo == ("3.7",)
+    assert sem_cest.pendente
 
 
 def test_mensagem_sem_planilha_diferencia_mva_pendente():
@@ -347,6 +414,29 @@ def test_item_sem_mva_vira_pendencia_sem_derrubar_a_solicitacao(
     assert tributaria[0].v_total == Decimal("1000.00")
     assert Decimal(tributaria[0].metadados_extras["mva"]) == Decimal("136.88")
     assert any(n.destino_planilha == "antecipacao_parcial" for n in resultado.notas_processadas)
+
+
+def test_pipeline_usa_o_cest_do_xml_para_escolher_o_item(
+    db_session, create_sample_excel_template, anexo_teste
+):
+    solicitacao = _cenario(db_session, create_sample_excel_template)
+    xml = _xml(
+        "706",
+        "3",
+        [
+            ("22021000", "03.007.00", "6405", "1000.00", "4.00"),  # água aromatizada: item 3.7
+            ("22021000", "03.003.00", "6405", "200.00", "4.00"),   # CEST de outro produto: divergência
+        ],
+    )
+
+    resultado = ProcessingPipelineService(db_session).process_solicitacao(solicitacao.id, [("nf706.xml", xml)])
+    db_session.refresh(resultado)
+
+    assert resultado.status == "concluido"
+    assert _mvas_da_tributaria(resultado) == [Decimal("158.42")]
+    pendentes = [i for i in resultado.itens_excluidos if i["tipo_exclusao"] == TIPO_EXCLUSAO_MVA_PENDENTE]
+    assert [i["item_numero"] for i in pendentes] == [2]
+    assert "divergência entre NCM e CEST" in pendentes[0]["motivo"]
 
 
 def test_regime_normal_sem_aliquota_destacada_fica_pendente(
