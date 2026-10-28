@@ -169,7 +169,7 @@ test('amostras que não se enquadram: esmerilhadeira, tubo PEBD, abraçadeira e 
 });
 
 
-test('COMAPEL: NF-e emitida em agosto e entrada em setembro integra a Parcial de setembro', async () => {
+test('competência pela emissão: NF-e de agosto no SPED de setembro fica fora da Parcial de setembro', async () => {
   const xml = xmlFor({
     uf: 'SP', ncm: '84244100', descricao: 'PULVERIZADOR MANUAL AGRICOLA',
     vProd: 1000, vBc: 585.70, pIcms: 7, pRedBc: 41.43, vIcms: 41,
@@ -199,8 +199,9 @@ test('COMAPEL: NF-e emitida em agosto e entrada em setembro integra a Parcial de
     },
     convenio5291Decisions: { [`${note.chaveAcesso}|1`]: true },
   }, templates);
-  assert.equal(result.notasProcessadas.length, 1, 'a competência da Parcial é a entrada C100 de setembro');
-  assert.equal(result.notasProcessadas[0].a_ori, 0.041);
-  assert.equal(result.notasProcessadas[0].a_dst_resolvida, 0.056);
-  assert.ok(!result.notasIgnoradas.some((item) => item.numero_nota === '1234'));
+  assert.equal(result.notasProcessadas.length, 0, 'a data de emissão de agosto impede lançamento em setembro');
+  const ignorada = result.notasIgnoradas.find((item) => item.numero_nota === '1234');
+  assert.ok(ignorada, 'NF-e fora da competência deve constar das notas ignoradas');
+  assert.match(ignorada.motivo, /Data de emissão fora do período informado/);
+  assert.equal(result.preAnalysis.itens_convenio_52_91.length, 0, 'não solicitar confirmação do convênio fora do mês de emissão');
 });
