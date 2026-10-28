@@ -252,7 +252,15 @@ def seed_default_templates(db: Session) -> None:
         .first()
     )
 
+    deve_subir_tributaria = False
     if template_tributaria_ativo is None and os.path.exists(DEFAULT_ANTECIPACAO_TRIBUTARIA_TEMPLATE_PATH):
+        deve_subir_tributaria = True
+    elif template_tributaria_ativo is not None and os.path.exists(DEFAULT_ANTECIPACAO_TRIBUTARIA_TEMPLATE_PATH):
+        cols = template_tributaria_ativo.mapeamento_campos.get("columns") or {}
+        if "data_entrada" not in cols:
+            deve_subir_tributaria = True
+
+    if deve_subir_tributaria and os.path.exists(DEFAULT_ANTECIPACAO_TRIBUTARIA_TEMPLATE_PATH):
         with open(DEFAULT_ANTECIPACAO_TRIBUTARIA_TEMPLATE_PATH, "rb") as f:
             file_bytes = f.read()
 
@@ -305,7 +313,15 @@ def seed_default_templates(db: Session) -> None:
         .first()
     )
 
+    deve_subir_difal = False
     if template_difal_ativo is None and os.path.exists(DEFAULT_DIFAL_TEMPLATE_PATH):
+        deve_subir_difal = True
+    elif template_difal_ativo is not None and os.path.exists(DEFAULT_DIFAL_TEMPLATE_PATH):
+        cols = template_difal_ativo.mapeamento_campos.get("columns") or {}
+        if "data_entrada" not in cols:
+            deve_subir_difal = True
+
+    if deve_subir_difal and os.path.exists(DEFAULT_DIFAL_TEMPLATE_PATH):
         with open(DEFAULT_DIFAL_TEMPLATE_PATH, "rb") as f:
             file_bytes = f.read()
 
