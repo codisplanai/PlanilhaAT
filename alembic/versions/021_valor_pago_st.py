@@ -1,6 +1,6 @@
 ﻿"""Adiciona mapeamento de valor_pago na coluna S para templates de antecipacao_tributaria e antecipacao_tributaria_antecipado.
 
-Revision ID: 021_add_valor_pago_to_antecipacao_tributaria
+Revision ID: 021_valor_pago_st
 Revises: 020_fix_template_data_entrada
 Create Date: 2026-10-28
 """
@@ -12,7 +12,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "021_add_valor_pago_to_antecipacao_tributaria"
+revision: str = "021_valor_pago_st"
 down_revision: Union[str, None] = "020_fix_template_data_entrada"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
