@@ -167,3 +167,40 @@ test('amostras que não se enquadram: esmerilhadeira, tubo PEBD, abraçadeira e 
     assert.equal(classifyAnexoII(profile, template as ExtractedNote, candidate, 'BA').status, status, ncm);
   }
 });
+
+
+test('COMAPEL: NF-e emitida em agosto e entrada em setembro integra a Parcial de setembro', async () => {
+  const xml = xmlFor({
+    uf: 'SP', ncm: '84244100', descricao: 'PULVERIZADOR MANUAL AGRICOLA',
+    vProd: 1000, vBc: 585.70, pIcms: 7, pRedBc: 41.43, vIcms: 41,
+  }).replace('2026-09-28T10:00:00-03:00', '2026-08-28T10:00:00-03:00');
+  const note = parseNfeXml(xml, 'emitido-agosto.xml');
+  const sped = [
+    '|0000|020|0|01092026|30092026|EMPRESA EXEMPLO|12345678000195||BA|00000000|0000000|||A|1|',
+    '|0150|FORN|FORNECEDOR EXEMPLO|1058|11111111000191||00000000|3550308||SP|',
+    '|0200|P1|PULVERIZADOR AGRICOLA|||UN|00|84244100||||||',
+    `|C100|0|1|FORN|55|00|1|1234|${note.chaveAcesso}|28082026|14092026|1000,00|0|0|0|1000,00|0|0|0|0|0|585,70|41,00|0|0|0||`,
+    '|C170|1|P1||1,000|UN|1000,00|0,00|0|020|2102||585,70|7,00|41,00|0|0|0|0|0||||0|0|||',
+    '|C190|020|2102|7,00|1000,00|585,70|41,00|0|0|0|0|0||',
+  ].join('\r\n');
+  const localContext = {
+    ...context, regras_cfop: [{
+      id: 2, perfil_regras_id: null, cfop_sufixo: '102',
+      destino: 'antecipacao_parcial', criado_em: '', atualizado_em: '',
+    }],
+  };
+  const result = await processFiscalLocally({
+    solicitacaoId: 'comapel-entrada-setembro',
+    periodoInicio: '2026-09-01', periodoFim: '2026-09-30',
+    context: localContext,
+    input: {
+      xmlFiles: [new File([xml], 'emitido-agosto.xml')],
+      spedFile: new File([sped], 'sped09.txt'),
+    },
+    convenio5291Decisions: { [`${note.chaveAcesso}|1`]: true },
+  }, templates);
+  assert.equal(result.notasProcessadas.length, 1, 'a competência da Parcial é a entrada C100 de setembro');
+  assert.equal(result.notasProcessadas[0].a_ori, 0.041);
+  assert.equal(result.notasProcessadas[0].a_dst_resolvida, 0.056);
+  assert.ok(!result.notasIgnoradas.some((item) => item.numero_nota === '1234'));
+});

@@ -100,6 +100,13 @@ function withinPeriod(note: ExtractedNote, start: string, end: string): boolean 
   return date >= start && date <= end;
 }
 
+/** Somente a Parcial usa a data de entrada do C100 (SPED) para competência. */
+export function withinSpedPartialEntryPeriod(note: ExtractedNote, start: string, end: string): boolean {
+  if (note.origemExtracao !== 'sped' || !note.dataEntrada) return false;
+  const date = note.dataEntrada.slice(0, 10);
+  return date >= start && date <= end;
+}
+
 function ignoredNote(note: ExtractedNote, reason: string): NotaIgnorada {
   return {
     numero_nota: note.numeroNota,
@@ -159,7 +166,8 @@ function convenio5291PreAnalysis(
 
   for (const note of notes) {
     if (note.ufEmitente && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
-    if (!withinPeriod(note, start, end)) continue;
+    const inEmissionPeriod = withinPeriod(note, start, end);
+    if (!inEmissionPeriod && !withinSpedPartialEntryPeriod(note, start, end)) continue;
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
 
     for (const originalItem of note.itens) {
@@ -179,6 +187,7 @@ function convenio5291PreAnalysis(
 
       if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
       destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
+      if (!inEmissionPeriod && !PARTIAL_DESTINATIONS.has(destination)) continue;
       if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
 
       // A prioridade agrícola aplica-se EXCLUSIVAMENTE à Parcial; DIFAL mantém
@@ -383,7 +392,9 @@ export async function processFiscalLocally(
       continue;
     }
 
-    if (!withinPeriod(note, periodoInicio, periodoFim)) {
+    const inEmissionPeriod = withinPeriod(note, periodoInicio, periodoFim);
+    const inPartialEntryPeriod = withinSpedPartialEntryPeriod(note, periodoInicio, periodoFim);
+    if (!inEmissionPeriod && !inPartialEntryPeriod) {
       ignored.push(ignoredNote(
         note,
         `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`,
@@ -435,6 +446,9 @@ export async function processFiscalLocally(
 
       if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
       destination = redirectRevendaToAntecipacaoTributaria(revendaAntecipacaoConfig, destination);
+      // Para notas emitidas no mês anterior, manter DIFAL/ST fora desta
+      // competência; somente itens classificados na Parcial avançam.
+      if (!inEmissionPeriod && !PARTIAL_DESTINATIONS.has(destination)) continue;
       if (revendaAntecipacaoConfig && destination === 'antecipacao_tributaria') {
         const classification = classifyRevendaMva(revendaAntecipacaoConfig, item);
         mvaPolicyGroup = classification.grupo;
@@ -709,7 +723,15 @@ export async function processFiscalLocally(
       classifiedItems += 1;
     }
 
-    if (groups.size === 0) continue;
+    if (groups.size === 0) {
+      if (!inEmissionPeriod && inPartialEntryPeriod) {
+        ignored.push(ignoredNote(
+          note,
+          'Entrada escriturada no período do SPED, mas sem itens classificados na Antecipação Parcial.',
+        ));
+      }
+      continue;
+    }
 
     const splitByDestination = new Map<TipoPlanilha, number>();
     for (const group of groups.values()) {
