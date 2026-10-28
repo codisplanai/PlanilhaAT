@@ -13,6 +13,28 @@ export { crossingKeys, matchEntryCfop, matchEntryDate, matchEntryRecords };
 const USO_CONSUMO_CFOPS = new Set(['2556', '2407', '2551', '1556', '1407', '1551']);
 const USO_CONSUMO_SUFFIXES = new Set(['556', '407', '551']);
 
+/**
+ * Impede misturar a EFD Fiscal de um estabelecimento com XMLs de outro.
+ * Matriz e filial possuem escrituração própria, ainda que compartilhem raiz CNPJ.
+ */
+export function assertSpedBelongsToCompany(
+  spedCompanyInfo: ParsedFiscalSources['spedCompanyInfo'],
+  selectedCnpj: string,
+): void {
+  const spedCnpj = String(spedCompanyInfo.cnpj ?? '').replace(/\D/g, '');
+  const companyCnpj = String(selectedCnpj ?? '').replace(/\D/g, '');
+  if (!spedCnpj) {
+    throw new Error('O SPED Fiscal não informa um CNPJ de estabelecimento válido no registro 0000.');
+  }
+  if (spedCnpj !== companyCnpj) {
+    throw new Error(
+      `O SPED Fiscal pertence ao CNPJ ${spedCnpj}, mas a empresa selecionada tem CNPJ ${companyCnpj}. ` +
+      'Selecione o SPED do mesmo estabelecimento (matriz ou filial) dos XMLs. ' +
+      'Não é permitido misturar escriturações de CNPJs distintos.',
+    );
+  }
+}
+
 export function isUsoConsumoAtivo(cfop?: string | null): boolean {
   const clean = String(cfop ?? '').replace(/\D/g, '');
   return USO_CONSUMO_CFOPS.has(clean) || (clean.length >= 3 && USO_CONSUMO_SUFFIXES.has(clean.slice(-3)));
@@ -44,19 +66,30 @@ export function enrichSpedWithXml(sped: ExtractedNote, xml: ExtractedNote): void
 
   if (xml.itens.length === 0) return;
 
-  const spedCfopByItem = new Map(
-    sped.itens
-      .filter((item) => item.cfop && isUsoConsumoAtivo(item.cfop))
-      .map((item) => [item.itemNumero, item.cfop]),
-  );
-  const spedCfops = sped.itens.map((item) => item.cfop).filter(Boolean);
-  const allUsage = spedCfops.length > 0 && spedCfops.every((cfop) => isUsoConsumoAtivo(cfop));
-  const predominant = spedCfops[0] || '2556';
+  // O XML contém o CFOP de emissão (5xxx/6xxx); o SPED C170 contém o
+  // CFOP efetivamente escriturado pelo destinatário (1xxx/2xxx).
+  // Só relacionar CFOPs distintos item a item se quantidade, números dos
+  // itens e NCMs conferirem. Caso contrário, usar o CFOP uniforme do SPED
+  // quando existir; nunca atribuir arbitrariamente um C170 a outro item.
+  const spedByItem = new Map(sped.itens.map((item) => [item.itemNumero, item]));
+  const matchingSpedItems = xml.itens.length === sped.itens.length
+    && xml.itens.every((item) => {
+      const spedItem = spedByItem.get(item.itemNumero);
+      return Boolean(spedItem?.cfop)
+        && (spedItem?.ncm === '00000000' || spedItem?.ncm === item.ncm);
+    });
+  const cfops = [...new Set(sped.itens.map((item) => item.cfop).filter(Boolean))];
+  const uniformSpedCfop = cfops.length === 1 ? cfops[0] : null;
 
   sped.itens = xml.itens.map((item) => ({
     ...item,
-    cfop: allUsage ? predominant : (spedCfopByItem.get(item.itemNumero) || item.cfop),
+    cfop: (matchingSpedItems ? spedByItem.get(item.itemNumero)?.cfop : null)
+      || uniformSpedCfop
+      || item.cfop,
   }));
+  sped.rawMetadata.cfop_origem = matchingSpedItems
+    ? 'sped_c170_por_item'
+    : uniformSpedCfop ? 'sped_cfop_uniforme' : 'xml_sem_correspondencia_segura';
   if (xml.vTotalNota > 0) sped.vTotalNota = xml.vTotalNota;
   if (xml.vBcNota > 0) sped.vBcNota = xml.vBcNota;
   if (xml.vIcmsNota > 0) sped.vIcmsNota = xml.vIcmsNota;

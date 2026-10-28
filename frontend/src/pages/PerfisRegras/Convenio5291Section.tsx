@@ -10,20 +10,14 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import type { Convenio5291Adjustment, Convenio5291Config, PerfilRegras } from '../../types/perfil';
+import { effectiveConvenio5291PartialConfig } from '../../lib/localProcessing/convenio5291Global.ts';
 
 interface Props {
   perfil: PerfilRegras;
+  anexo?: 'I' | 'II';
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-const DEFAULT_CONFIG: Convenio5291Config = {
-  enabled: true,
-  aplicar_automaticamente_seguros: true,
-  solicitar_confirmacao_duvidosos: true,
-  considerar_cst20_como_indicio: true,
-  ajustes: [],
-};
 
 function clone(config: Convenio5291Config): Convenio5291Config {
   return { ...config, ajustes: (config.ajustes ?? []).map((item) => ({ ...item, termos_descricao: [...(item.termos_descricao ?? [])] })) };
@@ -31,25 +25,28 @@ function clone(config: Convenio5291Config): Convenio5291Config {
 
 const newId = () => `ajuste-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChange }) => {
+export const Convenio5291Section: React.FC<Props> = ({ perfil, anexo = 'I', open, onOpenChange }) => {
   const queryClient = useQueryClient();
-  const config = perfil.configuracoes_extras?.convenio_icms_52_91_anexo_i;
-  const [draft, setDraft] = useState<Convenio5291Config>(clone(config ?? { ...DEFAULT_CONFIG, enabled: false }));
+  const agricola = anexo === 'II';
+  const configKey = agricola ? 'convenio_icms_52_91_anexo_ii' : 'convenio_icms_52_91_anexo_i';
+  const persistedConfig = perfil.configuracoes_extras?.[configKey];
+  const config = useMemo(() => effectiveConvenio5291PartialConfig(persistedConfig), [persistedConfig]);
+  const [draft, setDraft] = useState<Convenio5291Config>(clone(config));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraft(clone(config ?? { ...DEFAULT_CONFIG, enabled: false }));
+    setDraft(clone(config));
     setError(null);
   }, [perfil.id, config]);
 
-  const dirty = useMemo(() => JSON.stringify(config ?? { ...DEFAULT_CONFIG, enabled: false }) !== JSON.stringify(draft), [config, draft]);
+  const dirty = useMemo(() => JSON.stringify(config) !== JSON.stringify(draft), [config, draft]);
   const invalid = draft.ajustes.some((item) => !/^\d{8}$/.test(String(item.ncm || '').replace(/\D/g, '')));
 
   const saveMutation = useMutation({
     mutationFn: (payload: Convenio5291Config) => perfisApi.atualizar(perfil.id, {
       configuracoes_extras: {
         ...(perfil.configuracoes_extras || {}),
-        convenio_icms_52_91_anexo_i: payload,
+        [configKey]: payload,
       },
     }),
     onSuccess: async () => {
@@ -71,11 +68,11 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
       collapsible
       open={open}
       onOpenChange={onOpenChange}
-      title="Convênio ICMS 52/91 — Anexo I"
-      subtitle="Redução de base para máquinas, aparelhos e equipamentos industriais, com catálogo legal central e ajustes por perfil."
+      title={`Convênio ICMS 52/91 — Anexo ${anexo}`}
+      subtitle={agricola ? "Máquinas e implementos agrícolas — somente Antecipação Parcial." : "Redução de base para máquinas, aparelhos e equipamentos industriais, com catálogo legal central e ajustes por perfil."}
       summary={
         <div className="flex items-center gap-2">
-          <Badge variant={draft.enabled ? 'success' : 'neutral'} size="sm">{draft.enabled ? 'Ativo' : 'Inativo'}</Badge>
+          <Badge variant="success" size="sm">Ativo globalmente</Badge>
           <span>{draft.ajustes.length} ajuste(s)</span>
         </div>
       }
@@ -89,25 +86,17 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
             <div>
               <p className="text-sm font-bold text-slate-900">Aplicação da regra</p>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-600">
-                Itens seguros são aplicados automaticamente. Itens ambíguos pausam o processamento para confirmação do usuário; CST X20 e pRedBC aparecem como indícios, nunca como prova isolada.
+                Convênio ativo para todos os perfis na Antecipação Parcial. Itens seguros são aplicados automaticamente; itens ambíguos ou com requisitos técnicos exigem confirmação. CST X20 e pRedBC são indícios, nunca prova isolada. O tratamento do DIFAL permanece inalterado.
               </p>
               <div className="mt-3 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-2">
-                <span>A.DEST Bahia: <strong>8,80%</strong></span>
-                <span>A.ORIG Sul/Sudeste exceto ES: <strong>5,14%</strong></span>
-                <span>Demais origens interestaduais: <strong>8,80%</strong></span>
+                <span>Carga interna Bahia: <strong>{agricola ? "5,60%" : "8,80%"}</strong></span>
+                <span>Origem Sul/Sudeste exceto ES: <strong>{agricola ? "4,10%" : "5,14%"}</strong></span>
+                <span>Demais origens interestaduais: <strong>{agricola ? "7,00%" : "8,80%"}</strong></span>
                 <span>Operação 4%: <strong>revisão manual</strong></span>
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={draft.enabled}
-            onClick={() => setDraft((current) => ({ ...current, enabled: !current.enabled }))}
-            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${draft.enabled ? 'bg-blue-600' : 'bg-slate-300'}`}
-          >
-            <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${draft.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
-          </button>
+          <Badge variant="success" size="sm">Ativação global</Badge>
         </div>
 
         <div className="rounded-xl border border-slate-200 p-4">
@@ -116,7 +105,7 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
             <div>
               <p className="text-xs font-bold text-slate-800">Catálogo fiscal central</p>
               <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                A relação legal não é apagada por ajustes do perfil. Alterações abaixo apenas sobrescrevem o comportamento operacional para NCM/descrição e vigência informadas.
+                A relação legal não é apagada por ajustes do perfil. Alterações apenas alteram o comportamento operacional, sem dispensar requisitos jurídicos. O Anexo II se aplica somente à Antecipação Parcial.
               </p>
               <a
                 href="https://www.confaz.fazenda.gov.br/legislacao/convenios/1991/CV052_91"
@@ -239,7 +228,7 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
         )}
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
-          <Button type="button" variant="outline" disabled={!dirty || saveMutation.isPending} onClick={() => setDraft(clone(config ?? { ...DEFAULT_CONFIG, enabled: false }))}>
+          <Button type="button" variant="outline" disabled={!dirty || saveMutation.isPending} onClick={() => setDraft(clone(config))}>
             Descartar
           </Button>
           <Button
@@ -249,6 +238,9 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, open, onOpenChang
             leftIcon={<Save className="h-4 w-4" />}
             onClick={() => saveMutation.mutate({
               ...draft,
+              enabled: true,
+              aplicar_automaticamente_seguros: true,
+              solicitar_confirmacao_duvidosos: true,
               ajustes: draft.ajustes.map((item) => ({
                 ...item,
                 ncm: item.ncm.replace(/\D/g, ''),
