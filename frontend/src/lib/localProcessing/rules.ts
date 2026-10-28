@@ -470,28 +470,35 @@ function toFiniteNumber(raw: unknown): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function findMvaCandidates(entries: LocalMvaEntry[], cleanNcm: string, cest?: string): LocalMvaEntry[] {
-  let best = 0;
-  let matches: LocalMvaEntry[] = [];
-  for (const entry of entries) {
-    const candidate = String(entry.ncm ?? '').replace(/\D/g, '');
-    let length = 0;
-    if (cleanNcm.startsWith(candidate)) length = candidate.length;
-    else if (candidate.startsWith(cleanNcm) && cleanNcm.length >= 4) length = cleanNcm.length;
-    if (!length) continue;
-    if (length > best) {
-      best = length;
-      matches = [entry];
-    } else if (length === best) matches.push(entry);
-  }
-  if (matches.length === 0) return matches;
+/**
+ * Todos os itens do Anexo cujo código casa com o NCM do documento. Não descarta
+ * itens de código mais curto: itens com o mesmo NCM são separados pelo CEST, não
+ * pelo tamanho do código no Anexo.
+ */
+function findNcmCandidates(entries: LocalMvaEntry[], cleanNcm: string): LocalMvaEntry[] {
+  return entries.filter((entry) => {
+    const code = String(entry.ncm ?? '').replace(/\D/g, '');
+    if (!code) return false;
+    return cleanNcm.startsWith(code) || (cleanNcm.length >= 4 && code.startsWith(cleanNcm));
+  });
+}
 
-  const cleanCest = String(cest ?? '').replace(/\D/g, '');
-  if (cleanCest) {
-    const cestMatches = matches.filter((entry) => String(entry.cest ?? '').replace(/\D/g, '') === cleanCest);
-    if (cestMatches.length > 0) matches = cestMatches;
+const CEST_PATTERN = /\d{2}\.?\d{3}\.?\d{2}/g;
+
+/** CESTs de um item do Anexo, só com dígitos (um item pode ter mais de um). */
+function entryCests(entry: LocalMvaEntry): Set<string> {
+  const raw: unknown = entry.cest;
+  const values = Array.isArray(raw) ? raw : [raw];
+  const cests = new Set<string>();
+  for (const value of values) {
+    if (value == null) continue;
+    for (const match of String(value).match(CEST_PATTERN) ?? []) cests.add(match.replace(/\D/g, ''));
   }
-  return matches;
+  return cests;
+}
+
+function formatCest(cest: string): string {
+  return cest.length === 7 ? `${cest.slice(0, 2)}.${cest.slice(2, 5)}.${cest.slice(5)}` : cest;
 }
 
 function columnValue(
@@ -523,9 +530,15 @@ function formatPercent(value: number): string {
 
 /**
  * MVA de um item de Antecipação Tributária no fluxo geral, sem valores de fallback.
- * A MVA ajustada usa a faixa da A.ORI destacada no documento. Quando a MVA não pode
- * ser determinada, retorna o motivo da pendência em vez de MVA zero ou de um erro
- * que interromperia todo o processamento.
+ * A MVA ajustada usa a faixa da A.ORI destacada no documento.
+ *
+ * Itens possíveis: todos os itens do Anexo cujo código casa com o NCM. Com CEST no
+ * documento, fica só o item desse CEST; se nenhum item possível tem esse CEST, há
+ * divergência entre NCM e CEST e o item fica pendente. Sem CEST, a MVA só é usada
+ * se for a mesma em todos os itens possíveis.
+ *
+ * Quando a MVA não pode ser determinada, retorna o motivo da pendência em vez de
+ * MVA zero ou de um erro que interromperia todo o processamento.
  */
 export function resolveMvaForItem(
   context: LocalProcessingContext,
@@ -574,17 +587,37 @@ export function resolveMvaForItem(
     };
   }
 
-  const candidates = findMvaCandidates(context.mva_anexo, cleanNcm, cest);
-  const anexoItems = [...new Set(candidates.map((entry) => entry.item).filter((item): item is string => Boolean(item)))];
-  const label = anexoItemsLabel(anexoItems);
+  const itemsOf = (entries: LocalMvaEntry[]) => [
+    ...new Set(entries.map((entry) => entry.item).filter((item): item is string => Boolean(item))),
+  ];
+
+  let candidates = findNcmCandidates(context.mva_anexo, cleanNcm);
   if (candidates.length === 0) {
     return {
       status: 'pendente',
       column,
-      anexoItems,
+      anexoItems: [],
       motivo: `MVA pendente: NCM ${cleanNcm} não encontrado no Anexo 1 carregado no sistema.`,
     };
   }
+
+  const cleanCest = String(cest ?? '').replace(/\D/g, '');
+  if (cleanCest) {
+    const withCest = candidates.filter((entry) => entryCests(entry).has(cleanCest));
+    if (withCest.length === 0) {
+      const ncmItems = itemsOf(candidates);
+      return {
+        status: 'pendente',
+        column,
+        anexoItems: ncmItems,
+        motivo: `MVA pendente: divergência entre NCM e CEST. O CEST ${formatCest(cleanCest)} do documento não corresponde a nenhum item do Anexo 1 para o NCM ${cleanNcm}${anexoItemsLabel(ncmItems)}.`,
+      };
+    }
+    candidates = withCest;
+  }
+
+  const anexoItems = itemsOf(candidates);
+  const label = anexoItemsLabel(anexoItems);
 
   const columnName = column === 'original' ? 'original' : `ajustada (${key}%)`;
   const values = new Set<number>();
@@ -611,11 +644,14 @@ export function resolveMvaForItem(
 
   if (values.size > 1) {
     const list = [...values].sort((a, b) => a - b).map(formatPercent).join(' / ');
+    const missing = cleanCest
+      ? 'e o CEST do documento não identificou um único item.'
+      : 'e o documento não traz CEST para identificar o item.';
     return {
       status: 'pendente',
       column,
       anexoItems,
-      motivo: `MVA pendente: o NCM ${cleanNcm} tem mais de uma MVA ${columnName} possível (${list})${label}, e o CEST do documento não identificou o item.`,
+      motivo: `MVA pendente: o NCM ${cleanNcm} tem mais de uma MVA ${columnName} possível (${list})${label}, ${missing}`,
     };
   }
 

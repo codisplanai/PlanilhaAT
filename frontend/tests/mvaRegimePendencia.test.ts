@@ -44,6 +44,16 @@ const ANEXO: LocalMvaEntry[] = [
     mva_ajustada: [ajustada(64.9, 59.75, 51.16, 'fidelidade'), ajustada(107.43, 100.95, 90.15, 'demais')],
     mva_original: [{ caso: 'fidelidade', valor: 36.56 }, { caso: 'demais', valor: 71.78 }],
   },
+  // Código curto (2202) com dois CESTs e código longo (220210) com outro CEST e outra
+  // MVA: o NCM 2202.10.00 casa com os dois itens.
+  {
+    ncm: '2202', item: '3.7', cest: ['03.007.00', '03.008.00'],
+    mva_ajustada: [ajustada(158.42, 150.34, 136.88)], mva_original: [{ caso: null, valor: 114 }],
+  },
+  {
+    ncm: '220210', item: '3.9', cest: ['03.010.00'],
+    mva_ajustada: [ajustada(165.08, 156.8, 142.99)], mva_original: [{ caso: null, valor: 114 }],
+  },
 ];
 
 function context(mvaAnexo: LocalMvaEntry[] = ANEXO): LocalProcessingContext {
@@ -163,6 +173,38 @@ test('MVA ajustada sem A.ORI válida, regime desconhecido ou tabela vazia ficam 
   assert.match(emptyTable.status === 'pendente' ? emptyTable.motivo : '', /não está disponível/);
 });
 
+test('o CEST escolhe entre itens de códigos diferentes, inclusive pelo segundo CEST do item', () => {
+  const cases: Array<[string, number, string[]]> = [
+    ['03.007.00', 158.42, ['3.7']], // item de código mais curto não é descartado
+    ['0300800', 158.42, ['3.7']], // segundo CEST do mesmo item
+    ['03.010.00', 165.08, ['3.9']],
+  ];
+  for (const [cest, mva, items] of cases) {
+    const result = resolveMvaForItem(context(), '22021000', cest, 0.04, 'ajustada');
+    assert.equal(result.status, 'ok', cest);
+    assert.equal(result.status === 'ok' && result.mva, mva, cest);
+    assert.deepEqual(result.anexoItems, items, cest);
+  }
+});
+
+test('sem CEST, itens de códigos diferentes com MVAs diferentes ficam pendentes', () => {
+  const result = resolveMvaForItem(context(), '22021000', '', 0.04, 'ajustada');
+  assert.equal(result.status, 'pendente');
+  const motivo = result.status === 'pendente' ? result.motivo : '';
+  assert.match(motivo, /158,42% \/ 165,08%/);
+  assert.match(motivo, /não traz CEST/);
+  assert.deepEqual(result.anexoItems, ['3.7', '3.9']);
+});
+
+test('CEST divergente do NCM fica pendente em vez de ser ignorado', () => {
+  const result = resolveMvaForItem(context(), '22021000', '03.003.00', 0.04, 'ajustada');
+  assert.equal(result.status, 'pendente');
+  const motivo = result.status === 'pendente' ? result.motivo : '';
+  assert.match(motivo, /divergência entre NCM e CEST/);
+  assert.match(motivo, /CEST 03\.003\.00/);
+  assert.deepEqual(result.anexoItems, ['3.7', '3.9']);
+});
+
 test('mensagem sem planilha diferencia MVA pendente de "nada a recolher"', () => {
   assert.equal(noOutputMessage([{ tipo_exclusao: 'mercadoria' }]), 'Nenhum item a recolher na Parcial');
   assert.match(noOutputMessage([{ tipo_exclusao: 'mva_pendente' }]), /^Nenhuma planilha gerada/);
@@ -202,4 +244,33 @@ test('processamento local: item sem MVA fica pendente, sem virar linha com MVA 0
   assert.equal(pending.v_total, 1000);
   assert.match(pending.motivo, /não encontrado no Anexo 1/);
   assert.match(result.mensagem ?? '', /^Nenhuma planilha gerada/);
+});
+
+const SPED_MARCO_CEST_DIVERGENTE = [
+  '|0000|019|0|01032026|31032026|Cliente BA|12345678000195||BA|123|2927408|||A|1|',
+  '|0150|F1|FORNECEDOR SP|1058|11222333000181||SP|3550308||R|1||C|',
+  '|0200|P2|AGUA AROMATIZADA|||UN|01|22021000|||18,00||0300300|',
+  '|C100|0|1|F1|55|00|1|707|35260311222333000181550010000007071000007071|10032026|20032026|1000,00|0|0,00|0,00|1000,00|0|0,00|0,00|0,00|1000,00|40,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|',
+  '|C170|1|P2|AGUA AROMATIZADA|1,000|UN|1000,00|0,00|0|000|6405||1000,00|4,00|40,00|0,00|0,00|0,00|0|50|999|0,00|0,00|0,00|',
+  '|9999|6|',
+].join('\n');
+
+test('processamento local: CEST do cadastro do SPED que diverge do NCM gera pendência', async () => {
+  const result = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-cest-divergente',
+      periodoInicio: '2026-03-01',
+      periodoFim: '2026-03-31',
+      context: context(),
+      input: { xmlFiles: [], spedFile: new File([SPED_MARCO_CEST_DIVERGENTE], 'sped.txt'), entrySheet: null },
+    },
+    new Map(),
+  );
+
+  assert.equal(result.notasProcessadas.length, 0);
+  assert.equal(result.itensExcluidos.length, 1);
+  const [pending] = result.itensExcluidos;
+  assert.equal(pending.tipo_exclusao, 'mva_pendente');
+  assert.match(pending.motivo, /divergência entre NCM e CEST/);
+  assert.match(pending.motivo, /CEST 03\.003\.00/);
 });
