@@ -182,7 +182,7 @@ test('COMAPEL: NF-e emitida em agosto e entrada em setembro integra a Parcial de
     `|C100|0|1|FORN|55|00|1|1234|${note.chaveAcesso}|28082026|14092026|1000,00|0|0|0|1000,00|0|0|0|0|0|585,70|41,00|0|0|0||`,
     '|C170|1|P1||1,000|UN|1000,00|0,00|0|020|2102||585,70|7,00|41,00|0|0|0|0|0||||0|0|||',
     '|C190|020|2102|7,00|1000,00|585,70|41,00|0|0|0|0|0||',
-  ].join('\\r\\n');
+  ].join('\r\n');
   const localContext = {
     ...context, regras_cfop: [{
       id: 2, perfil_regras_id: null, cfop_sufixo: '102',
