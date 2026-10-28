@@ -5,6 +5,7 @@ export const CONVENIO_52_91_SOURCE_URL =
   'https://www.confaz.fazenda.gov.br/legislacao/convenios/1991/CV052_91';
 export const CONVENIO_52_91_CATALOG_VERSION = 'CONFAZ vigente em 2026';
 export const CONVENIO_52_91_SAFE_FROM = '2020-01-01';
+export const CONVENIO_52_91_VALID_UNTIL = '2026-12-31';
 export const CONVENIO_52_91_RATE_ORIGIN = 'convenio_52_91';
 
 export type Convenio5291Status = 'automatico' | 'revisar' | 'nao_aplicar' | 'fora_catalogo';
@@ -208,6 +209,16 @@ export function classifyConvenio5291(
   }
 
   const emissionDate = note.dataEmissao.slice(0, 10);
+  // A prorrogação oficial do Convênio 10/2026 termina em 31/12/2026.
+  // Não permitir benefício após a vigência, inclusive por ajuste automático
+  // legado do perfil, até que a legislação seja explicitamente atualizada.
+  if (emissionDate > CONVENIO_52_91_VALID_UNTIL) {
+    return {
+      ...base, status: 'nao_aplicar',
+      motivo: 'Convênio 52/91 sem prorrogação verificada após 31/12/2026.',
+      sugestaoAplicar: false,
+    };
+  }
   const adjustment = (config.ajustes ?? []).find((entry) =>
     activeAdjustment(entry, ncm, description, emissionDate),
   );
