@@ -117,3 +117,43 @@ test('ajuste do perfil pode bloquear um NCM sem apagar o catálogo', () => {
   assert.equal(classification.status, 'nao_aplicar');
   assert.equal(classification.ajusteId, 'bloqueio');
 });
+
+test('enquadra automaticamente cortadores NCM 84649090 pelo Anexo I item 54.3', () => {
+  const produto1 = item({
+    ncm: '84649090',
+    descricao: 'CORTADOR HD-1000 G2',
+    vItem: 568.96,
+    vTotal: 568.96,
+    baseCalculo: 417.78,
+    baseSemIpi: 568.96,
+    aOri: 0.07,
+    pRedBC: 26.57,
+    cstIcms: '20',
+    origemMercadoria: '5',
+  });
+  const c1 = classifyConvenio5291(config, note(), produto1, 'BA');
+  assert.equal(c1.status, 'automatico');
+  assert.equal(c1.itemLegal, '54.3');
+
+  const applied = resolveConvenio5291Application(config, note(), produto1, 'BA');
+  assert.equal(applied.applied, true);
+  assert.equal(applied.aOri, 0.0514);
+  assert.equal(applied.aDst, 0.088);
+  assert.equal(applied.baseSemIpi, 568.96);
+
+  const produto2 = item({
+    ncm: '84649090',
+    descricao: 'CORTADOR MASTER 115',
+    vItem: 499.94,
+    vTotal: 499.94,
+    baseCalculo: 367.11,
+    aOri: 0.07,
+    pRedBC: 26.57,
+    cstIcms: '20',
+    origemMercadoria: '5',
+  });
+  const c2 = classifyConvenio5291(config, note(), produto2, 'BA');
+  assert.equal(c2.status, 'automatico');
+  assert.equal(c2.itemLegal, '54.3');
+});
+
