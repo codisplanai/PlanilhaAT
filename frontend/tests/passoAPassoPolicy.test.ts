@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { installDomParserPolyfill } from './domPolyfill.ts';
+
+installDomParserPolyfill();
 
 import {
   classifyRevendaMva,
@@ -8,6 +11,7 @@ import {
   routePaidEarlyDestination,
   resolveRevendaMva,
 } from '../src/lib/localProcessing/rules.ts';
+import { processFiscalLocally } from '../src/lib/localProcessing/processor.ts';
 import type { ExtractedItem } from '../src/lib/localProcessing/domain.ts';
 import type { LocalProcessingContext } from '../src/types/localProcessing.ts';
 import type { MvaAntecipacaoTributariaConfig } from '../src/types/perfil.ts';
@@ -99,3 +103,75 @@ test('classifica o produto e usa as MVAs exclusivas inclusive para fornecedor Si
   assert.equal(resolveRevendaMva(config, classification.grupo, 0.07, false), 56.75);
   assert.equal(resolveRevendaMva(config, classification.grupo, 0.07, true), 34);
 });
+
+test('processamento local Passo a Passo: nota com entrada confirmada no SPED mantém data_entrada na Antecipação Tributária', async () => {
+  const spedContent = [
+    '|0000|019|0|01102026|31102026|Passo a Passo Calçados|33906322000153||BA|26058360|2927408|||A|1|',
+    '|0150|F1|FORNECEDOR SP|1058|11222333000181||SP|3550308||R|1||C|',
+    '|0200|P1|CALCADO FEMININO|||UN|01|64039990|||18,00||',
+    '|C100|0|1|F1|55|00|1|25149|35261011222333000181550010000251491000025149|02102026|09102026|1000,00|0|0,00|0,00|1000,00|0|0,00|0,00|0,00|1000,00|70,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|',
+    '|C170|1|P1|CALCADO FEMININO|1,000|UN|1000,00|0,00|0|000|6102||1000,00|7,00|70,00|0,00|0,00|0,00|0|50|999|0,00|0,00|0,00|',
+    '|9999|6|',
+  ].join('\n');
+
+  const ctx = context();
+  ctx.regras_cfop = [{ id: 1, perfil_regras_id: 1, cfop_sufixo: '102', destino: 'antecipacao_parcial', reclassificar_para: null, motivo: null }];
+  ctx.regras_aliquotas = [{ id: 1, perfil_regras_id: 1, uf: 'BA', ncm: null, aliquota: 0.205 } as never];
+  ctx.templates_ativos = [{
+    id: 12,
+    tipo: 'antecipacao_tributaria',
+    versao: 3,
+    ativo: true,
+    capacidade_linhas: 35,
+    arquivo_path: '',
+    arquivo_hash: '',
+    mapeamento_campos: {
+      start_row: 4,
+      columns: {
+        data_entrada: 'B',
+        data_emissao: 'C',
+        numero_nota: 'D',
+        v_total: 'E',
+        base_calculo: 'F',
+        ipi_despesas: 'G',
+        mva: 'H',
+        a_dst: 'J',
+        a_ori: 'K',
+      },
+    },
+  }];
+
+
+
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const templatePath = fs.existsSync('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    ? path.resolve('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    : path.resolve('../storage/templates/modelo_padrao_antecipacao_tributaria.xlsx');
+  const templateBuf = fs.readFileSync(templatePath);
+  const templateBytes = new Map<number, ArrayBuffer>([
+    [12, templateBuf.buffer.slice(templateBuf.byteOffset, templateBuf.byteOffset + templateBuf.byteLength)],
+  ]);
+
+  const result = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-passo-data-entrada',
+      periodoInicio: '2026-10-01',
+      periodoFim: '2026-10-31',
+      context: ctx,
+      input: { xmlFiles: [], spedFile: new File([spedContent], 'sped.txt'), entrySheet: null },
+    },
+    templateBytes,
+  );
+
+  assert.equal(result.notasProcessadas.length, 1);
+  const [nota] = result.notasProcessadas;
+  assert.equal(nota.destino_planilha, 'antecipacao_tributaria');
+  assert.equal(nota.data_emissao, '2026-10-02T00:00:00');
+  assert.equal(nota.data_entrada, '2026-10-09');
+  assert.equal(nota.origem_data_entrada, 'sped_fiscal');
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(result.artifacts[0].tipo, 'antecipacao_tributaria');
+});
+
+

@@ -166,6 +166,7 @@ def test_template_filler_populates_antecipacao_tributaria_cleanly(tmp_path):
 
     # Linha 4
     assert ws_out["A4"].value == 1
+    assert ws_out["B4"].value == datetime(2026, 5, 20, 0, 0)
     assert ws_out["D4"].value == "77084"
     assert ws_out["E4"].value == 24848.13
     assert ws_out["F4"].value == 24848.13
@@ -180,6 +181,7 @@ def test_template_filler_populates_antecipacao_tributaria_cleanly(tmp_path):
 
     # Linha 5
     assert ws_out["A5"].value == 2
+    assert ws_out["B5"].value == datetime(2026, 5, 22, 0, 0)
     assert ws_out["D5"].value == "113251"
     assert ws_out["E5"].value == 4564.33
     assert ws_out["F5"].value == 4446.97
@@ -191,3 +193,26 @@ def test_template_filler_populates_antecipacao_tributaria_cleanly(tmp_path):
     orig_wb = openpyxl.load_workbook(TEMPLATE_PATH, data_only=False)
     orig_fmap = FormulaGuard.extract_formula_map(orig_wb)
     FormulaGuard.verify_wb_integrity(orig_fmap, out_wb)
+
+
+def test_active_templates_have_data_entrada_mapped(db_session: Session):
+    from app.core.seeds import seed_default_templates
+    from app.models.template_xlsx import TemplateXlsx
+
+    seed_default_templates(db_session)
+    active_templates = (
+        db_session.query(TemplateXlsx)
+        .filter(TemplateXlsx.ativo == True)
+        .all()
+    )
+    assert len(active_templates) > 0
+    for template in active_templates:
+        cols = (template.mapeamento_campos or {}).get("columns", {})
+        assert "data_entrada" in cols, (
+            f"Template ID {template.id} ({template.tipo}, cap={template.capacidade_linhas}) "
+            "não possui mapeamento para 'data_entrada'."
+        )
+        assert cols["data_entrada"] == "B", (
+            f"Template ID {template.id} ({template.tipo}) mapeou data_entrada na coluna {cols['data_entrada']}, esperava 'B'."
+        )
+
