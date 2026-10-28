@@ -29,6 +29,8 @@ export interface ExtractedItem {
   pRedBC?: number;
   /** Desconto comercial destacado no item (tag vDesc). */
   vDesc?: number;
+  /** ICMS ST retido na origem / destacado no item (tag vICMSST). */
+  vIcmsSt?: number;
 }
 
 export interface ExtractedNote {
@@ -47,6 +49,8 @@ export interface ExtractedNote {
   vIcmsNota: number;
   /** Desconto comercial total destacado na nota (tag vDesc no total da NF-e). */
   vDescNota?: number;
+  /** Total de ICMS ST destacado na nota (tag vST em total/ICMSTot). */
+  vStNota?: number;
   origemExtracao: 'xml' | 'sped';
   rawMetadata: Record<string, string | number | boolean | null>;
   itens: ExtractedItem[];

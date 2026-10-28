@@ -15,7 +15,7 @@ import type {
   TipoPlanilha,
 } from '../../types/solicitacao';
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain.ts';
-import { calculateTax } from './calculations.ts';
+import { calculateTax, roundCurrency } from './calculations.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
 import { sortRowsByEntryAndNumber } from './rowSorting.ts';
 import { classifyAnexoII, resolveAnexoIIApplication } from './convenio5291Agricola.ts';
@@ -764,6 +764,22 @@ export async function processFiscalLocally(
       const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? group.mva : 0;
       const aliqSimples = group.destination === 'difal' && supplierIsSimples ? 'S' : 'N';
 
+      let valorPago = 0;
+      if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)) {
+        const itemStSum = group.items.reduce((sum, item) => sum + Number(item.vIcmsSt ?? 0), 0);
+        if (itemStSum > 0) {
+          valorPago = roundCurrency(itemStSum);
+        } else if ((note.vStNota ?? 0) > 0) {
+          const allStGroupsTotal = Array.from(groups.values())
+            .filter((g) => TAX_SUBSTITUTION_DESTINATIONS.has(g.destination))
+            .reduce((sum, g) => sum + g.items.reduce((s, it) => s + it.vTotal, 0), 0);
+          const groupTotal = group.items.reduce((s, it) => s + it.vTotal, 0);
+          valorPago = allStGroupsTotal > 0
+            ? roundCurrency((note.vStNota! * groupTotal) / allStGroupsTotal)
+            : (useNoteTotal ? roundCurrency(note.vStNota!) : 0);
+        }
+      }
+
       const calculation = calculateTax(group.destination, {
         vTotal,
         baseCalculo: base,
@@ -773,7 +789,48 @@ export async function processFiscalLocally(
         mva,
         aliqSimples,
         isSimples: Boolean(context.empresa.optante_simples_nacional),
+        valorPago,
       });
+
+      // Em Antecipação Tributária, se o ICMS ST destacado na nota cobrir o imposto ou resultar em <= 0,
+      // remover da planilha final e registrar em itens excluídos.
+      if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) && calculation.valorDevido <= 0) {
+        const diffDevido = roundCurrency(calculation.debito - calculation.credito);
+        const reason = valorPago > 0
+          ? `Antecipação Tributária: sem imposto a recolher pois o ICMS ST destacado na nota (R$ ${valorPago.toFixed(2)}) cobre integralmente o imposto apurado (R$ ${diffDevido.toFixed(2)}).`
+          : 'Antecipação Tributária: sem diferença positiva de imposto a recolher após confrontar débito com crédito.';
+        for (const fiscalItem of group.items) {
+          excluded.push({
+            chave_acesso: note.chaveAcesso,
+            numero_nota: note.numeroNota,
+            serie: note.serie,
+            item_numero: fiscalItem.itemNumero,
+            arquivo: note.filename,
+            destino: group.destination,
+            ncm: fiscalItem.ncm,
+            descricao: fiscalItem.descricao,
+            descricao_confiavel: fiscalItem.descricaoConfiavel,
+            motivo: reason,
+            tipo_exclusao: 'mercadoria',
+            regras_aplicadas: [],
+            v_total: fiscalItem.vTotal,
+            base_calculo: fiscalItem.baseSemIpi ?? fiscalItem.baseCalculo,
+            ipi_despesas: fiscalItem.ipiDespesas,
+            a_ori: group.aOri,
+            a_dst: group.aDst,
+          });
+        }
+        diagnostic?.event('info', 'calculo', reason, {
+          numeroNota: note.numeroNota,
+          destino: group.destination,
+          itens: group.items.length,
+          debito: calculation.debito,
+          credito: calculation.credito,
+          valorPago,
+          valorDevido: calculation.valorDevido,
+        });
+        continue;
+      }
 
       // Na Parcial agrícola não se gera planilha de imposto negativo ou zerado:
       // quando a carga interestadual supera a interna pode não existir
@@ -897,6 +954,7 @@ export async function processFiscalLocally(
         debito: calculation.debito,
         credito: calculation.credito,
         valor_devido: calculation.valorDevido,
+        valor_pago: valorPago,
       };
       (rowsByDestination[group.destination] ??= []).push(row);
       splitByDestination.set(group.destination, splitIndex + 1);

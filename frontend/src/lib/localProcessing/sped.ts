@@ -148,6 +148,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         origemMercadoria: '',
         cstIcms: '',
         pRedBC: 0,
+        vIcmsSt: current.vStNota > 0 ? current.vStNota : 0,
       }];
     }
 
@@ -172,6 +173,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       vBcNota: current.vBcNota,
       vIcmsNota: current.vIcmsNota,
       vDescNota: current.vDescNota,
+      vStNota: current.vStNota,
       origemExtracao: 'sped',
       rawMetadata: {
         origem: 'sped_fiscal',
@@ -257,6 +259,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vTotalNota: vTotal,
         vBcNota: decimal(fields[21]),
         vIcmsNota: decimal(fields[22]),
+        vStNota: decimal(fields[24]),
         vIpiNota: decimal(fields[25]),
         vDespesasNota: vFrete + vSeg + vOut,
         vDescNota: decimal(fields[14]),
@@ -277,6 +280,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const vBcIcms = decimal(fields[13]);
       const aliqIcms = decimal(fields[14]);
       const vIcms = decimal(fields[15]);
+      const vIcmsSt = decimal(fields[18]);
       const vIpi = decimal(fields[24]);
       const vBcPis = decimal(fields[26]);
       const aOri = aliqIcms > 1 ? aliqIcms / 100 : aliqIcms;
@@ -320,6 +324,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         csosn: taxCode.csosn,
         cstIcms,
         pRedBC: 0,
+        vIcmsSt: vIcmsSt > 0 ? vIcmsSt : 0,
       });
       continue;
     }

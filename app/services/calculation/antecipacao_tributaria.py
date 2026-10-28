@@ -35,9 +35,15 @@ class AntecipacaoTributariaCalculator(BaseCalculator):
         else:
             base_st = v_total + ipi_despesas if ipi_despesas > 0 else v_total
 
+        valor_pago_str = params.get("valor_pago", "0.0")
+        try:
+            valor_pago = Decimal(str(valor_pago_str))
+        except Exception:
+            valor_pago = Decimal("0.0")
+
         debito = round_currency(base_st * a_dst)
         credito = round_currency(base_calculo * a_ori)
-        valor_devido = debito - credito
+        valor_devido = round_currency((debito - credito) - valor_pago)
 
         return CalculationResult(
             debito=debito,
@@ -46,6 +52,7 @@ class AntecipacaoTributariaCalculator(BaseCalculator):
             detalhes={
                 "tipo": "antecipacao_tributaria",
                 "mva_aplicado": str(mva),
-                "base_st": str(round_currency(base_st))
+                "base_st": str(round_currency(base_st)),
+                "valor_pago": str(round_currency(valor_pago)),
             }
         )

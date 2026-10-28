@@ -42,6 +42,25 @@ def test_calculo_antecipacao_tributaria_com_mva():
     assert result.credito == Decimal("120.00")
     assert result.valor_devido == Decimal("114.00")
 
+def test_calculo_antecipacao_tributaria_com_valor_pago():
+    calc = AntecipacaoTributariaCalculator()
+    # V.Total = 1000.00, MVA = 30%, A.DST = 18%, A.ORI = 12%, Base = 1000.00, Valor Pago = 50.00
+    # Débito = 234.00, Crédito = 120.00 -> Bruto = 114.00
+    # Valor Devido = 114.00 - 50.00 = 64.00
+    result = calc.calculate(
+        v_total=Decimal("1000.00"),
+        base_calculo=Decimal("1000.00"),
+        ipi_despesas=Decimal("0.00"),
+        a_ori=Decimal("0.1200"),
+        a_dst=Decimal("0.1800"),
+        parametros_extras={"mva": "30.0", "valor_pago": "50.00"}
+    )
+
+    assert result.debito == Decimal("234.00")
+    assert result.credito == Decimal("120.00")
+    assert result.valor_devido == Decimal("64.00")
+    assert result.detalhes["valor_pago"] == "50.00"
+
 def test_calculo_difal():
     calc = DifalCalculator()
     # V.Total = 2000.00, A.DST = 18% (0.18), A.ORI = 12% (0.12), Regime Normal ('N')

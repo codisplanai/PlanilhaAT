@@ -74,6 +74,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
   const vBcNota = number(icmsTot, 'vBC');
   const vIcmsNota = number(icmsTot, 'vICMS');
   const vDescNota = number(icmsTot, 'vDesc');
+  const vStNota = number(icmsTot, 'vST');
 
   const itens: ExtractedItem[] = [];
   for (const det of Array.from(infNFe.children).filter((node) => node.localName === 'det')) {
@@ -97,6 +98,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     let pCredSN = 0;
     let csosn = '';
     let vIcms = 0;
+    let vIcmsSt = 0;
     let origemMercadoria = '';
     let cstIcms = '';
     let pRedBC = 0;
@@ -114,6 +116,8 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
         pCredSN = number(group, 'pCredSN');
         const vi = number(group, 'vICMS');
         if (vi > 0) vIcms = vi;
+        const vst = number(group, 'vICMSST');
+        if (vst > 0) vIcmsSt = vst;
         break;
       }
     }
@@ -160,6 +164,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
       origemMercadoria,
       cstIcms,
       pRedBC,
+      vIcmsSt: vIcmsSt > 0 ? vIcmsSt : 0,
     });
   }
 
@@ -174,6 +179,9 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
       }
     } else if (itens[0].baseCalculo <= 0) {
       itens[0].baseCalculo = maxBaseLiquida;
+    }
+    if ((itens[0].vIcmsSt ?? 0) <= 0 && vStNota > 0) {
+      itens[0].vIcmsSt = vStNota;
     }
   }
 
@@ -192,6 +200,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     vBcNota,
     vIcmsNota,
     vDescNota,
+    vStNota: vStNota > 0 ? vStNota : 0,
     origemExtracao: 'xml',
     rawMetadata: {
       qtd_itens: itens.length,

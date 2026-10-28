@@ -126,6 +126,7 @@ export interface LocalOutputRow {
   debito: number;
   credito: number;
   valor_devido: number;
+  valor_pago?: number;
 }
 
 export interface LocalGeneratedArtifact {

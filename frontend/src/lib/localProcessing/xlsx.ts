@@ -559,11 +559,19 @@ export async function fillTemplateLocally(
   const percentageFormat = template.mapeamento_campos.aliquota_format
     || String(template.mapeamento_campos.extra_options?.aliquota_format ?? 'decimal');
 
+  const columnsMapping: Record<string, string> = { ...template.mapeamento_campos.columns };
+  if (
+    (template.tipo === 'antecipacao_tributaria' || template.tipo === 'antecipacao_tributaria_antecipado')
+    && !columnsMapping.valor_pago
+  ) {
+    columnsMapping.valor_pago = 'S';
+  }
+
   rows.forEach((source, index) => {
     const rowIndex = startRow + index;
     const row = ensureRow(doc, sheetData, rowIndex);
     const sourceRecord = source as unknown as Record<string, unknown>;
-    for (const [field, column] of Object.entries(template.mapeamento_campos.columns)) {
+    for (const [field, column] of Object.entries(columnsMapping)) {
       const value = sourceRecord[field] ?? (field === 'item_index' ? index + 1 : undefined);
       if (value == null) continue;
       writeCell(doc, ensureCell(doc, row, cellRef(column, rowIndex)), field, value, percentageFormat);

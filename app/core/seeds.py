@@ -78,7 +78,8 @@ DEFAULT_ANTECIPACAO_TRIBUTARIA_MAPPING = {
         "reducao": "I",
         "a_dst": "J",
         "a_ori": "K",
-        "red": "L"
+        "red": "L",
+        "valor_pago": "S"
     },
     "header_cell": "A2",
     "extra_options": {
@@ -105,7 +106,8 @@ DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_MAPPING = {
         "reducao": "I",
         "a_dst": "J",
         "a_ori": "K",
-        "red": "L"
+        "red": "L",
+        "valor_pago": "S"
     },
     "sheet_name": "4",
     "header_cell": "A2",
