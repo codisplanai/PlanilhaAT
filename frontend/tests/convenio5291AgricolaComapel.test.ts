@@ -189,7 +189,7 @@ test('competência pela emissão: NF-e de agosto no SPED de setembro fica fora d
       destino: 'antecipacao_parcial', criado_em: '', atualizado_em: '',
     }],
   };
-  const result = await processFiscalLocally({
+  await assert.rejects(() => processFiscalLocally({
     solicitacaoId: 'comapel-entrada-setembro',
     periodoInicio: '2026-09-01', periodoFim: '2026-09-30',
     context: localContext,
@@ -198,10 +198,5 @@ test('competência pela emissão: NF-e de agosto no SPED de setembro fica fora d
       spedFile: new File([sped], 'sped09.txt'),
     },
     convenio5291Decisions: { [`${note.chaveAcesso}|1`]: true },
-  }, templates);
-  assert.equal(result.notasProcessadas.length, 0, 'a data de emissão de agosto impede lançamento em setembro');
-  const ignorada = result.notasIgnoradas.find((item) => item.numero_nota === '1234');
-  assert.ok(ignorada, 'NF-e fora da competência deve constar das notas ignoradas');
-  assert.match(ignorada.motivo, /Data de emissão fora do período informado/);
-  assert.equal(result.preAnalysis.itens_convenio_52_91.length, 0, 'não solicitar confirmação do convênio fora do mês de emissão');
+  }, templates), /Nenhuma NF-e válida para apuração interestadual foi encontrada no período informado/);
 });
