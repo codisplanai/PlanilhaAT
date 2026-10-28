@@ -53,6 +53,7 @@ interface C100State {
   vTotalNota: number;
   vBcNota: number;
   vIcmsNota: number;
+  vStNota: number;
   vIpiNota: number;
   vDespesasNota: number;
   vDescNota: number;
