@@ -169,7 +169,7 @@ test('amostras que não se enquadram: esmerilhadeira, tubo PEBD, abraçadeira e 
 });
 
 
-test('COMAPEL: NF-e emitida em agosto e entrada em setembro integra a Parcial de setembro', async () => {
+test('competência pela emissão: NF-e de agosto no SPED de setembro fica fora da Parcial de setembro', async () => {
   const xml = xmlFor({
     uf: 'SP', ncm: '84244100', descricao: 'PULVERIZADOR MANUAL AGRICOLA',
     vProd: 1000, vBc: 585.70, pIcms: 7, pRedBc: 41.43, vIcms: 41,
@@ -189,7 +189,7 @@ test('COMAPEL: NF-e emitida em agosto e entrada em setembro integra a Parcial de
       destino: 'antecipacao_parcial', criado_em: '', atualizado_em: '',
     }],
   };
-  const result = await processFiscalLocally({
+  await assert.rejects(() => processFiscalLocally({
     solicitacaoId: 'comapel-entrada-setembro',
     periodoInicio: '2026-09-01', periodoFim: '2026-09-30',
     context: localContext,
@@ -198,9 +198,5 @@ test('COMAPEL: NF-e emitida em agosto e entrada em setembro integra a Parcial de
       spedFile: new File([sped], 'sped09.txt'),
     },
     convenio5291Decisions: { [`${note.chaveAcesso}|1`]: true },
-  }, templates);
-  assert.equal(result.notasProcessadas.length, 1, 'a competência da Parcial é a entrada C100 de setembro');
-  assert.equal(result.notasProcessadas[0].a_ori, 0.041);
-  assert.equal(result.notasProcessadas[0].a_dst_resolvida, 0.056);
-  assert.ok(!result.notasIgnoradas.some((item) => item.numero_nota === '1234'));
+  }, templates), /Nenhuma NF-e válida para apuração interestadual foi encontrada no período informado/);
 });
