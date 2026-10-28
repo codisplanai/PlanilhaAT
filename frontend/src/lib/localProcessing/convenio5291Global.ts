@@ -11,8 +11,6 @@ import type { Convenio5291Config } from '../../types/perfil';
  * correspondências legais seguras podem ser aplicadas sem intervenção; casos
  * técnicos e ambíguos continuam exigindo confirmação explícita do usuário.
  */
-export const CONVENIO_5291_GLOBAL_PARCiAL_ENABLED = true;
-
 export const CONVENIO_5291_GLOBAL_DEFAULTS: Convenio5291Config = {
   enabled: true,
   aplicar_automaticamente_seguros: true,
