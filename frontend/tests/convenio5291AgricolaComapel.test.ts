@@ -200,3 +200,51 @@ test('competência pela emissão: NF-e de agosto no SPED de setembro fica fora d
     convenio5291Decisions: { [`${note.chaveAcesso}|1`]: true },
   }, templates), /Nenhuma NF-e válida para apuração interestadual foi encontrada no período informado/);
 });
+
+
+test('ativação global: perfil legado sem Anexo II também pausa para confirmação de produto técnico', async () => {
+  const xml = xmlFor({
+    uf: 'SP', ncm: '84678100', descricao: 'MOTOSSERRA A GASOLINA 1,5 KW',
+    vProd: 1000, vBc: 585.70, pIcms: 7, pRedBc: 41.43, vIcms: 41,
+  });
+  const legacyContext = {
+    ...context,
+    perfil: { ...context.perfil, configuracoes_extras: {} },
+  };
+  const result = await processFiscalLocally({
+    solicitacaoId: 'convenio-global-perfil-antigo',
+    periodoInicio: '2026-09-01', periodoFim: '2026-09-30',
+    context: legacyContext,
+    input: { xmlFiles: [new File([xml], 'legado.xml')] },
+  }, templates);
+  assert.equal(result.preAnalysis.requer_decisao, true);
+  assert.equal(result.preAnalysis.itens_convenio_52_91.length, 1);
+  assert.equal(result.preAnalysis.itens_convenio_52_91[0].anexo, 'II');
+  assert.equal(result.preAnalysis.itens_convenio_52_91[0].sugestao_aplicar, false);
+});
+
+test('ativação global: perfil explicitamente desativado exige confirmação para item agrícola técnico', async () => {
+  const xml = xmlFor({
+    uf: 'SP', ncm: '84678100', descricao: 'MOTOSSERRA A GASOLINA 1,5 KW',
+    vProd: 1000, vBc: 585.70, pIcms: 7, pRedBc: 41.43, vIcms: 41,
+  });
+  const legacyContext = {
+    ...context,
+    perfil: {
+      ...context.perfil,
+      configuracoes_extras: {
+        convenio_icms_52_91_anexo_ii: {
+          ...profile, enabled: false, solicitar_confirmacao_duvidosos: false,
+        },
+      },
+    },
+  };
+  const result = await processFiscalLocally({
+    solicitacaoId: 'convenio-global-perfil-desativado',
+    periodoInicio: '2026-09-01', periodoFim: '2026-09-30',
+    context: legacyContext,
+    input: { xmlFiles: [new File([xml], 'desativado.xml')] },
+  }, templates);
+  assert.equal(result.preAnalysis.requer_decisao, true);
+  assert.equal(result.preAnalysis.itens_convenio_52_91[0].anexo, 'II');
+});
