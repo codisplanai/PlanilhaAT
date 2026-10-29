@@ -261,6 +261,7 @@ interface Group {
   aOriLimitWaived: boolean;
   aOriOriginal: number;
   aOriInferredSimples: boolean;
+  aOriHighlighted: boolean;
   pCredSN: number[];
   mvaPolicyGroup: 'especial' | 'demais' | '';
   mvaPolicySource: string;
@@ -518,7 +519,7 @@ export async function processFiscalLocally(
         }
       }
 
-      const rate = resolveDestinationRate(context, item);
+      const rate = resolveDestinationRate(context, item, destination);
       // Nenhuma mudança de regra para DIFAL ou Tributária/ST.
       const possivelAgricola = PARTIAL_DESTINATIONS.has(destination)
         ? resolveAnexoIIApplication(
@@ -547,19 +548,27 @@ export async function processFiscalLocally(
         : rate;
       // Somente fornecedor Simples sem pICMS em operação interestadual.
       // A taxa é referência de origem, e não um crédito destacado no XML.
-      const reference = resolveSimpleOriginReference(
-        note, item, context.empresa.uf, Boolean(convenio?.applied),
-      );
-      const referenceRate = reference.rate;
+      // Não se aplica à planilha de DIFAL.
+      const isDifal = destination === 'difal';
+      const aOriHighlighted = Boolean(originalAOri && originalAOri > 0);
+      const reference = isDifal
+        ? { rate: 0, inferred: false }
+        : resolveSimpleOriginReference(
+          note, item, context.empresa.uf, Boolean(convenio?.applied),
+        );
+      const referenceRate = isDifal ? 0 : reference.rate;
+      const resolvedAOri = isDifal
+        ? (aOriHighlighted ? originalAOri : 0)
+        : (convenio?.applied ? Number(convenio.aOri) : referenceRate);
       const originRate = resolveOriginRate(
         context,
         destination,
-        convenio?.applied ? Number(convenio.aOri) : referenceRate,
+        resolvedAOri,
         effectiveADst,
         effectiveRate.origem,
       );
-      const aOri = originRate.aOri;
-      const aOriInferredSimples = reference.inferred && !originRate.fixed;
+      const aOri = isDifal ? (aOriHighlighted ? originRate.aOri : 0) : originRate.aOri;
+      const aOriInferredSimples = !isDifal && reference.inferred && !originRate.fixed;
       if (aOriInferredSimples) {
         const ratePct = (referenceRate * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
         warnings.push({
@@ -665,7 +674,7 @@ export async function processFiscalLocally(
       }
 
       const key = groupKey(destination, aOri, effectiveADst, itemMva, Boolean(convenio?.applied));
-      const group = groups.get(key) ?? {
+      const group: Group = groups.get(key) ?? {
         destination,
         aOri,
         aDst: effectiveADst,
@@ -678,6 +687,7 @@ export async function processFiscalLocally(
         aOriLimitWaived: false,
         aOriOriginal: originalAOri,
         aOriInferredSimples: false,
+        aOriHighlighted: false,
         pCredSN: [],
         mvaPolicyGroup,
         mvaPolicySource,
@@ -696,6 +706,7 @@ export async function processFiscalLocally(
       group.aOriFixed ||= originRate.fixed;
       group.aOriLimitWaived ||= originRate.limitWaived;
       group.aOriInferredSimples ||= aOriInferredSimples;
+      group.aOriHighlighted ||= aOriHighlighted;
       if (!group.mvaPolicyGroup && mvaPolicyGroup) {
         group.mvaPolicyGroup = mvaPolicyGroup;
         group.mvaPolicySource = mvaPolicySource;
@@ -915,6 +926,7 @@ export async function processFiscalLocally(
           a_ori_limite_dispensado: group.aOriLimitWaived,
           a_ori_original: String(group.aOriOriginal),
           a_ori_inferida_simples: group.aOriInferredSimples,
+          a_ori_destacada: group.aOriHighlighted,
           p_cred_sn: group.pCredSN.length ? group.pCredSN : null,
           convenio_52_91_aplicado: group.convenio5291Applied,
           convenio_52_91_anexo: group.convenio5291Anexo || null,
@@ -949,7 +961,7 @@ export async function processFiscalLocally(
         reducao: null,
         red: '',
         aliq_simples: aliqSimples,
-        a_ori: group.aOri,
+        a_ori: group.destination === 'difal' && !group.aOriHighlighted ? null : group.aOri,
         a_dst: group.aDst,
         debito: calculation.debito,
         credito: calculation.credito,

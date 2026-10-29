@@ -262,7 +262,7 @@ def test_pipeline_simples_com_picms_declarado_nao_sobrescreve(db_session, create
     assert nota.metadados_extras["p_cred_sn"] == ["0.025"]
 
 
-def test_pipeline_simples_difal_sem_destaque_usa_aliquota_interestadual(db_session, create_sample_excel_template):
+def test_pipeline_simples_difal_sem_destaque_nao_infere_a_ori_e_zera_credito(db_session, create_sample_excel_template):
     empresa, solicitacao = _setup_pipeline_env(db_session, create_sample_excel_template)
     # CFOP 2556 -> DIFAL, SP -> BA
     xml_content = _build_nfe_xml(
@@ -279,10 +279,12 @@ def test_pipeline_simples_difal_sem_destaque_usa_aliquota_interestadual(db_sessi
     assert len(solicitacao.notas_processadas) == 1
     nota = solicitacao.notas_processadas[0]
     assert nota.destino_planilha == DIFAL
-    assert nota.a_ori == Decimal("0.07")
+    # Regra DIFAL: só puxa alíquota de origem se destacada na NFe; sem destaque zera crédito
+    assert nota.a_ori == Decimal("0.0000")
     assert nota.metadados_extras.get("aliq_simples") == "S"
-    assert nota.metadados_extras.get("a_ori_inferida_simples") is True
-    # DIFAL formula com aliq_simples == 'S':
+    assert nota.metadados_extras.get("a_ori_destacada") is False
+    assert nota.metadados_extras.get("a_ori_inferida_simples") is False
+    # DIFAL formula com aliq_simples == 'S' e a_ori == 0:
     # base_st = 1000.00 / (1 - 0.205) = 1257.86
-    # valor_devido = base_st * (0.205 - 0.07) = 1257.86 * 0.135 = 169.81
-    assert nota.valor_devido == Decimal("169.81")
+    # valor_devido = base_st * (0.205 - 0.00) = 1257.86 * 0.205 = 257.86
+    assert nota.valor_devido == Decimal("257.86")

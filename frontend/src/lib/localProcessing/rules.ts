@@ -241,7 +241,26 @@ export function resolveCfop(
 export function resolveDestinationRate(
   context: LocalProcessingContext,
   item: ExtractedItem,
+  destination?: TipoPlanilha,
 ): TaxRateResolution {
+  const uf = context.empresa.uf.trim().toUpperCase();
+
+  // DIFAL: ignora reduções por produto, termos de acordo e exceções por NCM.
+  // Prevalece estritamente a Alíquota Padrão da UF.
+  if (destination === 'difal') {
+    const defaultRule = context.regras_aliquotas.find(
+      (rule) => rule.uf === uf && !rule.ncm,
+    );
+    if (defaultRule) {
+      return {
+        aliquota: Number(defaultRule.aliquota),
+        origem: `padrao_uf:${defaultRule.id}`,
+        detalhe: `Alíquota padrão da UF ${uf}`,
+      };
+    }
+    throw new Error(`Nenhuma regra de alíquota padrão da UF encontrada para UF ${uf}.`);
+  }
+
   const ncm = item.ncm.trim();
   const desc = item.descricaoConfiavel ? normalizeDescription(item.descricao) : '';
 
@@ -289,7 +308,6 @@ export function resolveDestinationRate(
     };
   }
 
-  const uf = context.empresa.uf.trim().toUpperCase();
   const ncmRule = context.regras_aliquotas.find(
     (rule) => rule.uf === uf && rule.ncm === ncm,
   );

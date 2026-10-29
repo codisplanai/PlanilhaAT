@@ -451,6 +451,7 @@ class ProcessingPipelineService:
                             ncm=item.ncm,
                             descricao=item.descricao if item.descricao_confiavel else None,
                             empresa_id=empresa.id,
+                            apenas_padrao_uf=(destino_item == DIFAL),
                         )
                     except RuleResolutionException as err:
                         # Sem identificar a nota, a mensagem não é acionável.
@@ -460,13 +461,20 @@ class ProcessingPipelineService:
                     a_dst = resolucao.aliquota
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
+                    a_ori_destacada = bool(a_ori is not None and a_ori > Decimal("0.00"))
                     a_ori_inferida_simples = False
                     a_ori_original = item.a_ori
 
                     # Se a operação for interestadual e o fornecedor for Simples Nacional
-                    # sem pICMS (a_ori == 0), aplica a tabela de referência. pCredSN
-                    # é registrado em separado e não substitui a alíquota da operação.
-                    if is_fornecedor_simples and is_operacao_interestadual and (a_ori is None or a_ori == Decimal("0.00")):
+                    # sem pICMS (a_ori == 0), aplica a tabela de referência apenas nas planilhas
+                    # de Antecipação (Parcial e Tributária). Na planilha de DIFAL, nunca infere
+                    # alíquota de origem não destacada.
+                    if (
+                        destino_item != DIFAL
+                        and is_fornecedor_simples
+                        and is_operacao_interestadual
+                        and (a_ori is None or a_ori == Decimal("0.00"))
+                    ):
                         a_ori_inferida = InterstateRateResolver.resolve_rate(
                             uf_origem=uf_fornecedor,
                             uf_destino=uf_empresa_dest,
@@ -487,6 +495,10 @@ class ProcessingPipelineService:
                                 "Alíquota de referência, não crédito destacado."
                             ),
                         })
+
+                    # No DIFAL, sem destaque de ICMS na NF-e a A.ORI de cálculo é zero (sem crédito)
+                    if destino_item == DIFAL and not a_ori_destacada:
+                        a_ori = Decimal("0.00")
 
                     # Se o perfil tiver a regra ativada e o item se enquadrou em Redução por Produto ou Termo de Acordo:
                     # Alíquotas de origem superiores a 10% (ex: 12%) se limitam a 10% (0.10).
@@ -582,6 +594,7 @@ class ProcessingPipelineService:
                             "limitada": False,
                             "original": str(a_ori_original),
                             "inferida_simples": a_ori_inferida_simples,
+                            "destacada": a_ori_destacada,
                             "p_cred_sn": set(),
                         }
                         info_mva_policy[key] = {
@@ -792,6 +805,7 @@ class ProcessingPipelineService:
                             "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
                             "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
                             "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
+                            "a_ori_destacada": info_a_ori.get(grupo_key, {}).get("destacada", True),
                             "p_cred_sn": sorted(info_a_ori.get(grupo_key, {}).get("p_cred_sn", set())) or None,
                             **calc_result.detalhes
                         }
@@ -803,6 +817,11 @@ class ProcessingPipelineService:
                         f"{nf_data.numero_nota}*"
                         if split_index > 1
                         else nf_data.numero_nota
+                    )
+                    a_ori_planilha = (
+                        None
+                        if destino_grupo == DIFAL and not info_a_ori.get(grupo_key, {}).get("destacada", True)
+                        else a_ori
                     )
                     rows_por_destino[destino_grupo].append({
                         "numero_nota": numero_nota_planilha,
@@ -825,7 +844,7 @@ class ProcessingPipelineService:
                         "reducao": None,
                         "red": "",
                         "aliq_simples": aliq_simples,
-                        "a_ori": a_ori,
+                        "a_ori": a_ori_planilha,
                         "a_dst": a_dst,
                         "debito": calc_result.debito,
                         "credito": calc_result.credito,

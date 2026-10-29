@@ -121,7 +121,7 @@ export interface LocalOutputRow {
   reducao?: number | null;
   red?: string;
   aliq_simples: string;
-  a_ori: number;
+  a_ori: number | null;
   a_dst: number;
   debito: number;
   credito: number;

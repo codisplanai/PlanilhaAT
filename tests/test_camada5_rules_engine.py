@@ -209,3 +209,28 @@ def test_preload_resolve_sem_novas_consultas(db_session, cenario):
     res = resolver.resolve_a_dst(
         perfil.id, "BA", "72142000", descricao="VERGALHAO CA-50", empresa_id=empresa.id)
     assert res.aliquota == Decimal("0.1200")
+
+
+def test_resolve_a_dst_apenas_padrao_uf_ignora_termo_acordo_e_reducoes(db_session, cenario):
+    perfil, empresa = cenario
+    # Adiciona termo de acordo (12.06%) e regra específica por NCM (12%)
+    _regra_vergalhao(db_session, perfil)
+    db_session.add(RegraAliquotaEmpresa(empresa_id=empresa.id, aliquota=Decimal("0.1206")))
+    db_session.commit()
+
+    resolver = AliquotaResolver(db_session)
+    resolver.preload(perfil.id, empresa.id)
+
+    # Chamada normal usa nível 2 (redução por produto) -> 12%
+    res_normal = resolver.resolve_a_dst(
+        perfil.id, "BA", "72142000", descricao="VERGALHAO CA-50", empresa_id=empresa.id
+    )
+    assert res_normal.aliquota == Decimal("0.1200")
+
+    # DIFAL com apenas_padrao_uf=True deve ignorar termo de acordo (12.06%), redução (12%) e NCM, usando a alíquota padrão da UF (18%)
+    res_difal = resolver.resolve_a_dst(
+        perfil.id, "BA", "72142000", descricao="VERGALHAO CA-50", empresa_id=empresa.id, apenas_padrao_uf=True
+    )
+    assert res_difal.aliquota == Decimal("0.1800")
+    assert res_difal.origem.startswith("padrao_uf:")
+
