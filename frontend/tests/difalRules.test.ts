@@ -90,11 +90,39 @@ test('DIFAL: ignora termo de acordo, redução por produto e NCM, usando a alíq
   assert.equal(resDifal.origem, 'padrao_uf:10');
 });
 
-test('Não-DIFAL: usa regras de redução por produto ou termo de acordo normalmente', () => {
+test('Não-DIFAL: usa regras de redução por produto normalmente na Parcial e Tributária', () => {
   const ctx = createDifalContext();
   const item = createItem();
 
   const resParcial = resolveDestinationRate(ctx, item, 'antecipacao_parcial');
   assert.equal(resParcial.aliquota, 0.12);
   assert.equal(resParcial.origem, 'reducao_produto:5');
+
+  const resTributaria = resolveDestinationRate(ctx, item, 'antecipacao_tributaria');
+  assert.equal(resTributaria.aliquota, 0.12);
+  assert.equal(resTributaria.origem, 'reducao_produto:5');
+});
+
+test('Antecipação Tributária (normal e antecipado): ignora termo de acordo e usa NCM ou padrão UF', () => {
+  const ctx = createDifalContext();
+  const itemGenerico: ExtractedItem = {
+    ...createItem(),
+    ncm: '39269090',
+    descricao: 'PECA PLASTICA',
+  };
+
+  // Na Parcial sem redução de produto: usa termo de acordo (12.06%)
+  const resParcial = resolveDestinationRate(ctx, itemGenerico, 'antecipacao_parcial');
+  assert.equal(resParcial.aliquota, 0.1206);
+  assert.equal(resParcial.origem, 'termo_acordo:77');
+
+  // Na Tributária normal: ignora termo de acordo e cai na alíquota padrão da UF (20.5%)
+  const resTributaria = resolveDestinationRate(ctx, itemGenerico, 'antecipacao_tributaria');
+  assert.equal(resTributaria.aliquota, 0.205);
+  assert.equal(resTributaria.origem, 'padrao_uf:10');
+
+  // Na Tributária Paga Antecipadamente: também ignora termo de acordo e cai no padrão da UF (20.5%)
+  const resTributariaAntecipado = resolveDestinationRate(ctx, itemGenerico, 'antecipacao_tributaria_antecipado');
+  assert.equal(resTributariaAntecipado.aliquota, 0.205);
+  assert.equal(resTributariaAntecipado.origem, 'padrao_uf:10');
 });

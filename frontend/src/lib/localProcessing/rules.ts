@@ -299,8 +299,12 @@ export function resolveDestinationRate(
     }
   }
 
+  const isTributaria =
+    destination === 'antecipacao_tributaria' ||
+    destination === 'antecipacao_tributaria_antecipado';
+
   const agreement = context.empresa.termo_acordo;
-  if (agreement) {
+  if (agreement && !isTributaria) {
     return {
       aliquota: Number(agreement.aliquota),
       origem: `termo_acordo:${agreement.id}`,

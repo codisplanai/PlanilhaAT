@@ -102,6 +102,7 @@ class AliquotaResolver:
         descricao: Optional[str] = None,
         empresa_id: Optional[int] = None,
         apenas_padrao_uf: bool = False,
+        ignorar_termo_acordo: bool = False,
     ) -> ResolucaoAliquota:
         clean_uf = uf.strip().upper() if uf else ""
         clean_ncm = ncm.strip() if ncm else None
@@ -113,9 +114,10 @@ class AliquotaResolver:
         if reducao is not None:
             return reducao
 
-        acordo = self._nivel_termo_acordo(empresa_id)
-        if acordo is not None:
-            return acordo
+        if not ignorar_termo_acordo:
+            acordo = self._nivel_termo_acordo(empresa_id)
+            if acordo is not None:
+                return acordo
 
         return self._nivel_padrao(perfil_regras_id, clean_uf, clean_ncm)
 

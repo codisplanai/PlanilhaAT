@@ -452,6 +452,9 @@ class ProcessingPipelineService:
                             descricao=item.descricao if item.descricao_confiavel else None,
                             empresa_id=empresa.id,
                             apenas_padrao_uf=(destino_item == DIFAL),
+                            ignorar_termo_acordo=(
+                                destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO)
+                            ),
                         )
                     except RuleResolutionException as err:
                         # Sem identificar a nota, a mensagem não é acionável.
