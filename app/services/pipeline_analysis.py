@@ -35,10 +35,17 @@ class PipelinePreAnalyzer:
         solicitacao: Solicitacao,
     ) -> List[Tuple[str, ExtractedNFData]]:
         company_state = (empresa.uf or "").strip().upper()
+        clean_empresa = re.sub(r"\D", "", empresa.cnpj or "")
         return [
             (filename, note)
             for filename, note in notes
-            if (not note.uf_emitente or note.uf_emitente.strip().upper() != company_state)
+            if (
+                not (
+                    (clean_empresa and re.sub(r"\D", "", note.cnpj_emitente or "") == clean_empresa)
+                    or (note.raw_metadata or {}).get("ind_emit") == "0"
+                )
+            )
+            and (not note.uf_emitente or note.uf_emitente.strip().upper() != company_state)
             and SanityChecker.is_within_period(
                 note.data_emissao,
                 solicitacao.periodo_inicio,

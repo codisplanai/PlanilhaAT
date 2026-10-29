@@ -256,3 +256,74 @@ def test_nenhum_item_roteavel_gera_erro_de_validacao(db_session, create_sample_e
 
     db_session.refresh(solicitacao)
     assert solicitacao.status == "erro"
+
+
+XML_NFE_EMISSAO_PROPRIA = """<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
+  <NFe>
+    <infNFe Id="NFe29260312345678000195550010000077771000007777">
+      <ide>
+        <nNF>7777</nNF>
+        <serie>1</serie>
+        <dhEmi>2026-03-12T10:00:00-03:00</dhEmi>
+      </ide>
+      <emit>
+        <CNPJ>12345678000195</CNPJ>
+        <xNome>Comercial Bahia LTDA</xNome>
+        <enderEmit><UF>BA</UF></enderEmit>
+      </emit>
+      <dest>
+        <CNPJ>99888777000166</CNPJ>
+        <xNome>Cliente Destinatario Qualquer</xNome>
+        <enderDest><UF>SP</UF></enderDest>
+      </dest>
+      <total>
+        <ICMSTot>
+          <vNF>1000.00</vNF>
+          <vBC>1000.00</vBC>
+        </ICMSTot>
+      </total>
+      <det nItem="1">
+        <prod>
+          <NCM>21069090</NCM>
+          <CFOP>6102</CFOP>
+          <vProd>1000.00</vProd>
+        </prod>
+        <imposto>
+          <ICMS>
+            <ICMS00>
+              <orig>0</orig>
+              <CST>00</CST>
+              <vBC>1000.00</vBC>
+              <pICMS>12.00</pICMS>
+              <vICMS>120.00</vICMS>
+            </ICMS00>
+          </ICMS>
+        </imposto>
+      </det>
+    </infNFe>
+  </NFe>
+</nfeProc>"""
+
+
+def test_nota_emissao_propria_desconsiderada_completamente(db_session, create_sample_excel_template):
+    empresa = _setup_empresa(db_session)
+    for tipo in ["antecipacao_parcial", "antecipacao_tributaria", "difal"]:
+        _upload_template(db_session, create_sample_excel_template, tipo)
+
+    solicitacao = _criar_solicitacao_multi(db_session, empresa)
+    pipeline = ProcessingPipelineService(db_session)
+    resultado = pipeline.process_solicitacao(
+        solicitacao.id,
+        [
+            ("nfe7777.xml", XML_NFE_EMISSAO_PROPRIA),
+            ("nfe9999.xml", XML_NFE_TRES_DESTINOS),
+        ],
+    )
+    db_session.refresh(resultado)
+
+    assert resultado.status == "concluido"
+    # Nota de emissão própria 7777 deve estar nas notas ignoradas
+    ignoradas = resultado.notas_ignoradas or []
+    assert any("emissão própria" in ign.get("motivo", "") for ign in ignoradas)
+

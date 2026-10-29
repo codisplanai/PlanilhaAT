@@ -193,6 +193,25 @@ class ProcessingPipelineService:
             )
 
             for filename, nf_data in raw_nfs:
+                # 1. Regra Geral: Emissão própria desconsiderada
+                # Sempre que for identificado que o emitente da NF-e é a própria empresa processada (ex: emissão própria no SPED),
+                # desconsiderar a nota completamente.
+                clean_emitente = re.sub(r"\D", "", nf_data.cnpj_emitente or "")
+                clean_empresa = re.sub(r"\D", "", empresa.cnpj or "")
+                is_emissao_propria = (
+                    (clean_emitente and clean_empresa and clean_emitente == clean_empresa)
+                    or (nf_data.raw_metadata or {}).get("ind_emit") == "0"
+                )
+                if is_emissao_propria:
+                    notas_ignoradas.append(
+                        ignored_note(
+                            nf_data,
+                            filename,
+                            "Nota fiscal de emissão própria desconsiderada: emitente é a própria empresa.",
+                        )
+                    )
+                    continue
+
                 # 2. Camada 3: Validação de destinatário
                 SanityChecker.validate_nf_destinatario(nf_data, empresa.cnpj)
 

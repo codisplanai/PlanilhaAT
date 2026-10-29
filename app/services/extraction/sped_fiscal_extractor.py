@@ -161,12 +161,18 @@ class SpedFiscalExtractor:
                     v_desc=v_desc_c100,
                 ))
 
-            # Resolver CNPJ e UF do emitente a partir do cadastro 0150
+            # Resolver CNPJ e UF do emitente a partir do cadastro 0150 ou declarante (emissão própria)
+            ind_emit = current_c100.get("ind_emit", "1")
             cod_part = current_c100.get("cod_part", "")
             part_info = participantes.get(cod_part, {})
-            cnpj_emitente = part_info.get("cnpj", "")
-            nome_emitente = part_info.get("nome", "")
-            uf_emitente = part_info.get("uf", "")
+            if ind_emit == "0":
+                cnpj_emitente = dest_cnpj
+                nome_emitente = dest_nome
+                uf_emitente = dest_uf
+            else:
+                cnpj_emitente = part_info.get("cnpj", "")
+                nome_emitente = part_info.get("nome", "")
+                uf_emitente = part_info.get("uf", "")
 
             # Fallback para UF Emitente: primeiros 2 dígitos da Chave de Acesso
             chv = current_c100.get("chave_acesso", "")
@@ -201,6 +207,7 @@ class SpedFiscalExtractor:
                 itens=current_itens,
                 raw_metadata={
                     "origem": "sped_fiscal",
+                    "ind_emit": ind_emit,
                     "cod_part": cod_part,
                     "qtd_itens": len(current_itens),
                     "dest_ie": dest_ie,
@@ -286,6 +293,9 @@ class SpedFiscalExtractor:
                     # Pular notas de saída
                     continue
 
+                # Campo 3: IND_EMIT (0 = Emissão própria, 1 = Terceiros)
+                ind_emit = fields[3].strip() if len(fields) > 3 else "1"
+
                 # Campo 6: COD_SIT (00 = Regular, 01 = Extemporâneo)
                 cod_sit = fields[6].strip() if len(fields) > 6 else "00"
                 if cod_sit not in ["00", "01"]:
@@ -319,6 +329,7 @@ class SpedFiscalExtractor:
                 vl_ipi = self._parse_sped_decimal(fields[25] if len(fields) > 25 else "0.00")
 
                 current_c100 = {
+                    "ind_emit": ind_emit,
                     "cod_part": cod_part,
                     "serie": serie,
                     "numero_nota": num_doc,

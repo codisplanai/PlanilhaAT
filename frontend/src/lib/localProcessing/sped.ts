@@ -44,6 +44,7 @@ interface ItemRegistry {
 }
 
 interface C100State {
+  indEmit: string;
   codPart: string;
   serie: string;
   numeroNota: string;
@@ -153,8 +154,11 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       }];
     }
 
+    const isEmissaoPropria = current.indEmit === '0';
     const participant = participants.get(current.codPart);
-    let ufEmitente = participant?.uf ?? '';
+    const cnpjEmitente = isEmissaoPropria ? destCnpj : (participant?.cnpj ?? '');
+    const emitNome = isEmissaoPropria ? destNome : (participant?.nome ?? '');
+    let ufEmitente = isEmissaoPropria ? destUf : (participant?.uf ?? '');
     if (!ufEmitente && current.chaveAcesso.length >= 2) {
       ufEmitente = IBGE_UF_MAP[current.chaveAcesso.slice(0, 2)] ?? '';
     }
@@ -164,7 +168,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       chaveAcesso: current.chaveAcesso,
       numeroNota: current.numeroNota,
       serie: current.serie,
-      cnpjEmitente: participant?.cnpj ?? '',
+      cnpjEmitente,
       ufEmitente,
       cnpjDestinatario: destCnpj,
       ufDestinatario: destUf,
@@ -178,11 +182,12 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       origemExtracao: 'sped',
       rawMetadata: {
         origem: 'sped_fiscal',
+        ind_emit: current.indEmit,
         cod_part: current.codPart,
         qtd_itens: currentItems.length,
         dest_ie: destIe,
         dest_nome: destNome,
-        emit_nome: participant?.nome ?? '',
+        emit_nome: emitNome,
         fornecedor_simples_nacional: currentItems.some((item) => Boolean(item.csosn)),
       },
       itens: currentItems,
@@ -240,6 +245,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const codSit = (fields[6] ?? '00').trim();
       if (indOper !== '0' || !['00', '01'].includes(codSit)) continue;
 
+      const indEmit = (fields[3] ?? '1').trim();
       const numeroNota = (fields[8] ?? '').trim();
       const dataEmissao = parseSpedDate(fields[10]);
       if (!dataEmissao) {
@@ -251,6 +257,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const vOut = decimal(fields[20]);
 
       current = {
+        indEmit,
         codPart: (fields[4] ?? '').trim(),
         serie: (fields[7] ?? '1').trim(),
         numeroNota,

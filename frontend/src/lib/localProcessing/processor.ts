@@ -112,9 +112,18 @@ function ignoredNote(note: ExtractedNote, reason: string): NotaIgnorada {
   };
 }
 
-function bonusPreAnalysis(notes: ExtractedNote[], start: string, end: string, companyUf: string): NotaBonificacaoPendencia[] {
+function bonusPreAnalysis(
+  notes: ExtractedNote[],
+  start: string,
+  end: string,
+  companyUf: string,
+  companyCnpj?: string,
+): NotaBonificacaoPendencia[] {
   const pending: NotaBonificacaoPendencia[] = [];
+  const cleanEmpresa = cleanDigits(companyCnpj ?? '');
   for (const note of notes) {
+    const cleanEmitente = cleanDigits(note.cnpjEmitente);
+    if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
     if (note.ufEmitente && companyUf && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
     if (!withinPeriod(note, start, end)) continue;
     const bonus = note.itens.filter((item) => BONUS_SUFFIXES.has(cleanDigits(item.cfop).slice(-3)));
@@ -160,8 +169,11 @@ function convenio5291PreAnalysis(
 
   const revendaConfig = getRevendaAntecipacaoConfig(context);
   const pending: Convenio5291Pendencia[] = [];
+  const cleanEmpresa = cleanDigits(context.empresa.cnpj ?? '');
 
   for (const note of notes) {
+    const cleanEmitente = cleanDigits(note.cnpjEmitente);
+    if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
     if (note.ufEmitente && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
     if (!withinPeriod(note, start, end)) continue;
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
@@ -316,7 +328,7 @@ export async function processFiscalLocally(
       referenciaArquivo: ignoredNote.arquivo ? 'disponível na interface' : 'não disponível',
     });
   }
-  const pending = bonusPreAnalysis(sources.notes, periodoInicio, periodoFim, context.empresa.uf);
+  const pending = bonusPreAnalysis(sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj);
   if (pending.length > 0 && !request.bonusDecisions) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
     diagnostic?.stage('validacao', 'Processamento pausado para confirmação de bonificações.', {
@@ -381,6 +393,22 @@ export async function processFiscalLocally(
   }
 
   for (const note of sources.notes) {
+    const cleanEmitente = cleanDigits(note.cnpjEmitente);
+    const cleanEmpresa = cleanDigits(context.empresa.cnpj);
+    const isEmissaoPropria =
+      (Boolean(cleanEmitente && cleanEmpresa) && cleanEmitente === cleanEmpresa) ||
+      note.rawMetadata?.ind_emit === '0';
+
+    if (isEmissaoPropria) {
+      ignored.push(
+        ignoredNote(
+          note,
+          'Nota fiscal de emissão própria desconsiderada: emitente é a própria empresa.',
+        ),
+      );
+      continue;
+    }
+
     if (cleanDigits(note.cnpjDestinatario) !== cleanDigits(context.empresa.cnpj)) {
       throw new Error(
         `NF-e ${note.numeroNota} possui CNPJ destinatário ${note.cnpjDestinatario}, diferente da empresa selecionada.`,

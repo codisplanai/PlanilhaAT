@@ -134,3 +134,23 @@ def test_item_sintetico_do_c190_nao_e_confiavel():
     assert itens
     assert all(not i.descricao_confiavel for i in itens)
 
+
+def test_sped_fiscal_extractor_identifica_emissao_propria():
+    """Notas de entrada com IND_EMIT=0 são reconhecidas como emissão própria."""
+    sped_emissao_propria = (
+        "|0000|019|0|01012026|31012026|Cliente BA|12345678000195||BA|123|2927408|||A|1|\n"
+        "|C100|0|0||55|00|1|801|29260112345678000195550010000008011000000801|"
+        "10012026|20012026|1500,00|0|0,00|0,00|1500,00|0|0,00|0,00|0,00|1500,00|"
+        "180,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|\n"
+        "|C190|000|1102|12,00|1500,00|1500,00|180,00|0,00|0,00|0,00|0,00||\n"
+        "|9999|4|\n"
+    ).encode("utf-8")
+
+    notas = SpedFiscalExtractor().extract_from_sped(sped_emissao_propria)
+    assert len(notas) == 1
+    assert notas[0].numero_nota == "801"
+    assert notas[0].cnpj_emitente == "12345678000195"
+    assert notas[0].cnpj_destinatario == "12345678000195"
+    assert notas[0].raw_metadata.get("ind_emit") == "0"
+
+
