@@ -72,6 +72,7 @@ class RegraExclusaoParcialCreate(RegraExclusaoParcialBase):
 
 
 class RegraExclusaoParcialUpdate(BaseModel):
+    perfil_regras_id: Optional[int] = None
     uf: Optional[str] = None
     ncm: Optional[str] = None
     descricao: Optional[str] = None

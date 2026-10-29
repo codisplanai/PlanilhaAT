@@ -102,11 +102,14 @@ def test_operador_cadastra_e_edita_regras_aliquotas(client_operador):
     assert res_create.status_code == 201, res_create.text
     regra_id = res_create.json()["id"]
 
-    # 2. Operador edita regra de alíquota
+    # 2. Operador edita regra de alíquota (inclusive tolerando perfil_regras_id no payload)
     res_update = client_operador.put(f"/api/v1/regras-aliquotas/{regra_id}", json={
+        "perfil_regras_id": perfil_id,
+        "uf": "BA",
         "aliquota": 0.19,
+        "descricao": "Alíquota interna BA 19%",
     })
-    assert res_update.status_code == 200
+    assert res_update.status_code == 200, res_update.text
     assert res_update.json()["aliquota"] == 0.19
 
     # 3. Operador também exclui regra de alíquota (regra operacional do perfil)
@@ -130,11 +133,12 @@ def test_operador_cadastra_e_edita_regras_cfop(client_operador):
     assert res_create.status_code == 201, res_create.text
     regra_id = res_create.json()["id"]
 
-    # 2. Operador edita regra de CFOP
+    # 2. Operador edita regra de CFOP (inclusive tolerando perfil_regras_id no payload)
     res_update = client_operador.put(f"/api/v1/regras-cfop/{regra_id}", json={
+        "perfil_regras_id": perfil_id,
         "destino": "antecipacao_tributaria",
     })
-    assert res_update.status_code == 200
+    assert res_update.status_code == 200, res_update.text
     assert res_update.json()["destino"] == "antecipacao_tributaria"
 
     # 3. Operador também exclui regra de CFOP (regra operacional do perfil)

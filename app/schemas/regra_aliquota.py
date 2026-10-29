@@ -42,6 +42,7 @@ class RegraAliquotaCreate(RegraAliquotaBase):
 
 
 class RegraAliquotaUpdate(BaseModel):
+    perfil_regras_id: Optional[int] = None
     uf: Optional[str] = None
     ncm: Optional[str] = None
     aliquota: Optional[Decimal] = None

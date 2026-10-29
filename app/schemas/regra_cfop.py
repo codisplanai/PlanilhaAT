@@ -41,6 +41,7 @@ class RegraCfopCreate(RegraCfopBase):
     pass
 
 class RegraCfopUpdate(BaseModel):
+    perfil_regras_id: Optional[int] = None
     cfop_sufixo: Optional[str] = None
     destino: Optional[str] = None
     descricao: Optional[str] = None
