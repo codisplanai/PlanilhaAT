@@ -706,7 +706,23 @@ export function resolveMvaForItem(
 }
 
 /** Mensagem de um processamento concluído sem planilha, só com itens excluídos. */
+export const INDUSTRY_EXCLUSION_REASON =
+  'Empresa industrial: não recolhe Antecipação Parcial nem Tributária '
+  + '(apenas DIFAL de uso/consumo e ativo imobilizado).';
+
+/** Indústria não recolhe Parcial nem Tributária: gera apenas DIFAL. */
+export function isIndustria(context: LocalProcessingContext): boolean {
+  return context.empresa.atividade === 'industria';
+}
+
+export function industryBonusRejectedReason(cfop: string): string {
+  return `Bonificação/amostra/outras entradas (CFOP ${cfop}) não confirmada como uso/consumo pelo usuário (empresa industrial).`;
+}
+
 export function noOutputMessage(excluded: Array<{ tipo_exclusao: string }>): string {
+  if (excluded.length > 0 && excluded.every((item) => item.tipo_exclusao === 'industria_sem_antecipacao')) {
+    return 'Nenhuma planilha gerada: empresa industrial sem itens de uso/consumo ou ativo imobilizado (DIFAL)';
+  }
   const pending = excluded.filter((item) => item.tipo_exclusao === 'mva_pendente').length;
   if (pending === 0) return 'Nenhum item a recolher na Parcial';
   if (pending === excluded.length) {

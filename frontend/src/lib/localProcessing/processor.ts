@@ -33,7 +33,10 @@ import {
   classifyRevendaMva,
   evaluatePartialMerchandiseExclusion,
   getRevendaAntecipacaoConfig,
+  INDUSTRY_EXCLUSION_REASON,
+  industryBonusRejectedReason,
   isDifalDestination,
+  isIndustria,
   mvaColumnForNote,
   noOutputMessage,
   normalizeDescription,
@@ -338,6 +341,7 @@ export async function processFiscalLocally(
     });
   }
   const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
+  const isIndustryCompany = isIndustria(context);
   const pending = bonusPreAnalysis(
     sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany,
   );
@@ -467,6 +471,26 @@ export async function processFiscalLocally(
     const mvaColumn = mvaColumnForNote(note);
     const groups = new Map<string, Group>();
     let classifiedItems = 0;
+    const excludeIndustryItem = (item: ExtractedItem, destino: TipoPlanilha, motivo: string) => {
+      excluded.push({
+        chave_acesso: note.chaveAcesso,
+        numero_nota: note.numeroNota,
+        serie: note.serie,
+        item_numero: item.itemNumero,
+        arquivo: note.filename,
+        destino,
+        ncm: item.ncm,
+        descricao: item.descricao,
+        descricao_confiavel: item.descricaoConfiavel,
+        motivo,
+        tipo_exclusao: 'industria_sem_antecipacao',
+        regras_aplicadas: [],
+        v_total: item.vTotal,
+        base_calculo: item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo,
+        ipi_despesas: item.ipiDespesas,
+        a_ori: item.aOri,
+      });
+    };
 
     for (const originalItem of note.itens) {
       const item = { ...originalItem };
@@ -483,6 +507,10 @@ export async function processFiscalLocally(
       if (BONUS_SUFFIXES.has(suffix) && request.bonusDecisions) {
         const decision = request.bonusDecisions[note.chaveAcesso]
           ?? request.bonusDecisions[String(note.numeroNota)];
+        if (decision === true && isIndustryCompany) {
+          excludeIndustryItem(item, 'antecipacao_parcial', industryBonusRejectedReason(item.cfop));
+          continue;
+        }
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
       }
 
@@ -515,6 +543,13 @@ export async function processFiscalLocally(
       if (context.empresa.optante_simples_nacional) {
         if (destination === 'antecipacao_parcial') destination = 'antecipacao_parcial_simples';
         if (destination === 'antecipacao_parcial_antecipado') destination = 'antecipacao_parcial_antecipado_simples';
+      }
+
+      // Indústria: só DIFAL (uso/consumo e ativo). Parcial e Tributária vão para os
+      // itens excluídos, inclusive as redirecionadas pela política do perfil.
+      if (isIndustryCompany && !isDifalDestination(destination) && !retroactive) {
+        excludeIndustryItem(item, destination, INDUSTRY_EXCLUSION_REASON);
+        continue;
       }
 
       // Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
