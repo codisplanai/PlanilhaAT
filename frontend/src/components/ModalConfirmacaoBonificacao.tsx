@@ -24,6 +24,8 @@ export interface ModalConfirmacaoBonificacaoProps {
   xmlFiles?: File[];
   onConfirm: (decisoes: Record<string, boolean>) => void;
   isProcessing?: boolean;
+  /** Empresa industrial: escolhe entre uso/consumo (DIFAL) e ignorar. */
+  industria?: boolean;
 }
 
 export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoProps> = ({
@@ -33,7 +35,31 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
   xmlFiles,
   onConfirm,
   isProcessing = false,
+  industria = false,
 }) => {
+  // Contrato da decisão: true = não é uso/consumo (revenda; na indústria, ignorar),
+  // false = uso/consumo (DIFAL).
+  const textos = industria
+    ? {
+      titulo: 'Confirmação de Uso/Consumo (CFOP 6910, 6911, 6949)',
+      subtitulo: 'Empresa industrial: confirme quais mercadorias são para uso/consumo ou ativo (DIFAL). As demais serão ignoradas.',
+      opcaoTrue: 'Ignorar',
+      opcaoFalse: 'Uso/Consumo (DIFAL)',
+      todasTrue: 'Marcar todas como Ignorar',
+      todasFalse: 'Marcar todas como Uso/Consumo (DIFAL)',
+      resumoTrue: 'ignorada(s)',
+      resumoFalse: 'para uso/consumo (DIFAL)',
+    }
+    : {
+      titulo: 'Destinação de Mercadorias (CFOP 6910, 6911, 6949)',
+      subtitulo: 'Defina se as mercadorias recebidas serão destinadas à revenda (Antecipação Parcial) ou uso/consumo (DIFAL).',
+      opcaoTrue: 'Revenda (Parcial)',
+      opcaoFalse: 'Uso/Consumo (DIFAL)',
+      todasTrue: 'Marcar todas como Revenda (Parcial)',
+      todasFalse: 'Marcar todas como Uso/Consumo (DIFAL)',
+      resumoTrue: 'para revenda (Parcial)',
+      resumoFalse: 'para uso/consumo (DIFAL)',
+    };
   const [decisoes, setDecisoes] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
@@ -85,8 +111,8 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Destinação de Mercadorias (CFOP 6910, 6911, 6949)"
-      subtitle="Defina se as mercadorias recebidas serão destinadas à revenda (Antecipação Parcial) ou uso/consumo (DIFAL)."
+      title={textos.titulo}
+      subtitle={textos.subtitulo}
       maxWidth="4xl"
     >
       <div className="space-y-4 text-slate-800">
@@ -128,14 +154,14 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                 onClick={() => handleSetAll(true)}
                 className="text-xs text-emerald-700 hover:text-emerald-800 font-medium px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 transition-colors"
               >
-                Marcar todas como Revenda (Parcial)
+                {textos.todasTrue}
               </button>
               <button
                 type="button"
                 onClick={() => handleSetAll(false)}
                 className="text-xs text-amber-700 hover:text-amber-800 font-medium px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100/80 border border-amber-200 transition-colors"
               >
-                Marcar todas como Uso/Consumo (DIFAL)
+                {textos.todasFalse}
               </button>
             </div>
           </div>
@@ -247,7 +273,7 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                         }`}
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        Revenda (Parcial)
+                        {textos.opcaoTrue}
                       </button>
                       <button
                         type="button"
@@ -259,7 +285,7 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
                         }`}
                       >
                         <XCircle className="w-3.5 h-3.5" />
-                        Uso/Consumo (DIFAL)
+                        {textos.opcaoFalse}
                       </button>
                     </div>
                   </div>
@@ -272,9 +298,19 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
         {/* Resumo e Botões de Rodapé */}
         <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-slate-600">
-            <span className="font-semibold text-emerald-700">{totalParaRevenda}</span> para revenda (Parcial)
-            {' • '}
-            <span className="font-semibold text-amber-700">{totalNaoRevenda}</span> para uso/consumo (DIFAL)
+            {industria ? (
+              <>
+                <span className="font-semibold text-amber-700">{totalNaoRevenda}</span> {textos.resumoFalse}
+                {' • '}
+                <span className="font-semibold text-slate-700">{totalParaRevenda}</span> {textos.resumoTrue}
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-emerald-700">{totalParaRevenda}</span> {textos.resumoTrue}
+                {' • '}
+                <span className="font-semibold text-amber-700">{totalNaoRevenda}</span> {textos.resumoFalse}
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
