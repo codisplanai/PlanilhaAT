@@ -53,6 +53,12 @@ CSOSNS_SIMPLES: Final = frozenset(
 # tratamento manual, em vez de ser calculado com MVA zero.
 TIPO_EXCLUSAO_MVA_PENDENTE: Final = "mva_pendente"
 
+# Atividade da empresa: a indústria não recolhe Antecipação Parcial nem
+# Tributária, apenas DIFAL de uso/consumo e ativo imobilizado.
+ATIVIDADE_COMERCIO: Final = "comercio"
+ATIVIDADE_INDUSTRIA: Final = "industria"
+ATIVIDADES_EMPRESA: Final = (ATIVIDADE_COMERCIO, ATIVIDADE_INDUSTRIA)
+
 ROLE_ADMIN: Final = "admin"
 ROLE_OPERADOR: Final = "operador"
 CARGO_POR_ROLE: Final = {

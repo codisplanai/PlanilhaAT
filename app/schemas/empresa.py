@@ -4,7 +4,7 @@ from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
-from app.constants import UFS_BRASIL
+from app.constants import ATIVIDADE_COMERCIO, ATIVIDADES_EMPRESA, UFS_BRASIL
 from app.schemas.regra_aliquota_empresa import TermoAcordoOut
 from app.schemas.validators import normalizar_aliquota
 
@@ -17,6 +17,14 @@ def clean_cnpj(v: str) -> str:
         raise ValueError("CNPJ deve conter exatamente 14 dígitos")
     return cleaned
 
+def clean_atividade(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    clean = str(v).strip().lower()
+    if clean not in ATIVIDADES_EMPRESA:
+        raise ValueError("Atividade inválida (use 'comercio' ou 'industria')")
+    return clean
+
 class EmpresaBase(BaseModel):
     razao_social: str = Field(..., max_length=255, example="Empresa Exemplo LTDA")
     cnpj: str = Field(..., example="12345678000195")
@@ -24,12 +32,17 @@ class EmpresaBase(BaseModel):
     uf: str = Field(..., min_length=2, max_length=2, example="BA")
     perfil_regras_id: int = Field(..., example=1)
     optante_simples_nacional: bool = False
+    atividade: str = Field(ATIVIDADE_COMERCIO, example="comercio")
     a_ori_fixa_parcial: Optional[Decimal] = Field(None, example=0.12)
     ativo: bool = True
 
     @validator("cnpj")
     def validate_cnpj(cls, v):
         return clean_cnpj(v)
+
+    @validator("atividade")
+    def validate_atividade(cls, v):
+        return clean_atividade(v)
 
     @validator("a_ori_fixa_parcial")
     def validate_a_ori_fixa_parcial(cls, v):
@@ -62,8 +75,13 @@ class EmpresaUpdate(BaseModel):
     uf: Optional[str] = None
     perfil_regras_id: Optional[int] = None
     optante_simples_nacional: Optional[bool] = None
+    atividade: Optional[str] = None
     a_ori_fixa_parcial: Optional[Decimal] = None
     ativo: Optional[bool] = None
+
+    @validator("atividade")
+    def validate_atividade(cls, v):
+        return clean_atividade(v)
 
     @validator("cnpj")
     def validate_cnpj(cls, v):
