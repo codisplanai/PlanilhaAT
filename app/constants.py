@@ -15,6 +15,8 @@ ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES: Final = "antecipacao_parcial_antecipado_
 ANTECIPACAO_TRIBUTARIA: Final = "antecipacao_tributaria"
 ANTECIPACAO_TRIBUTARIA_ANTECIPADO: Final = "antecipacao_tributaria_antecipado"
 DIFAL: Final = "difal"
+# DIFAL de Simples Nacional cuja mercadoria ainda não deu entrada (mesmo RP-158).
+DIFAL_ANTECIPADO: Final = "difal_antecipado"
 IGNORAR: Final = "ignorar"
 MULTI: Final = "multi"
 
@@ -32,6 +34,7 @@ TIPOS_PLANILHA: Final = (
     ANTECIPACAO_TRIBUTARIA,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
+    DIFAL_ANTECIPADO,
 )
 
 DESTINOS_CFOP: Final = (*TIPOS_PLANILHA_LEGADO, IGNORAR)

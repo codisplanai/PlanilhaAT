@@ -249,6 +249,7 @@ MODELO_OFICIAL_POR_TIPO = {
     "antecipacao_tributaria": "RP-151",
     "antecipacao_tributaria_antecipado": "RP-151",
     "difal": "RP-158",
+    "difal_antecipado": "RP-158",
 }
 
 TIPO_PLANILHA_CURTO = {
@@ -259,6 +260,7 @@ TIPO_PLANILHA_CURTO = {
     "antecipacao_tributaria": "AT",
     "antecipacao_tributaria_antecipado": "AT-Antecipado",
     "difal": "DIFAL",
+    "difal_antecipado": "DIFAL-Antecipado",
 }
 
 CORPORATE_SUFFIXES = {
