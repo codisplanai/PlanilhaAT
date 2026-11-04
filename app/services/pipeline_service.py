@@ -47,6 +47,7 @@ from app.constants import (
     ATIVIDADE_INDUSTRIA,
     DIFAL,
     DIFAL_ANTECIPADO,
+    MOTIVO_DIFAL_AGUARDANDO_ENTRADA,
     MOTIVO_EXCLUSAO_INDUSTRIA,
     TIPO_EXCLUSAO_INDUSTRIA,
     TIPO_EXCLUSAO_MVA_PENDENTE,
@@ -363,8 +364,10 @@ class ProcessingPipelineService:
                 info_mva_policy: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
                 itens_bonificacao_desconsiderados: List[Any] = []
                 itens_retroativos_pulados: List[int] = []
+                itens_aguardando_entrada: List[int] = []
 
                 for item in nf_data.itens:
+                    bonificacao_uso_consumo = False
                     mva_policy_group = ""
                     mva_policy_source = ""
                     if cfop_auxiliar and is_cfop_uso_consumo_ativo(cfop_auxiliar):
@@ -407,6 +410,7 @@ class ProcessingPipelineService:
                                 destino_item = ANTECIPACAO_PARCIAL
                             else:
                                 destino_item = DIFAL
+                                bonificacao_uso_consumo = True
 
                     if destino_item is None:
                         if retroativa:
@@ -457,6 +461,13 @@ class ProcessingPipelineService:
                         # Simples Nacional: DIFAL da mercadoria ainda sem entrada é paga
                         # antecipadamente, em planilha própria (mesmo modelo RP-158).
                         destino_item = DIFAL_ANTECIPADO
+
+                    # Regime Normal: a DIFAL é apurada no mês da entrada. Bonificação de
+                    # uso/consumo ainda sem entrada fica para a apuração retroativa, senão
+                    # seria paga agora e de novo quando aparecer no SPED.
+                    if destino_item == DIFAL and pago_antecipadamente and bonificacao_uso_consumo:
+                        itens_aguardando_entrada.append(item.item_numero)
+                        continue
 
                     if empresa.optante_simples_nacional:
                         if destino_item == ANTECIPACAO_PARCIAL:
@@ -718,6 +729,11 @@ class ProcessingPipelineService:
                     if retroativa:
                         notas_ignoradas.append(ignored_note(nf_data, filename, motivo_fora_periodo))
                         continue
+                    if itens_aguardando_entrada:
+                        notas_ignoradas.append(
+                            ignored_note(nf_data, filename, MOTIVO_DIFAL_AGUARDANDO_ENTRADA)
+                        )
+                        continue
                     if itens_bonificacao_desconsiderados:
                         cfops_str = ", ".join(sorted(list({it.cfop for it in itens_bonificacao_desconsiderados if it.cfop})))
                         notas_ignoradas.append(
@@ -728,6 +744,15 @@ class ProcessingPipelineService:
                             )
                         )
                     continue
+
+                if itens_aguardando_entrada:
+                    avisos_avaliacao.append({
+                        "numero_nota": nf_data.numero_nota,
+                        "serie": nf_data.serie,
+                        "item_numero": itens_aguardando_entrada[0],
+                        "arquivo": filename,
+                        "aviso": MOTIVO_DIFAL_AGUARDANDO_ENTRADA,
+                    })
 
                 if retroativa and itens_retroativos_pulados:
                     avisos_avaliacao.append({

@@ -59,6 +59,13 @@ TIPO_EXCLUSAO_MVA_PENDENTE: Final = "mva_pendente"
 # Item de empresa industrial que iria para Parcial ou Tributária: a indústria
 # só gera DIFAL de uso/consumo e ativo imobilizado.
 TIPO_EXCLUSAO_INDUSTRIA: Final = "industria_sem_antecipacao"
+
+# Regime Normal: bonificação de uso/consumo sem entrada no período não entra na
+# DIFAL agora; ela é apurada no mês da entrada (DIFAL retroativa), evitando pagar duas vezes.
+MOTIVO_DIFAL_AGUARDANDO_ENTRADA: Final = (
+    "Bonificação/amostra/outras entradas para uso/consumo sem entrada no período: "
+    "no Regime Normal a DIFAL é apurada no mês da entrada (SPED)."
+)
 MOTIVO_EXCLUSAO_INDUSTRIA: Final = (
     "Empresa industrial: não recolhe Antecipação Parcial nem Tributária "
     "(apenas DIFAL de uso/consumo e ativo imobilizado)."

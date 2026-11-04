@@ -130,8 +130,14 @@ def test_simples_bonificacao_sem_entrada_vai_para_difal_antecipado(
     assert "difal_antecipado" in {s.tipo for s in res.saidas}
 
 
-def test_regime_normal_bonificacao_sem_entrada_continua_difal(
+MOTIVO_SEM_ENTRADA = (
+    "Bonificação/amostra/outras entradas para uso/consumo sem entrada no período: no Regime Normal a DIFAL é apurada no mês da entrada (SPED)."
+)
+
+
+def test_regime_normal_bonificacao_sem_entrada_fica_para_o_mes_da_entrada(
         db_session, cenario_janeiro, sped_janeiro_com_nf901, xml_nf901):
+    """Evita pagar duas vezes: a nota entra na DIFAL só no mês da entrada (retroativa)."""
     sol = cenario_janeiro(tipos=TIPOS)
     xml_960 = build_xml_nfe("960", CHAVE_960, "400.00", "25", cfop="6911")
 
@@ -142,8 +148,21 @@ def test_regime_normal_bonificacao_sem_entrada_continua_difal(
         decisoes_bonificacao={CHAVE_960: False},
     )
 
-    nota = next(n for n in res.notas_processadas if n.numero_nota == "960")
-    assert nota.destino_planilha == "difal"
+    assert all(n.numero_nota != "960" for n in res.notas_processadas)
+    motivos = {n["numero_nota"]: n["motivo"] for n in res.notas_ignoradas}
+    assert motivos["960"] == MOTIVO_SEM_ENTRADA
+
+
+def test_regime_normal_bonificacao_sem_fonte_de_entradas_continua_difal(
+        db_session, cenario_janeiro):
+    """Só XML (sem SPED nem planilha auxiliar): não há como saber a entrada, segue para a DIFAL."""
+    sol = cenario_janeiro(tipos=TIPOS)
+    xml_960 = build_xml_nfe("960", CHAVE_960, "400.00", "25", cfop="6911")
+
+    res = _processar(db_session, sol, xml_files_bytes=[("960.xml", xml_960)],
+                     decisoes_bonificacao={CHAVE_960: False})
+
+    assert [n.destino_planilha for n in res.notas_processadas] == ["difal"]
 
 
 def _sped_bonificacao_retroativa():

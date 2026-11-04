@@ -77,7 +77,9 @@ test('Simples: bonificação sem entrada vai para DIFAL Antecipado', async () =>
   assert.ok(result.artifacts.some((artifact) => artifact.tipo === 'difal_antecipado'));
 });
 
-test('Regime Normal: bonificação sem entrada continua DIFAL', async () => {
+const MOTIVO_SEM_ENTRADA = 'Bonificação/amostra/outras entradas para uso/consumo sem entrada no período: no Regime Normal a DIFAL é apurada no mês da entrada (SPED).';
+
+test('Regime Normal: bonificação sem entrada fica para o mês da entrada', async () => {
   const result = await processar(
     buildContext(),
     {
@@ -86,9 +88,18 @@ test('Regime Normal: bonificação sem entrada continua DIFAL', async () => {
     },
     { [CHAVE_960]: false },
   );
-  const nota = result.notasProcessadas.find((item) => item.numero_nota === '960');
-  assert.equal(nota?.destino_planilha, 'difal');
+  assert.ok(!result.notasProcessadas.some((item) => item.numero_nota === '960'));
+  assert.equal(result.notasIgnoradas.find((nota) => nota.numero_nota === '960')?.motivo, MOTIVO_SEM_ENTRADA);
   assert.equal(result.rowsByDestination.difal_antecipado, undefined);
+});
+
+test('Regime Normal: bonificação sem fonte de entradas continua DIFAL', async () => {
+  const result = await processar(
+    buildContext(),
+    { xmls: [['960.xml', xmlNfe('960', CHAVE_960, '400.00', '2026-01-25', '6911')]] },
+    { [CHAVE_960]: false },
+  );
+  assert.deepEqual(result.notasProcessadas.map((item) => item.destino_planilha), ['difal']);
 });
 
 const bonificacaoRetroativa = { numero: '970', chave: CHAVE_970, dtDoc: '20122025', dtEntrada: '06012026', itens: [['2911', '250,00']] as Array<[string, string]> };

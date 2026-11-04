@@ -50,6 +50,10 @@ export function routePaidEarlyDestination(
   return destination;
 }
 
+export const DIFAL_AWAITING_ENTRY_REASON =
+  'Bonificação/amostra/outras entradas para uso/consumo sem entrada no período: '
+  + 'no Regime Normal a DIFAL é apurada no mês da entrada (SPED).';
+
 export function isDifalDestination(destination: TipoPlanilha): boolean {
   return destination === 'difal' || destination === 'difal_antecipado';
 }

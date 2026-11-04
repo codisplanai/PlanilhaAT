@@ -31,6 +31,7 @@ import {
 import {
   acceptsRetroactiveDifal,
   classifyRevendaMva,
+  DIFAL_AWAITING_ENTRY_REASON,
   evaluatePartialMerchandiseExclusion,
   getRevendaAntecipacaoConfig,
   INDUSTRY_EXCLUSION_REASON,
@@ -452,6 +453,7 @@ export async function processFiscalLocally(
     }
     let retroactiveSkipped = 0;
     let firstRetroactiveSkippedItem: number | null = null;
+    const awaitingEntryItems: number[] = [];
     const skipRetroactiveItem = (itemNumero: number) => {
       retroactiveSkipped += 1;
       firstRetroactiveSkippedItem ??= itemNumero;
@@ -500,6 +502,7 @@ export async function processFiscalLocally(
       const item = { ...originalItem };
       let mvaPolicyGroup: Group['mvaPolicyGroup'] = '';
       let mvaPolicySource = '';
+      let bonusUsoConsumo = false;
       if (auxiliaryCfop && isUsoConsumoAtivo(auxiliaryCfop)) item.cfop = auxiliaryCfop;
 
       const cfopResolution = resolveCfop(context, item);
@@ -516,6 +519,7 @@ export async function processFiscalLocally(
           continue;
         }
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
+        bonusUsoConsumo = decision === false;
       }
 
       if (!destination && retroactive) {
@@ -544,6 +548,12 @@ export async function processFiscalLocally(
         }
       }
       destination = routePaidEarlyDestination(destination, paidEarly, isSimplesCompany);
+      // Regime Normal: a DIFAL é apurada no mês da entrada. Bonificação de uso/consumo
+      // ainda sem entrada fica para a apuração retroativa (evita pagar duas vezes).
+      if (destination === 'difal' && paidEarly && bonusUsoConsumo) {
+        awaitingEntryItems.push(item.itemNumero);
+        continue;
+      }
       if (context.empresa.optante_simples_nacional) {
         if (destination === 'antecipacao_parcial') destination = 'antecipacao_parcial_simples';
         if (destination === 'antecipacao_parcial_antecipado') destination = 'antecipacao_parcial_antecipado_simples';
@@ -829,7 +839,17 @@ export async function processFiscalLocally(
 
     if (groups.size === 0) {
       if (retroactive) ignored.push(ignoredNote(note, periodReason));
+      else if (awaitingEntryItems.length > 0) ignored.push(ignoredNote(note, DIFAL_AWAITING_ENTRY_REASON));
       continue;
+    }
+    if (awaitingEntryItems.length > 0) {
+      warnings.push({
+        numero_nota: note.numeroNota,
+        serie: note.serie,
+        item_numero: awaitingEntryItems[0],
+        arquivo: note.filename,
+        aviso: DIFAL_AWAITING_ENTRY_REASON,
+      });
     }
     if (retroactive && retroactiveSkipped > 0) {
       warnings.push({
