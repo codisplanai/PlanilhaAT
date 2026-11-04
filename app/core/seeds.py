@@ -78,7 +78,8 @@ DEFAULT_ANTECIPACAO_TRIBUTARIA_MAPPING = {
         "reducao": "I",
         "a_dst": "J",
         "a_ori": "K",
-        "red": "L"
+        "red": "L",
+        "valor_pago": "S"
     },
     "header_cell": "A2",
     "extra_options": {
@@ -105,7 +106,8 @@ DEFAULT_ANTECIPACAO_TRIBUTARIA_ANTECIPADO_MAPPING = {
         "reducao": "I",
         "a_dst": "J",
         "a_ori": "K",
-        "red": "L"
+        "red": "L",
+        "valor_pago": "S"
     },
     "sheet_name": "4",
     "header_cell": "A2",
@@ -332,6 +334,27 @@ def seed_default_templates(db: Session) -> None:
             filename="modelo_padrao_difal.xlsx",
             mapeamento=DEFAULT_DIFAL_MAPPING,
             observacoes="Modelo oficial pré-definido de DIFAL (RP-158)",
+            promover_ativo=True
+        )
+
+    # 4.1. DIFAL — Pago Antecipadamente (Simples Nacional, mesmo modelo RP-158)
+    template_difal_antecipado_ativo = (
+        db.query(TemplateXlsx)
+        .filter(TemplateXlsx.tipo == "difal_antecipado", TemplateXlsx.ativo == True)
+        .first()
+    )
+
+    if template_difal_antecipado_ativo is None and os.path.exists(DEFAULT_DIFAL_TEMPLATE_PATH):
+        with open(DEFAULT_DIFAL_TEMPLATE_PATH, "rb") as f:
+            file_bytes = f.read()
+
+        TemplateManager.upload_new_template_version(
+            db=db,
+            tipo="difal_antecipado",
+            file_bytes=file_bytes,
+            filename="modelo_padrao_difal_antecipado.xlsx",
+            mapeamento=DEFAULT_DIFAL_MAPPING,
+            observacoes="Modelo oficial de DIFAL — Pago Antecipadamente (RP-158)",
             promover_ativo=True
         )
 

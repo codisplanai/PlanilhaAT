@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Protocol, Union
 
-from app.constants import TIPO_EXCLUSAO_MVA_PENDENTE
+from app.constants import TIPO_EXCLUSAO_INDUSTRIA, TIPO_EXCLUSAO_MVA_PENDENTE
 from app.models.empresa import Empresa
 from app.services.extraction.base import ExtractedNFData
 from app.services.extraction.data_entrada_matcher import DataEntradaNormalizer
@@ -50,6 +50,25 @@ def is_cfop_uso_consumo_ativo(cfop: Optional[str]) -> bool:
     if len(clean) >= 3 and clean[-3:] in SUFIXOS_USO_CONSUMO_ATIVO:
         return True
     return False
+
+
+def aceita_difal_retroativa(nf: ExtractedNFData, optante_simples: bool, periodo_inicio: date) -> bool:
+    """Nota emitida antes do período, mas escriturada no SPED do período.
+
+    Só no Regime Normal a DIFAL de uso/consumo e ativo é apurada na entrada; no
+    Simples Nacional ela já foi paga antecipadamente no mês da emissão.
+    """
+    if optante_simples or nf.origem_extracao != "sped" or nf.data_emissao is None:
+        return False
+    emissao = nf.data_emissao.date() if isinstance(nf.data_emissao, datetime) else nf.data_emissao
+    return emissao < periodo_inicio
+
+
+def aviso_difal_retroativa(nf: ExtractedNFData) -> str:
+    return (
+        f"Nota emitida antes do período ({nf.data_emissao.strftime('%d/%m/%Y')}) com entrada "
+        "no SPED do período: apenas itens de DIFAL (uso/consumo e ativo) foram considerados."
+    )
 
 
 def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> None:
@@ -181,6 +200,13 @@ def no_output_message(excluded_items: list[dict[str, Any]]) -> str:
     Item com MVA pendente não é "nada a recolher": precisa de tratamento manual,
     então a mensagem diz isso em vez de indicar que não há imposto.
     """
+    if excluded_items and all(
+        item.get("tipo_exclusao") == TIPO_EXCLUSAO_INDUSTRIA for item in excluded_items
+    ):
+        return (
+            "Nenhuma planilha gerada: empresa industrial sem itens de uso/consumo "
+            "ou ativo imobilizado (DIFAL)"
+        )
     pending =[item for item in excluded_items if item.get("tipo_exclusao") == TIPO_EXCLUSAO_MVA_PENDENTE]
     if not pending:
         return "Nenhum item a recolher na Parcial"
@@ -249,6 +275,7 @@ MODELO_OFICIAL_POR_TIPO = {
     "antecipacao_tributaria": "RP-151",
     "antecipacao_tributaria_antecipado": "RP-151",
     "difal": "RP-158",
+    "difal_antecipado": "RP-158",
 }
 
 TIPO_PLANILHA_CURTO = {
@@ -259,6 +286,7 @@ TIPO_PLANILHA_CURTO = {
     "antecipacao_tributaria": "AT",
     "antecipacao_tributaria_antecipado": "AT-Antecipado",
     "difal": "DIFAL",
+    "difal_antecipado": "DIFAL-Antecipado",
 }
 
 CORPORATE_SUFFIXES = {

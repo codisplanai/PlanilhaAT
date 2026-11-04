@@ -16,6 +16,7 @@ export function calculateTax(
     mva?: number;
     aliqSimples?: string;
     isSimples?: boolean;
+    valorPago?: number;
   },
 ): CalculationResult {
   const { vTotal, baseCalculo, ipiDespesas, aOri, aDst } = input;
@@ -54,19 +55,22 @@ export function calculateTax(
       : (ipiDespesas > 0 ? vTotal + ipiDespesas : vTotal);
     const debito = roundCurrency(baseSt * aDst);
     const credito = roundCurrency(baseCalculo * aOri);
+    const valorPago = roundCurrency(Number(input.valorPago ?? 0));
+    const valorDevido = roundCurrency((debito - credito) - valorPago);
     return {
       debito,
       credito,
-      valorDevido: debito - credito,
+      valorDevido,
       detalhes: {
         tipo: 'antecipacao_tributaria',
         mva_aplicado: mva,
         base_st: roundCurrency(baseSt),
+        valor_pago: valorPago,
       },
     };
   }
 
-  if (destination === 'difal') {
+  if (destination === 'difal' || destination === 'difal_antecipado') {
     const aliqSimples = String(input.aliqSimples ?? 'N').trim().toUpperCase();
     const dstRate = aDst > 1 ? aDst / 100 : aDst;
     const oriRate = aOri > 1 ? aOri / 100 : aOri;

@@ -171,6 +171,11 @@ export const NovaSolicitacaoPage: React.FC = () => {
                           Simples Nacional (-20%)
                         </span>
                       )}
+                      {selectedEmpresa?.atividade === 'industria' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
+                          Indústria (somente DIFAL)
+                        </span>
+                      )}
                     </div>
                     <span className="block font-mono text-slate-500 mt-0.5">CNPJ: {formatCNPJ(selectedEmpresa?.cnpj)}</span>
                   </div>
@@ -569,6 +574,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
         xmlFiles={xmlFiles}
         onConfirm={confirmarBonificacoesEProcessar}
         isProcessing={isProcessing}
+        industria={selectedEmpresa?.atividade === 'industria'}
       />
 
       <ModalConfirmacaoConvenio5291

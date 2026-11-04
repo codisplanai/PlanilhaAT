@@ -24,6 +24,7 @@ const empresaSchema = z.object({
   uf: z.string().length(2, 'Selecione o estado (UF)'),
   perfil_regras_id: z.number().min(1, 'Selecione um perfil de regras'),
   optante_simples_nacional: z.boolean(),
+  atividade: z.enum(['comercio', 'industria']),
   a_ori_fixa_parcial: z
     .string()
     .refine(
@@ -42,6 +43,7 @@ const EMPTY_FORM: EmpresaFormData = {
   uf: 'BA',
   perfil_regras_id: 1,
   optante_simples_nacional: false,
+  atividade: 'comercio',
   a_ori_fixa_parcial: '',
   ativo: true,
 };
@@ -143,6 +145,7 @@ export function useEmpresasPage() {
       uf: empresa.uf,
       perfil_regras_id: empresa.perfil_regras_id,
       optante_simples_nacional: Boolean(empresa.optante_simples_nacional),
+      atividade: empresa.atividade ?? 'comercio',
       a_ori_fixa_parcial: formatPercentInput(empresa.a_ori_fixa_parcial),
       ativo: empresa.ativo,
     });
@@ -159,6 +162,7 @@ export function useEmpresasPage() {
       uf: data.uf,
       perfil_regras_id: Number(data.perfil_regras_id),
       optante_simples_nacional: Boolean(data.optante_simples_nacional),
+      atividade: data.atividade,
       a_ori_fixa_parcial: parsePercentInput(data.a_ori_fixa_parcial),
       ativo: data.ativo,
     };

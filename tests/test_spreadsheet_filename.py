@@ -88,3 +88,8 @@ def test_build_spreadsheet_filename():
         year=2026,
     )
     assert filename_at == "RP-151_ComercialSilva_AT-Antecipado_10-2026.xlsx"
+
+
+def test_difal_antecipado_usa_modelo_e_nome_curto_da_difal():
+    assert resolve_modelo_planilha("difal_antecipado") == "RP-158"
+    assert resolve_tipo_curto("difal_antecipado") == "DIFAL-Antecipado"

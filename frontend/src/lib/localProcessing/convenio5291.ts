@@ -135,6 +135,7 @@ const AUTO_RULES: Array<{
   { ncm: '84224090', itemLegal: '18.10', descricaoLegal: 'Outras máquinas e aparelhos para empacotar ou embalar mercadorias', termos: ['SELADORA', 'EMBALA'] },
   { ncm: '84238200', itemLegal: '19.8', descricaoLegal: 'Balanças de capacidade superior a 30 kg e não superior a 5.000 kg', termos: ['BALANCA', '31KG', '32KG', '50KG', '300KG'] },
   { ncm: '84381000', itemLegal: '28.1', descricaoLegal: 'Máquinas e aparelhos para indústrias de panificação, pastelaria, bolachas/biscoitos e massas', termos: ['AMASSADEIRA', 'BATEDEIRA', 'CILINDRO SOVADOR', 'MODELADORA DE PAO', 'FATIADEIRA PAO'] },
+  { ncm: '84649090', itemLegal: '54.3', descricaoLegal: 'Máquinas-ferramentas para trabalhar pedra, produtos cerâmicos, concreto, fibrocimento ou matérias minerais semelhantes', termos: ['CORTADOR', 'CORTADORA'] },
 ];
 
 const NON_MATCH_RULES: Array<{ ncm: string; termos: string[]; motivo: string }> = [

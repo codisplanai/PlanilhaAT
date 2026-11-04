@@ -11,6 +11,7 @@ from app.constants import (
     ANTECIPACAO_TRIBUTARIA,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
+    DIFAL_ANTECIPADO,
 )
 
 class CalculatorFactory:
@@ -20,6 +21,8 @@ class CalculatorFactory:
     # compartilham a mesma base da apuração parcial, aplicando a redução no calculator quando Simples.
     _parcial = AntecipacaoParcialCalculator()
 
+    _difal = DifalCalculator()
+
     _calculators = {
         ANTECIPACAO_PARCIAL: _parcial,
         ANTECIPACAO_PARCIAL_ANTECIPADO: _parcial,
@@ -27,7 +30,8 @@ class CalculatorFactory:
         ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES: _parcial,
         ANTECIPACAO_TRIBUTARIA: AntecipacaoTributariaCalculator(),
         ANTECIPACAO_TRIBUTARIA_ANTECIPADO: AntecipacaoTributariaCalculator(),
-        DIFAL: DifalCalculator(),
+        DIFAL: _difal,
+        DIFAL_ANTECIPADO: _difal,
     }
 
     @classmethod

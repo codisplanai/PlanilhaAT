@@ -12,6 +12,8 @@ from app.constants import (
     ANTECIPACAO_PARCIAL_ANTECIPADO,
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+    DIFAL,
+    DIFAL_ANTECIPADO,
 )
 from app.core.config import settings
 from app.core.exceptions import NotFoundException, ValidationException
@@ -62,6 +64,7 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
             ANTECIPACAO_PARCIAL_ANTECIPADO,
             ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
             ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+            DIFAL_ANTECIPADO,
         )
         and note.origem_data_entrada != "manual"
     ):
@@ -92,7 +95,14 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
         "reducao": None,
         "red": "",
         "aliq_simples": metadata.get("aliq_simples") or "N",
-        "a_ori": note.a_ori,
+        "a_ori": (
+            None
+            if (
+                note.destino_planilha in (DIFAL, DIFAL_ANTECIPADO)
+                and (not metadata.get("a_ori_destacada", True) or note.a_ori == Decimal("0.00"))
+            )
+            else note.a_ori
+        ),
         "a_dst": note.a_dst_resolvida,
         "debito": note.debito,
         "credito": note.credito,

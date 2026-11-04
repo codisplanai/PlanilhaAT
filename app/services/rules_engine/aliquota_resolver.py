@@ -101,17 +101,23 @@ class AliquotaResolver:
         ncm: Optional[str] = None,
         descricao: Optional[str] = None,
         empresa_id: Optional[int] = None,
+        apenas_padrao_uf: bool = False,
+        ignorar_termo_acordo: bool = False,
     ) -> ResolucaoAliquota:
         clean_uf = uf.strip().upper() if uf else ""
         clean_ncm = ncm.strip() if ncm else None
+
+        if apenas_padrao_uf:
+            return self._nivel_padrao_uf(perfil_regras_id, clean_uf)
 
         reducao = self._nivel_reducao_produto(perfil_regras_id, clean_ncm, descricao)
         if reducao is not None:
             return reducao
 
-        acordo = self._nivel_termo_acordo(empresa_id)
-        if acordo is not None:
-            return acordo
+        if not ignorar_termo_acordo:
+            acordo = self._nivel_termo_acordo(empresa_id)
+            if acordo is not None:
+                return acordo
 
         return self._nivel_padrao(perfil_regras_id, clean_uf, clean_ncm)
 
@@ -220,6 +226,31 @@ class AliquotaResolver:
             f"Nenhuma regra de alíquota de destino (A.DST) encontrada para UF '{clean_uf}'{ncm_info} no perfil de regras ID {perfil_regras_id}. "
             f"Cadastre a alíquota padrão ou a exceção para este estado."
         )
+
+    def _nivel_padrao_uf(self, perfil_regras_id: int, clean_uf: str) -> ResolucaoAliquota:
+        regra_padrao = (
+            self.db.query(RegraAliquotaDestino)
+            .filter(
+                RegraAliquotaDestino.perfil_regras_id == perfil_regras_id,
+                RegraAliquotaDestino.uf == clean_uf,
+                or_(RegraAliquotaDestino.ncm == None, RegraAliquotaDestino.ncm == ""),  # noqa: E711
+            )
+            .first()
+        )
+        if regra_padrao is not None:
+            return ResolucaoAliquota(
+                aliquota=Decimal(str(regra_padrao.aliquota)),
+                origem=f"padrao_uf:{regra_padrao.id}",
+                detalhe=f"Alíquota padrão da UF {clean_uf}",
+            )
+
+        raise RuleResolutionException(
+            f"Nenhuma regra de alíquota padrão encontrada para UF '{clean_uf}' no perfil de regras ID {perfil_regras_id}. "
+            f"Cadastre a alíquota padrão para este estado."
+        )
+
+    def resolve_a_dst_padrao_uf(self, perfil_regras_id: int, uf: str) -> ResolucaoAliquota:
+        return self._nivel_padrao_uf(perfil_regras_id, uf.strip().upper() if uf else "")
 
     # -- mensagens -----------------------------------------------------------
 

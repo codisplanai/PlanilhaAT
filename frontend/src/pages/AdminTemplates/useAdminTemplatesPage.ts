@@ -22,6 +22,7 @@ const templateUploadSchema = z.object({
     'antecipacao_tributaria',
     'antecipacao_tributaria_antecipado',
     'difal',
+    'difal_antecipado',
   ]),
   capacidade_linhas: z.number().int().min(1, 'A capacidade deve ser maior ou igual a 1 linha'),
   start_row: z.number().min(1, 'Linha inicial deve ser maior ou igual a 1'),
@@ -63,7 +64,7 @@ function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
   const isTributaria =
     tipo === 'antecipacao_tributaria'
     || tipo === 'antecipacao_tributaria_antecipado';
-  const isDifal = tipo === 'difal';
+  const isDifal = tipo === 'difal' || tipo === 'difal_antecipado';
   return {
     tipo,
     capacidade_linhas: tipo === 'antecipacao_tributaria_antecipado' ? 35 : 100,

@@ -209,3 +209,69 @@ def test_preload_resolve_sem_novas_consultas(db_session, cenario):
     res = resolver.resolve_a_dst(
         perfil.id, "BA", "72142000", descricao="VERGALHAO CA-50", empresa_id=empresa.id)
     assert res.aliquota == Decimal("0.1200")
+
+
+def test_resolve_a_dst_apenas_padrao_uf_ignora_termo_acordo_e_reducoes(db_session, cenario):
+    perfil, empresa = cenario
+    # Adiciona termo de acordo (12.06%) e regra específica por NCM (12%)
+    _regra_vergalhao(db_session, perfil)
+    db_session.add(RegraAliquotaEmpresa(empresa_id=empresa.id, aliquota=Decimal("0.1206")))
+    db_session.commit()
+
+    resolver = AliquotaResolver(db_session)
+    resolver.preload(perfil.id, empresa.id)
+
+    # Chamada normal usa nível 2 (redução por produto) -> 12%
+    res_normal = resolver.resolve_a_dst(
+        perfil.id, "BA", "72142000", descricao="VERGALHAO CA-50", empresa_id=empresa.id
+    )
+    assert res_normal.aliquota == Decimal("0.1200")
+
+    # DIFAL com apenas_padrao_uf=True deve ignorar termo de acordo (12.06%), redução (12%) e NCM, usando a alíquota padrão da UF (18%)
+    res_difal = resolver.resolve_a_dst(
+        perfil.id, "BA", "72142000", descricao="VERGALHAO CA-50", empresa_id=empresa.id, apenas_padrao_uf=True
+    )
+    assert res_difal.aliquota == Decimal("0.1800")
+    assert res_difal.origem.startswith("padrao_uf:")
+
+
+def test_resolve_a_dst_ignorar_termo_acordo_mantem_reducoes_e_ncm(db_session, cenario):
+    perfil, empresa = cenario
+    # Adiciona termo de acordo (12.06%), redução vergalhão (12%) e exceção NCM 84713012 (20.5% no fixture)
+    _regra_vergalhao(db_session, perfil)
+    db_session.add(RegraAliquotaEmpresa(empresa_id=empresa.id, aliquota=Decimal("0.1206")))
+    db_session.commit()
+
+    resolver = AliquotaResolver(db_session)
+    resolver.preload(perfil.id, empresa.id)
+
+    # 1. Item com redução de produto: mantém redução de 12% mesmo ignorando termo de acordo
+    res_reducao = resolver.resolve_a_dst(
+        perfil.id, "BA", "72142000", descricao="VERGALHAO CA-50", empresa_id=empresa.id, ignorar_termo_acordo=True
+    )
+    assert res_reducao.aliquota == Decimal("0.1200")
+    assert res_reducao.origem.startswith("reducao_produto:")
+
+    # 2. Item com NCM que tem exceção (84713012):
+    # - Chamada normal usaria termo de acordo (12.06%)
+    res_normal = resolver.resolve_a_dst(
+        perfil.id, "BA", "84713012", descricao="NOTEBOOK", empresa_id=empresa.id
+    )
+    assert res_normal.aliquota == Decimal("0.1206")
+    assert res_normal.origem.startswith("termo_acordo:")
+
+    # - Chamada com ignorar_termo_acordo=True ignora termo de acordo e usa exceção por NCM (20.5%)
+    res_tributaria = resolver.resolve_a_dst(
+        perfil.id, "BA", "84713012", descricao="NOTEBOOK", empresa_id=empresa.id, ignorar_termo_acordo=True
+    )
+    assert res_tributaria.aliquota == Decimal("0.2050")
+    assert res_tributaria.origem.startswith("regra_ncm:")
+
+    # 3. Item genérico sem redução nem exceção NCM: ignora termo de acordo e cai na alíquota padrão da UF (18%)
+    res_padrao = resolver.resolve_a_dst(
+        perfil.id, "BA", "39269090", descricao="PLASTICO", empresa_id=empresa.id, ignorar_termo_acordo=True
+    )
+    assert res_padrao.aliquota == Decimal("0.1800")
+    assert res_padrao.origem.startswith("padrao_uf:")
+
+

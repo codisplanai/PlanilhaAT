@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple
 from app.models.empresa import Empresa
 from app.models.solicitacao import Solicitacao
 from app.services.extraction.base import ExtractedNFData
+from app.services.pipeline_helpers import aceita_difal_retroativa
 from app.services.validation.sanity_checker import SanityChecker
 
 
@@ -35,14 +36,28 @@ class PipelinePreAnalyzer:
         solicitacao: Solicitacao,
     ) -> List[Tuple[str, ExtractedNFData]]:
         company_state = (empresa.uf or "").strip().upper()
+        clean_empresa = re.sub(r"\D", "", empresa.cnpj or "")
         return [
             (filename, note)
             for filename, note in notes
-            if (not note.uf_emitente or note.uf_emitente.strip().upper() != company_state)
-            and SanityChecker.is_within_period(
-                note.data_emissao,
-                solicitacao.periodo_inicio,
-                solicitacao.periodo_fim,
+            if (
+                not (
+                    (clean_empresa and re.sub(r"\D", "", note.cnpj_emitente or "") == clean_empresa)
+                    or (note.raw_metadata or {}).get("ind_emit") == "0"
+                )
+            )
+            and (not note.uf_emitente or note.uf_emitente.strip().upper() != company_state)
+            and (
+                SanityChecker.is_within_period(
+                    note.data_emissao,
+                    solicitacao.periodo_inicio,
+                    solicitacao.periodo_fim,
+                )
+                # Regime Normal: bonificação emitida antes do período e escriturada no
+                # SPED do período pode ser uso/consumo apurado na DIFAL da entrada.
+                or aceita_difal_retroativa(
+                    note, bool(empresa.optante_simples_nacional), solicitacao.periodo_inicio
+                )
             )
         ]
 

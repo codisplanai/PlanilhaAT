@@ -86,3 +86,16 @@ test('não aceita SPED de filial ao processar matriz, mesmo compartilhando a rai
   );
   assert.throws(() => assertSpedBelongsToCompany({}, '14064976000213'), /registro 0000/);
 });
+
+test('SPED com entrada de emissão própria (IND_EMIT = 0) atribui emitente como a própria empresa', () => {
+  const text = [
+    '|0000|020|0|01092026|30092026|EMPRESA EXEMPLO|12345678000195||BA|00000000|0000000|||A|1|',
+    '|C100|0|0||55|00|1|999|29260912345678000195550010000009991000000999|01092026|01092026|1000,00|0|0|0|1000,00|0|0|0|0|0|585,70|41,00|0|0|0||',
+    '|C190|020|1102|7,00|1000,00|585,70|41,00|0|0|0|0|0||',
+  ].join('\r\n');
+  const parsed = parseSped(text, 'sped.txt');
+  assert.equal(parsed.notes.length, 1);
+  assert.equal(parsed.notes[0].cnpjEmitente, '12345678000195');
+  assert.equal(parsed.notes[0].cnpjDestinatario, '12345678000195');
+  assert.equal(parsed.notes[0].rawMetadata.ind_emit, '0');
+});

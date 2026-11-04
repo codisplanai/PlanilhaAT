@@ -7,6 +7,8 @@ export interface TermoAcordo {
   atualizado_em: string;
 }
 
+export type AtividadeEmpresa = 'comercio' | 'industria';
+
 export interface Empresa {
   id: number;
   razao_social: string;
@@ -15,6 +17,8 @@ export interface Empresa {
   uf: string;
   perfil_regras_id: number;
   optante_simples_nacional?: boolean;
+  /** Indústria gera apenas DIFAL (uso/consumo e ativo imobilizado). */
+  atividade?: AtividadeEmpresa;
   /** A.ORI fixa da Antecipação Parcial (acordo com a SEFAZ); nula usa a do XML. */
   a_ori_fixa_parcial?: number | null;
   ativo: boolean;
@@ -30,6 +34,8 @@ export interface EmpresaCreate {
   uf: string;
   perfil_regras_id: number;
   optante_simples_nacional?: boolean;
+  /** Indústria gera apenas DIFAL (uso/consumo e ativo imobilizado). */
+  atividade?: AtividadeEmpresa;
   a_ori_fixa_parcial?: number | null;
   ativo?: boolean;
 }
@@ -41,6 +47,8 @@ export interface EmpresaUpdate {
   uf?: string;
   perfil_regras_id?: number;
   optante_simples_nacional?: boolean;
+  /** Indústria gera apenas DIFAL (uso/consumo e ativo imobilizado). */
+  atividade?: AtividadeEmpresa;
   a_ori_fixa_parcial?: number | null;
   ativo?: boolean;
 }

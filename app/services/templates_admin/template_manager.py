@@ -22,6 +22,7 @@ STRICT_OFFICIAL_TEMPLATE_TYPES = {
     "antecipacao_tributaria",
     "antecipacao_tributaria_antecipado",
     "difal",
+    "difal_antecipado",
 }
 SAFETY_MARGIN_KEY = "margem_seguranca_linhas"
 MAX_SAFETY_MARGIN_LINES = 100_000

@@ -52,6 +52,7 @@ export interface LocalProcessingContext {
     | 'uf'
     | 'perfil_regras_id'
     | 'optante_simples_nacional'
+    | 'atividade'
     | 'a_ori_fixa_parcial'
   > & {
     termo_acordo?: {
@@ -121,11 +122,12 @@ export interface LocalOutputRow {
   reducao?: number | null;
   red?: string;
   aliq_simples: string;
-  a_ori: number;
+  a_ori: number | null;
   a_dst: number;
   debito: number;
   credito: number;
   valor_devido: number;
+  valor_pago?: number;
 }
 
 export interface LocalGeneratedArtifact {

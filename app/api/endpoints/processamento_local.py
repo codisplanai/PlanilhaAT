@@ -101,6 +101,7 @@ def _serialize_empresa(empresa: Empresa) -> Dict[str, Any]:
         "uf": empresa.uf,
         "perfil_regras_id": empresa.perfil_regras_id,
         "optante_simples_nacional": bool(empresa.optante_simples_nacional),
+        "atividade": empresa.atividade or "comercio",
         "a_ori_fixa_parcial": _serialize_decimal(empresa.a_ori_fixa_parcial),
         "termo_acordo": (
             {

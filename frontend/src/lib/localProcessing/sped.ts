@@ -44,6 +44,7 @@ interface ItemRegistry {
 }
 
 interface C100State {
+  indEmit: string;
   codPart: string;
   serie: string;
   numeroNota: string;
@@ -53,6 +54,7 @@ interface C100State {
   vTotalNota: number;
   vBcNota: number;
   vIcmsNota: number;
+  vStNota: number;
   vIpiNota: number;
   vDespesasNota: number;
   vDescNota: number;
@@ -148,11 +150,15 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         origemMercadoria: '',
         cstIcms: '',
         pRedBC: 0,
+        vIcmsSt: current.vStNota > 0 ? current.vStNota : 0,
       }];
     }
 
+    const isEmissaoPropria = current.indEmit === '0';
     const participant = participants.get(current.codPart);
-    let ufEmitente = participant?.uf ?? '';
+    const cnpjEmitente = isEmissaoPropria ? destCnpj : (participant?.cnpj ?? '');
+    const emitNome = isEmissaoPropria ? destNome : (participant?.nome ?? '');
+    let ufEmitente = isEmissaoPropria ? destUf : (participant?.uf ?? '');
     if (!ufEmitente && current.chaveAcesso.length >= 2) {
       ufEmitente = IBGE_UF_MAP[current.chaveAcesso.slice(0, 2)] ?? '';
     }
@@ -162,7 +168,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       chaveAcesso: current.chaveAcesso,
       numeroNota: current.numeroNota,
       serie: current.serie,
-      cnpjEmitente: participant?.cnpj ?? '',
+      cnpjEmitente,
       ufEmitente,
       cnpjDestinatario: destCnpj,
       ufDestinatario: destUf,
@@ -172,14 +178,16 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       vBcNota: current.vBcNota,
       vIcmsNota: current.vIcmsNota,
       vDescNota: current.vDescNota,
+      vStNota: current.vStNota,
       origemExtracao: 'sped',
       rawMetadata: {
         origem: 'sped_fiscal',
+        ind_emit: current.indEmit,
         cod_part: current.codPart,
         qtd_itens: currentItems.length,
         dest_ie: destIe,
         dest_nome: destNome,
-        emit_nome: participant?.nome ?? '',
+        emit_nome: emitNome,
         fornecedor_simples_nacional: currentItems.some((item) => Boolean(item.csosn)),
       },
       itens: currentItems,
@@ -237,6 +245,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const codSit = (fields[6] ?? '00').trim();
       if (indOper !== '0' || !['00', '01'].includes(codSit)) continue;
 
+      const indEmit = (fields[3] ?? '1').trim();
       const numeroNota = (fields[8] ?? '').trim();
       const dataEmissao = parseSpedDate(fields[10]);
       if (!dataEmissao) {
@@ -248,6 +257,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const vOut = decimal(fields[20]);
 
       current = {
+        indEmit,
         codPart: (fields[4] ?? '').trim(),
         serie: (fields[7] ?? '1').trim(),
         numeroNota,
@@ -257,6 +267,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vTotalNota: vTotal,
         vBcNota: decimal(fields[21]),
         vIcmsNota: decimal(fields[22]),
+        vStNota: decimal(fields[24]),
         vIpiNota: decimal(fields[25]),
         vDespesasNota: vFrete + vSeg + vOut,
         vDescNota: decimal(fields[14]),
@@ -277,6 +288,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       const vBcIcms = decimal(fields[13]);
       const aliqIcms = decimal(fields[14]);
       const vIcms = decimal(fields[15]);
+      const vIcmsSt = decimal(fields[18]);
       const vIpi = decimal(fields[24]);
       const vBcPis = decimal(fields[26]);
       const aOri = aliqIcms > 1 ? aliqIcms / 100 : aliqIcms;
@@ -320,6 +332,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         csosn: taxCode.csosn,
         cstIcms,
         pRedBC: 0,
+        vIcmsSt: vIcmsSt > 0 ? vIcmsSt : 0,
       });
       continue;
     }

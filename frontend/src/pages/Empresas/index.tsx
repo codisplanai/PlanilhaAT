@@ -243,6 +243,14 @@ export const EmpresasPage: React.FC = () => {
                             Simples Nacional
                           </span>
                         )}
+                        {empresa.atividade === 'industria' && (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200"
+                            title="Indústria: gera apenas a planilha de DIFAL (uso/consumo e ativo)"
+                          >
+                            Indústria
+                          </span>
+                        )}
                         {empresa.a_ori_fixa_parcial != null && (
                           <span
                             className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200"
@@ -443,6 +451,19 @@ export const EmpresasPage: React.FC = () => {
               {...register('perfil_regras_id', { valueAsNumber: true })}
               error={errors.perfil_regras_id?.message}
               helperText="O perfil define as alíquotas padrão por estado e as exceções por NCM compartilhadas."
+            />
+          </div>
+
+          <div>
+            <Select
+              label="Atividade"
+              options={[
+                { value: 'comercio', label: 'Comércio' },
+                { value: 'industria', label: 'Indústria' },
+              ]}
+              {...register('atividade')}
+              error={errors.atividade?.message}
+              helperText="Indústria não recolhe Antecipação Parcial nem Tributária: gera apenas a DIFAL de uso/consumo e ativo imobilizado."
             />
           </div>
 

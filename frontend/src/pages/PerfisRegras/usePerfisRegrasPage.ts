@@ -12,8 +12,8 @@ import { regrasCfopApi } from '../../api/regrasCfop';
 import { usePerfisQuery } from '../../hooks/useApiQueries';
 import { useManagedTimeout } from '../../hooks/useManagedTimeout';
 import type { PerfilRegras, PerfilRegrasCreate } from '../../types/perfil';
-import type { RegraAliquota, RegraAliquotaCreate } from '../../types/regra';
-import type { RegraCfopCreate, RegraCfopEfetiva } from '../../types/regraCfop';
+import type { RegraAliquota, RegraAliquotaCreate, RegraAliquotaUpdate } from '../../types/regra';
+import type { RegraCfopCreate, RegraCfopUpdate, RegraCfopEfetiva } from '../../types/regraCfop';
 
 const perfilSchema = z.object({
   nome: z.string().trim().min(2, 'Informe o nome do perfil').max(100, 'Use até 100 caracteres'),
@@ -151,7 +151,7 @@ export function usePerfisRegrasPage() {
     onError: mutationError,
   });
   const updateRegraMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: RegraAliquotaCreate }) =>
+    mutationFn: ({ id, payload }: { id: number; payload: RegraAliquotaUpdate }) =>
       regrasApi.atualizar(id, payload),
     onSuccess: async () => {
       await invalidateRegras();
@@ -178,7 +178,7 @@ export function usePerfisRegrasPage() {
     onError: mutationError,
   });
   const updateRegraCfopMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: RegraCfopCreate }) =>
+    mutationFn: ({ id, payload }: { id: number; payload: RegraCfopUpdate }) =>
       regrasCfopApi.atualizar(id, payload),
     onSuccess: async () => {
       await invalidateRegrasCfop();
@@ -383,7 +383,15 @@ export function usePerfisRegrasPage() {
     };
     try {
       if (editingRegra) {
-        await updateRegraMutation.mutateAsync({ id: editingRegra.id, payload });
+        const updatePayload: RegraAliquotaUpdate = {
+          uf: data.uf,
+          ncm: cleanNcm,
+          aliquota: data.aliquota > 1 ? data.aliquota / 100 : data.aliquota,
+          descricao: data.descricao || (cleanNcm
+            ? `Exceção NCM ${cleanNcm}`
+            : `Alíquota Padrão ${data.uf}`),
+        };
+        await updateRegraMutation.mutateAsync({ id: editingRegra.id, payload: updatePayload });
       } else {
         await createRegraMutation.mutateAsync(payload);
       }
@@ -419,7 +427,12 @@ export function usePerfisRegrasPage() {
     };
     try {
       if (editingRegraCfop?.origem === 'perfil') {
-        await updateRegraCfopMutation.mutateAsync({ id: editingRegraCfop.regra_id, payload });
+        const updatePayload: RegraCfopUpdate = {
+          cfop_sufixo: data.cfop_sufixo,
+          destino: data.destino,
+          descricao: data.descricao || null,
+        };
+        await updateRegraCfopMutation.mutateAsync({ id: editingRegraCfop.regra_id, payload: updatePayload });
       } else {
         await createRegraCfopMutation.mutateAsync(payload);
       }

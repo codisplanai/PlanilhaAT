@@ -73,6 +73,7 @@ class RegraReducaoCreate(RegraReducaoBase):
 
 
 class RegraReducaoUpdate(BaseModel):
+    perfil_regras_id: Optional[int] = None
     ncm: Optional[str] = None
     termos_inclusao: Optional[List[str]] = None
     termos_exclusao: Optional[List[str]] = None
