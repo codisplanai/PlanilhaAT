@@ -14,6 +14,8 @@ class Empresa(Base):
     uf = Column(String(2), nullable=False)
     perfil_regras_id = Column(Integer, ForeignKey("perfis_regras.id", ondelete="RESTRICT"), nullable=False)
     optante_simples_nacional = Column(Boolean, default=False, nullable=False)
+    # "comercio" ou "industria". A indústria gera apenas a planilha de DIFAL.
+    atividade = Column(String(20), default="comercio", server_default="comercio", nullable=False)
     # Acordo com a SEFAZ: A.ORI usada em toda a Antecipação Parcial no lugar da
     # alíquota do XML/SPED. Nula mantém a alíquota do documento fiscal.
     a_ori_fixa_parcial = Column(Numeric(6, 4), nullable=True)
@@ -32,6 +34,7 @@ class Empresa(Base):
             "a_ori_fixa_parcial IS NULL OR (a_ori_fixa_parcial >= 0 AND a_ori_fixa_parcial <= 1)",
             name="ck_empresa_a_ori_fixa_parcial_intervalo",
         ),
+        CheckConstraint("atividade IN ('comercio', 'industria')", name="ck_empresa_atividade"),
     )
 
     @property

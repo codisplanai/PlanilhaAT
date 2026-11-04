@@ -49,7 +49,7 @@ export interface ItemExcluido {
   descricao: string;
   descricao_confiavel: boolean;
   motivo: string;
-  tipo_exclusao: 'mercadoria' | 'aliquotas_iguais' | 'mva_pendente';
+  tipo_exclusao: 'mercadoria' | 'aliquotas_iguais' | 'mva_pendente' | 'industria_sem_antecipacao';
   regras_aplicadas?: JsonObject[];
   v_total?: number | null;
   base_calculo?: number | null;
@@ -76,7 +76,8 @@ export type TipoPlanilha =
   | 'antecipacao_parcial_antecipado_simples'
   | 'antecipacao_tributaria'
   | 'antecipacao_tributaria_antecipado'
-  | 'difal';
+  | 'difal'
+  | 'difal_antecipado';
 export type StatusSolicitacao = 'pendente' | 'processando' | 'concluido' | 'erro';
 
 export interface SolicitacaoSaida {

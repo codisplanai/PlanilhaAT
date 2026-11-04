@@ -117,6 +117,11 @@ export function CompanySelectionStep({
                           Simples Nacional
                         </span>
                       )}
+                      {company.atividade === 'industria' && (
+                        <span className="font-bold text-[10px] bg-teal-50 text-teal-800 px-1.5 py-0.5 rounded border border-teal-200">
+                          Indústria
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center gap-3">
                       <span>CNPJ: {formatCNPJ(company.cnpj)}</span>

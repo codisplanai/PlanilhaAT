@@ -264,3 +264,36 @@ def test_template_filler_difal_sem_a_ori_destacada_celula_vazia(tmp_path):
     orig_fmap = FormulaGuard.extract_formula_map(orig_wb)
     FormulaGuard.verify_wb_integrity(orig_fmap, out_wb)
 
+
+
+def test_difal_antecipado_usa_calculo_difal():
+    from app.services.calculation.factory import CalculatorFactory
+
+    entrada = dict(
+        v_total=Decimal("1000.00"), base_calculo=Decimal("1000.00"),
+        ipi_despesas=Decimal("50.00"), a_ori=Decimal("0.12"), a_dst=Decimal("0.205"),
+        parametros_extras={"aliq_simples": "N"},
+    )
+    difal = CalculatorFactory.get_calculator("difal").calculate(**entrada)
+    antecipado = CalculatorFactory.get_calculator("difal_antecipado").calculate(**entrada)
+    assert isinstance(CalculatorFactory.get_calculator("difal_antecipado"), DifalCalculator)
+    assert (antecipado.debito, antecipado.credito, antecipado.valor_devido) == (
+        difal.debito, difal.credito, difal.valor_devido)
+
+
+def test_difal_antecipado_linha_sem_data_entrada_e_a_ori_vazia():
+    from app.models.nota_fiscal import NotaFiscalProcessada
+    from app.services.pipeline_outputs import processed_note_to_row
+
+    nota = NotaFiscalProcessada(
+        numero_nota="960", serie="1", data_emissao=date(2026, 1, 25),
+        data_entrada=date(2026, 1, 20), origem_data_entrada="sped_fiscal",
+        item_numero=1, destino_planilha="difal_antecipado",
+        v_total=Decimal("500.00"), base_calculo=Decimal("500.00"), ipi_despesas=Decimal("0.00"),
+        a_ori=Decimal("0.00"), a_dst_resolvida=Decimal("0.205"),
+        debito=Decimal("0"), credito=Decimal("0"), valor_devido=Decimal("0"),
+        metadados_extras={"a_ori_destacada": False},
+    )
+    row = processed_note_to_row(nota)
+    assert row["data_entrada"] is None
+    assert row["a_ori"] is None

@@ -40,11 +40,40 @@ export function redirectRevendaToAntecipacaoTributaria(
 export function routePaidEarlyDestination(
   destination: TipoPlanilha,
   paidEarly: boolean,
+  isSimples = false,
 ): TipoPlanilha {
   if (!paidEarly) return destination;
   if (destination === 'antecipacao_parcial') return 'antecipacao_parcial_antecipado';
   if (destination === 'antecipacao_tributaria') return 'antecipacao_tributaria_antecipado';
+  // Simples Nacional: DIFAL da mercadoria ainda sem entrada é paga antecipadamente.
+  if (destination === 'difal' && isSimples) return 'difal_antecipado';
   return destination;
+}
+
+export const DIFAL_AWAITING_ENTRY_REASON =
+  'Bonificação/amostra/outras entradas para uso/consumo sem entrada no período: '
+  + 'no Regime Normal a DIFAL é apurada no mês da entrada (SPED).';
+
+export function isDifalDestination(destination: TipoPlanilha): boolean {
+  return destination === 'difal' || destination === 'difal_antecipado';
+}
+
+/**
+ * Regime Normal: nota emitida antes do período, mas escriturada no SPED do
+ * período, entra na DIFAL de uso/consumo e ativo (somente os itens de DIFAL).
+ */
+export function acceptsRetroactiveDifal(
+  note: ExtractedNote,
+  periodoInicio: string,
+  isSimples: boolean,
+): boolean {
+  return !isSimples && note.origemExtracao === 'sped' && note.dataEmissao.slice(0, 10) < periodoInicio;
+}
+
+export function retroactiveDifalWarning(note: ExtractedNote): string {
+  const [year, month, day] = note.dataEmissao.slice(0, 10).split('-');
+  return `Nota emitida antes do período (${day}/${month}/${year}) com entrada no SPED do período: `
+    + 'apenas itens de DIFAL (uso/consumo e ativo) foram considerados.';
 }
 
 export function classifyRevendaMva(
@@ -247,7 +276,7 @@ export function resolveDestinationRate(
 
   // DIFAL: ignora reduções por produto, termos de acordo e exceções por NCM.
   // Prevalece estritamente a Alíquota Padrão da UF.
-  if (destination === 'difal') {
+  if (destination === 'difal' || destination === 'difal_antecipado') {
     const defaultRule = context.regras_aliquotas.find(
       (rule) => rule.uf === uf && !rule.ncm,
     );
@@ -681,7 +710,23 @@ export function resolveMvaForItem(
 }
 
 /** Mensagem de um processamento concluído sem planilha, só com itens excluídos. */
+export const INDUSTRY_EXCLUSION_REASON =
+  'Empresa industrial: não recolhe Antecipação Parcial nem Tributária '
+  + '(apenas DIFAL de uso/consumo e ativo imobilizado).';
+
+/** Indústria não recolhe Parcial nem Tributária: gera apenas DIFAL. */
+export function isIndustria(context: LocalProcessingContext): boolean {
+  return context.empresa.atividade === 'industria';
+}
+
+export function industryBonusRejectedReason(cfop: string): string {
+  return `Bonificação/amostra/outras entradas (CFOP ${cfop}) não confirmada como uso/consumo pelo usuário (empresa industrial).`;
+}
+
 export function noOutputMessage(excluded: Array<{ tipo_exclusao: string }>): string {
+  if (excluded.length > 0 && excluded.every((item) => item.tipo_exclusao === 'industria_sem_antecipacao')) {
+    return 'Nenhuma planilha gerada: empresa industrial sem itens de uso/consumo ou ativo imobilizado (DIFAL)';
+  }
   const pending = excluded.filter((item) => item.tipo_exclusao === 'mva_pendente').length;
   if (pending === 0) return 'Nenhum item a recolher na Parcial';
   if (pending === excluded.length) {

@@ -29,9 +29,15 @@ import {
   resolveConvenio5291Application,
 } from './convenio5291.ts';
 import {
+  acceptsRetroactiveDifal,
   classifyRevendaMva,
+  DIFAL_AWAITING_ENTRY_REASON,
   evaluatePartialMerchandiseExclusion,
   getRevendaAntecipacaoConfig,
+  INDUSTRY_EXCLUSION_REASON,
+  industryBonusRejectedReason,
+  isDifalDestination,
+  isIndustria,
   mvaColumnForNote,
   noOutputMessage,
   normalizeDescription,
@@ -42,6 +48,7 @@ import {
   resolveMvaForItem,
   resolveOriginRate,
   resolveRevendaMva,
+  retroactiveDifalWarning,
   shouldExcludeEqualRates,
 } from './rules.ts';
 import {
@@ -66,6 +73,7 @@ const EARLY_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_parcial_antecipado',
   'antecipacao_parcial_antecipado_simples',
   'antecipacao_tributaria_antecipado',
+  'difal_antecipado',
 ]);
 
 const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
@@ -76,6 +84,7 @@ const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
 const CONVENIO_52_91_DESTINATIONS = new Set<TipoPlanilha>([
   ...PARTIAL_DESTINATIONS,
   'difal',
+  'difal_antecipado',
 ]);
 
 function cleanDigits(value: string): string {
@@ -118,6 +127,7 @@ function bonusPreAnalysis(
   end: string,
   companyUf: string,
   companyCnpj?: string,
+  isSimples = false,
 ): NotaBonificacaoPendencia[] {
   const pending: NotaBonificacaoPendencia[] = [];
   const cleanEmpresa = cleanDigits(companyCnpj ?? '');
@@ -125,7 +135,7 @@ function bonusPreAnalysis(
     const cleanEmitente = cleanDigits(note.cnpjEmitente);
     if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
     if (note.ufEmitente && companyUf && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
-    if (!withinPeriod(note, start, end)) continue;
+    if (!withinPeriod(note, start, end) && !acceptsRetroactiveDifal(note, start, isSimples)) continue;
     const bonus = note.itens.filter((item) => BONUS_SUFFIXES.has(cleanDigits(item.cfop).slice(-3)));
     if (bonus.length === 0) continue;
     const total = bonus.reduce((sum, item) => sum + item.vTotal, 0);
@@ -168,6 +178,7 @@ function convenio5291PreAnalysis(
   if (companyUf.toUpperCase() !== 'BA') return [];
 
   const revendaConfig = getRevendaAntecipacaoConfig(context);
+  const industryCompany = isIndustria(context);
   const pending: Convenio5291Pendencia[] = [];
   const cleanEmpresa = cleanDigits(context.empresa.cnpj ?? '');
 
@@ -175,7 +186,9 @@ function convenio5291PreAnalysis(
     const cleanEmitente = cleanDigits(note.cnpjEmitente);
     if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
     if (note.ufEmitente && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
-    if (!withinPeriod(note, start, end)) continue;
+    const retroactive = !withinPeriod(note, start, end)
+      && acceptsRetroactiveDifal(note, start, Boolean(context.empresa.optante_simples_nacional));
+    if (!withinPeriod(note, start, end) && !retroactive) continue;
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
 
     for (const originalItem of note.itens) {
@@ -189,12 +202,16 @@ function convenio5291PreAnalysis(
       const suffix = cleanDigits(item.cfop).slice(-3);
       if (BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
         const decision = bonusDecisions[note.chaveAcesso] ?? bonusDecisions[String(note.numeroNota)];
+        if (decision === true && industryCompany) continue;
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
       }
       if (!destination) continue;
 
       if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
       destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
+      if (retroactive && destination !== 'difal') continue;
+      // Indústria: itens fora da DIFAL serão excluídos, a decisão não teria efeito.
+      if (industryCompany && !isDifalDestination(destination)) continue;
       if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
       // O Anexo I é global somente na Parcial; o DIFAL conserva o perfil
       // anterior à ativação (sem mudança retroativa da sua regra fiscal).
@@ -328,7 +345,11 @@ export async function processFiscalLocally(
       referenciaArquivo: ignoredNote.arquivo ? 'disponível na interface' : 'não disponível',
     });
   }
-  const pending = bonusPreAnalysis(sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj);
+  const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
+  const isIndustryCompany = isIndustria(context);
+  const pending = bonusPreAnalysis(
+    sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany,
+  );
   if (pending.length > 0 && !request.bonusDecisions) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
     diagnostic?.stage('validacao', 'Processamento pausado para confirmação de bonificações.', {
@@ -423,13 +444,20 @@ export async function processFiscalLocally(
       continue;
     }
 
-    if (!withinPeriod(note, periodoInicio, periodoFim)) {
-      ignored.push(ignoredNote(
-        note,
-        `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`,
-      ));
+    const periodReason = `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`;
+    const inPeriod = withinPeriod(note, periodoInicio, periodoFim);
+    const retroactive = !inPeriod && acceptsRetroactiveDifal(note, periodoInicio, isSimplesCompany);
+    if (!inPeriod && !retroactive) {
+      ignored.push(ignoredNote(note, periodReason));
       continue;
     }
+    let retroactiveSkipped = 0;
+    let firstRetroactiveSkippedItem: number | null = null;
+    const awaitingEntryItems: number[] = [];
+    const skipRetroactiveItem = (itemNumero: number) => {
+      retroactiveSkipped += 1;
+      firstRetroactiveSkippedItem ??= itemNumero;
+    };
 
     let entryDate = matchEntryDate(note, sources.entryRecords);
     let entryOrigin: string | null = entryDate ? 'planilha_sistema_contabil' : null;
@@ -449,11 +477,32 @@ export async function processFiscalLocally(
     const mvaColumn = mvaColumnForNote(note);
     const groups = new Map<string, Group>();
     let classifiedItems = 0;
+    const excludeIndustryItem = (item: ExtractedItem, destino: TipoPlanilha, motivo: string) => {
+      excluded.push({
+        chave_acesso: note.chaveAcesso,
+        numero_nota: note.numeroNota,
+        serie: note.serie,
+        item_numero: item.itemNumero,
+        arquivo: note.filename,
+        destino,
+        ncm: item.ncm,
+        descricao: item.descricao,
+        descricao_confiavel: item.descricaoConfiavel,
+        motivo,
+        tipo_exclusao: 'industria_sem_antecipacao',
+        regras_aplicadas: [],
+        v_total: item.vTotal,
+        base_calculo: item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo,
+        ipi_despesas: item.ipiDespesas,
+        a_ori: item.aOri,
+      });
+    };
 
     for (const originalItem of note.itens) {
       const item = { ...originalItem };
       let mvaPolicyGroup: Group['mvaPolicyGroup'] = '';
       let mvaPolicySource = '';
+      let bonusUsoConsumo = false;
       if (auxiliaryCfop && isUsoConsumoAtivo(auxiliaryCfop)) item.cfop = auxiliaryCfop;
 
       const cfopResolution = resolveCfop(context, item);
@@ -465,9 +514,18 @@ export async function processFiscalLocally(
       if (BONUS_SUFFIXES.has(suffix) && request.bonusDecisions) {
         const decision = request.bonusDecisions[note.chaveAcesso]
           ?? request.bonusDecisions[String(note.numeroNota)];
+        if (decision === true && isIndustryCompany) {
+          excludeIndustryItem(item, 'antecipacao_parcial', industryBonusRejectedReason(item.cfop));
+          continue;
+        }
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
+        bonusUsoConsumo = decision === false;
       }
 
+      if (!destination && retroactive) {
+        skipRetroactiveItem(item.itemNumero);
+        continue;
+      }
       if (!destination) {
         missingCfops[suffix || '????'] = (missingCfops[suffix || '????'] ?? 0) + 1;
         continue;
@@ -489,10 +547,29 @@ export async function processFiscalLocally(
           });
         }
       }
-      destination = routePaidEarlyDestination(destination, paidEarly);
+      destination = routePaidEarlyDestination(destination, paidEarly, isSimplesCompany);
+      // Regime Normal: a DIFAL é apurada no mês da entrada. Bonificação de uso/consumo
+      // ainda sem entrada fica para a apuração retroativa (evita pagar duas vezes).
+      if (destination === 'difal' && paidEarly && bonusUsoConsumo) {
+        awaitingEntryItems.push(item.itemNumero);
+        continue;
+      }
       if (context.empresa.optante_simples_nacional) {
         if (destination === 'antecipacao_parcial') destination = 'antecipacao_parcial_simples';
         if (destination === 'antecipacao_parcial_antecipado') destination = 'antecipacao_parcial_antecipado_simples';
+      }
+
+      // Indústria: só DIFAL (uso/consumo e ativo). Parcial e Tributária vão para os
+      // itens excluídos, inclusive as redirecionadas pela política do perfil.
+      if (isIndustryCompany && !isDifalDestination(destination) && !retroactive) {
+        excludeIndustryItem(item, destination, INDUSTRY_EXCLUSION_REASON);
+        continue;
+      }
+
+      // Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
+      if (retroactive && destination !== 'difal') {
+        skipRetroactiveItem(item.itemNumero);
+        continue;
       }
 
       if (PARTIAL_DESTINATIONS.has(destination)) {
@@ -577,7 +654,7 @@ export async function processFiscalLocally(
       // Somente fornecedor Simples sem pICMS em operação interestadual.
       // A taxa é referência de origem, e não um crédito destacado no XML.
       // Não se aplica à planilha de DIFAL.
-      const isDifal = destination === 'difal';
+      const isDifal = isDifalDestination(destination);
       const aOriHighlighted = Boolean(originalAOri && originalAOri > 0);
       const reference = isDifal
         ? { rate: 0, inferred: false }
@@ -760,7 +837,29 @@ export async function processFiscalLocally(
       classifiedItems += 1;
     }
 
-    if (groups.size === 0) continue;
+    if (groups.size === 0) {
+      if (retroactive) ignored.push(ignoredNote(note, periodReason));
+      else if (awaitingEntryItems.length > 0) ignored.push(ignoredNote(note, DIFAL_AWAITING_ENTRY_REASON));
+      continue;
+    }
+    if (awaitingEntryItems.length > 0) {
+      warnings.push({
+        numero_nota: note.numeroNota,
+        serie: note.serie,
+        item_numero: awaitingEntryItems[0],
+        arquivo: note.filename,
+        aviso: DIFAL_AWAITING_ENTRY_REASON,
+      });
+    }
+    if (retroactive && retroactiveSkipped > 0) {
+      warnings.push({
+        numero_nota: note.numeroNota,
+        serie: note.serie,
+        item_numero: firstRetroactiveSkippedItem ?? 1,
+        arquivo: note.filename,
+        aviso: retroactiveDifalWarning(note),
+      });
+    }
 
     const splitByDestination = new Map<TipoPlanilha, number>();
     for (const group of groups.values()) {
@@ -801,7 +900,7 @@ export async function processFiscalLocally(
         ? first?.descricao ?? ''
         : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
       const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? group.mva : 0;
-      const aliqSimples = group.destination === 'difal' && supplierIsSimples ? 'S' : 'N';
+      const aliqSimples = isDifalDestination(group.destination) && supplierIsSimples ? 'S' : 'N';
 
       let valorPago = 0;
       if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)) {
@@ -989,7 +1088,7 @@ export async function processFiscalLocally(
         reducao: null,
         red: '',
         aliq_simples: aliqSimples,
-        a_ori: group.destination === 'difal' && !group.aOriHighlighted ? null : group.aOri,
+        a_ori: isDifalDestination(group.destination) && !group.aOriHighlighted ? null : group.aOri,
         a_dst: group.aDst,
         debito: calculation.debito,
         credito: calculation.credito,

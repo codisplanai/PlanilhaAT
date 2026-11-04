@@ -41,6 +41,7 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
   const countMercadoria = useMemo(() => itens.filter((i) => i.tipo_exclusao === 'mercadoria').length, [itens]);
   const countAliquotasIguais = useMemo(() => itens.filter((i) => i.tipo_exclusao === 'aliquotas_iguais').length, [itens]);
   const countMvaPendente = useMemo(() => itens.filter((i) => i.tipo_exclusao === 'mva_pendente').length, [itens]);
+  const countIndustria = useMemo(() => itens.filter((i) => i.tipo_exclusao === 'industria_sem_antecipacao').length, [itens]);
 
   if (!itens || itens.length === 0) return null;
 
@@ -144,6 +145,19 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
                   MVA Pendente ({countMvaPendente})
                 </button>
               )}
+              {countIndustria > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFilterTipo('industria_sem_antecipacao')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    filterTipo === 'industria_sem_antecipacao'
+                      ? 'bg-teal-700 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Indústria ({countIndustria})
+                </button>
+              )}
             </div>
 
             <div className="relative sm:w-64">
@@ -186,6 +200,7 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
                   {filteredItens.map((item, idx) => {
                     const isMercadoria = item.tipo_exclusao === 'mercadoria';
                     const isMvaPendente = item.tipo_exclusao === 'mva_pendente';
+                    const isIndustria = item.tipo_exclusao === 'industria_sem_antecipacao';
                     return (
                       <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                         <td className="py-2.5 px-3 whitespace-nowrap">
@@ -224,6 +239,10 @@ export const ItensExcluidosSection: React.FC<ItensExcluidosSectionProps> = ({
                             {isMvaPendente ? (
                               <Badge variant="error" size="sm">
                                 MVA Pendente (tratar manualmente)
+                              </Badge>
+                            ) : isIndustria ? (
+                              <Badge variant="neutral" size="sm">
+                                Indústria (somente DIFAL)
                               </Badge>
                             ) : isMercadoria ? (
                               <Badge variant="warning" size="sm">

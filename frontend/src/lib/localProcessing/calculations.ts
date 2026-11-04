@@ -70,7 +70,7 @@ export function calculateTax(
     };
   }
 
-  if (destination === 'difal') {
+  if (destination === 'difal' || destination === 'difal_antecipado') {
     const aliqSimples = String(input.aliqSimples ?? 'N').trim().toUpperCase();
     const dstRate = aDst > 1 ? aDst / 100 : aDst;
     const oriRate = aOri > 1 ? aOri / 100 : aOri;

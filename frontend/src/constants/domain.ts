@@ -16,6 +16,7 @@ export const PLANILHA_LABELS: Record<TipoPlanilha | 'multi', string> = {
   antecipacao_tributaria: 'Antecipação Tributária',
   antecipacao_tributaria_antecipado: 'Antecipação Tributária — Pago Antecipadamente',
   difal: 'DIFAL',
+  difal_antecipado: 'DIFAL — Pago Antecipadamente (Simples Nacional)',
   multi: 'Roteamento automático',
 };
 
@@ -27,6 +28,7 @@ export const PLANILHA_BADGE_VARIANTS: Record<TipoPlanilha, BadgeVariant> = {
   antecipacao_tributaria: 'purple',
   antecipacao_tributaria_antecipado: 'warning',
   difal: 'success',
+  difal_antecipado: 'warning',
 };
 
 export const PLANILHA_DETAILED_LABELS: Record<TipoPlanilha, string> = {
@@ -37,6 +39,7 @@ export const PLANILHA_DETAILED_LABELS: Record<TipoPlanilha, string> = {
   antecipacao_tributaria: PLANILHA_LABELS.antecipacao_tributaria,
   antecipacao_tributaria_antecipado: PLANILHA_LABELS.antecipacao_tributaria_antecipado,
   difal: 'DIFAL (Diferencial de Alíquota)',
+  difal_antecipado: PLANILHA_LABELS.difal_antecipado,
 };
 
 export const TIPOS_PLANILHA_OPTIONS: ReadonlyArray<{

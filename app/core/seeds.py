@@ -337,6 +337,27 @@ def seed_default_templates(db: Session) -> None:
             promover_ativo=True
         )
 
+    # 4.1. DIFAL — Pago Antecipadamente (Simples Nacional, mesmo modelo RP-158)
+    template_difal_antecipado_ativo = (
+        db.query(TemplateXlsx)
+        .filter(TemplateXlsx.tipo == "difal_antecipado", TemplateXlsx.ativo == True)
+        .first()
+    )
+
+    if template_difal_antecipado_ativo is None and os.path.exists(DEFAULT_DIFAL_TEMPLATE_PATH):
+        with open(DEFAULT_DIFAL_TEMPLATE_PATH, "rb") as f:
+            file_bytes = f.read()
+
+        TemplateManager.upload_new_template_version(
+            db=db,
+            tipo="difal_antecipado",
+            file_bytes=file_bytes,
+            filename="modelo_padrao_difal_antecipado.xlsx",
+            mapeamento=DEFAULT_DIFAL_MAPPING,
+            observacoes="Modelo oficial de DIFAL — Pago Antecipadamente (RP-158)",
+            promover_ativo=True
+        )
+
     # 5. Antecipação Parcial — Pago Antecipadamente (RP-155)
     template_antecipado_ativo = (
         db.query(TemplateXlsx)

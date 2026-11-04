@@ -249,3 +249,16 @@ def test_modelo_oficial_predefinido_antecipacao_parcial_antecipado(
     assert ws["L123"].value == "=SUM(L4:L122)"
 
     wb.close()
+
+
+def test_seed_cria_template_difal_antecipado(db_session):
+    from app.core.seeds import DEFAULT_DIFAL_MAPPING
+
+    seed_default_templates(db_session)
+    template = (
+        db_session.query(TemplateXlsx)
+        .filter(TemplateXlsx.tipo == "difal_antecipado", TemplateXlsx.ativo == True)
+        .one()
+    )
+    assert template.mapeamento_campos["columns"] == DEFAULT_DIFAL_MAPPING["columns"]
+    assert "RP-158" in (template.observacoes or "")
