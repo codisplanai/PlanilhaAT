@@ -44,8 +44,11 @@ from app.constants import (
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+    ATIVIDADE_INDUSTRIA,
     DIFAL,
     DIFAL_ANTECIPADO,
+    MOTIVO_EXCLUSAO_INDUSTRIA,
+    TIPO_EXCLUSAO_INDUSTRIA,
     TIPO_EXCLUSAO_MVA_PENDENTE,
     TIPOS_PLANILHA_LEGADO,
 )
@@ -194,6 +197,26 @@ class ProcessingPipelineService:
                 configuracoes_perfil,
                 empresa.cnpj,
             )
+            is_industria = empresa.atividade == ATIVIDADE_INDUSTRIA
+
+            def excluir_item_industria(nf, item, filename, destino, motivo):
+                itens_excluidos.append(
+                    serialize_excluded_item(
+                        nf,
+                        item,
+                        filename,
+                        destino,
+                        DecisaoExclusaoItem(
+                            excluido=True,
+                            tipo_exclusao=TIPO_EXCLUSAO_INDUSTRIA,
+                            motivo=motivo,
+                            v_total=item.v_total,
+                            base_calculo=item.base_calculo,
+                            ipi_despesas=item.ipi_despesas,
+                            a_ori=item.a_ori,
+                        ),
+                    )
+                )
 
             for filename, nf_data in raw_nfs:
                 # 1. Regra Geral: Emissão própria desconsiderada
@@ -368,6 +391,17 @@ class ProcessingPipelineService:
                         elif nf_data.numero_nota and str(nf_data.numero_nota) in decisoes_bonificacao:
                             is_revenda = decisoes_bonificacao[str(nf_data.numero_nota)]
 
+                        if is_revenda is True and is_industria:
+                            excluir_item_industria(
+                                nf_data,
+                                item,
+                                filename,
+                                ANTECIPACAO_PARCIAL,
+                                f"Bonificação/amostra/outras entradas (CFOP {item.cfop}) não confirmada "
+                                "como uso/consumo pelo usuário (empresa industrial).",
+                            )
+                            continue
+
                         if is_revenda is not None:
                             if is_revenda:
                                 destino_item = ANTECIPACAO_PARCIAL
@@ -429,6 +463,14 @@ class ProcessingPipelineService:
                             destino_item = ANTECIPACAO_PARCIAL_SIMPLES
                         elif destino_item == ANTECIPACAO_PARCIAL_ANTECIPADO:
                             destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES
+
+                    # Indústria: só DIFAL (uso/consumo e ativo). Parcial e Tributária vão
+                    # para os itens excluídos, inclusive as redirecionadas pela política do perfil.
+                    if is_industria and destino_item not in (DIFAL, DIFAL_ANTECIPADO) and not retroativa:
+                        excluir_item_industria(
+                            nf_data, item, filename, destino_item, MOTIVO_EXCLUSAO_INDUSTRIA
+                        )
+                        continue
 
                     # Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
                     if retroativa and destino_item != DIFAL:
