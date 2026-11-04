@@ -177,6 +177,7 @@ function convenio5291PreAnalysis(
   if (companyUf.toUpperCase() !== 'BA') return [];
 
   const revendaConfig = getRevendaAntecipacaoConfig(context);
+  const industryCompany = isIndustria(context);
   const pending: Convenio5291Pendencia[] = [];
   const cleanEmpresa = cleanDigits(context.empresa.cnpj ?? '');
 
@@ -200,6 +201,7 @@ function convenio5291PreAnalysis(
       const suffix = cleanDigits(item.cfop).slice(-3);
       if (BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
         const decision = bonusDecisions[note.chaveAcesso] ?? bonusDecisions[String(note.numeroNota)];
+        if (decision === true && industryCompany) continue;
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
       }
       if (!destination) continue;
@@ -207,6 +209,8 @@ function convenio5291PreAnalysis(
       if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
       destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
       if (retroactive && destination !== 'difal') continue;
+      // Indústria: itens fora da DIFAL serão excluídos, a decisão não teria efeito.
+      if (industryCompany && !isDifalDestination(destination)) continue;
       if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
       // O Anexo I é global somente na Parcial; o DIFAL conserva o perfil
       // anterior à ativação (sem mudança retroativa da sua regra fiscal).

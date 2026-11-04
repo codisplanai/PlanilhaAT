@@ -15,6 +15,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { formatCurrency } from '../lib/formatters';
 import { useManagedTimeout } from '../hooks/useManagedTimeout';
+import { initialBonusDecisions } from '../lib/bonusDecisions';
 import type { NotaBonificacaoPendencia } from '../types/solicitacao';
 
 export interface ModalConfirmacaoBonificacaoProps {
@@ -68,14 +69,9 @@ export const ModalConfirmacaoBonificacao: React.FC<ModalConfirmacaoBonificacaoPr
   // Inicializa decisões com as sugestões inteligentes detectadas
   useEffect(() => {
     if (notas && notas.length > 0) {
-      const initial: Record<string, boolean> = {};
-      notas.forEach((nota) => {
-        const key = nota.chave_acesso || nota.numero_nota;
-        initial[key] = nota.sugestao_revenda;
-      });
-      setDecisoes(initial);
+      setDecisoes(initialBonusDecisions(notas, industria));
     }
-  }, [notas]);
+  }, [notas, industria]);
 
   const handleToggle = (key: string, value: boolean) => {
     setDecisoes((prev) => ({ ...prev, [key]: value }));

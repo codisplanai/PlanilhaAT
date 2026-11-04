@@ -84,3 +84,27 @@ test('comércio inalterado', async () => {
   assert.deepEqual(Object.keys(result.rowsByDestination), ['antecipacao_parcial']);
   assert.equal(result.itensExcluidos.length, 0);
 });
+
+function xmlMotosserra(cfop: string): string {
+  const chaveAcesso = chave('2601', 980);
+  return `<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe>
+  <infNFe Id="NFe${chaveAcesso}">
+    <ide><nNF>980</nNF><serie>1</serie><dhEmi>2026-01-12T10:00:00-03:00</dhEmi></ide>
+    <emit><CNPJ>98765432000180</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+    <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+    <total><ICMSTot><vProd>1000.00</vProd><vBC>585.70</vBC><vICMS>41.00</vICMS><vNF>1000.00</vNF></ICMSTot></total>
+    <det nItem="1"><prod><cProd>M1</cProd><xProd>MOTOSSERRA A GASOLINA 1,5 KW</xProd><NCM>84678100</NCM><CFOP>${cfop}</CFOP><vProd>1000.00</vProd></prod>
+    <imposto><ICMS><ICMS20><orig>0</orig><CST>20</CST><pRedBC>41.43</pRedBC><vBC>585.70</vBC><pICMS>7.00</pICMS><vICMS>41.00</vICMS></ICMS20></ICMS></imposto></det>
+  </infNFe></NFe></nfeProc>`;
+}
+
+test('comércio: item revenda do Convênio 52/91 pausa para decisão (controle)', async () => {
+  const result = await processar(buildContext(), { xmls: [['980.xml', xmlMotosserra('6102')]] });
+  assert.ok(result.preAnalysis.itens_convenio_52_91.length > 0);
+});
+
+test('indústria: Convênio 52/91 não pausa por item que será excluído', async () => {
+  const result = await processar(industria(), { xmls: [['980.xml', xmlMotosserra('6102')]] });
+  assert.equal(result.preAnalysis.itens_convenio_52_91.length, 0);
+  assert.deepEqual(result.itensExcluidos.map((item) => item.tipo_exclusao), ['industria_sem_antecipacao']);
+});
