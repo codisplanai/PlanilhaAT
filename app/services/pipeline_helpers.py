@@ -52,6 +52,25 @@ def is_cfop_uso_consumo_ativo(cfop: Optional[str]) -> bool:
     return False
 
 
+def aceita_difal_retroativa(nf: ExtractedNFData, optante_simples: bool, periodo_inicio: date) -> bool:
+    """Nota emitida antes do período, mas escriturada no SPED do período.
+
+    Só no Regime Normal a DIFAL de uso/consumo e ativo é apurada na entrada; no
+    Simples Nacional ela já foi paga antecipadamente no mês da emissão.
+    """
+    if optante_simples or nf.origem_extracao != "sped" or nf.data_emissao is None:
+        return False
+    emissao = nf.data_emissao.date() if isinstance(nf.data_emissao, datetime) else nf.data_emissao
+    return emissao < periodo_inicio
+
+
+def aviso_difal_retroativa(nf: ExtractedNFData) -> str:
+    return (
+        f"Nota emitida antes do período ({nf.data_emissao.strftime('%d/%m/%Y')}) com entrada "
+        "no SPED do período: apenas itens de DIFAL (uso/consumo e ativo) foram considerados."
+    )
+
+
 def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> None:
     """Complementa a nota do SPED com detalhes fiscais presentes no XML."""
     if not nf_sped or not nf_xml:

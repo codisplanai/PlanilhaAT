@@ -208,15 +208,17 @@ def build_xml_nfe(
     v_ipi: str = "0.00",
     v_bc: str = None,
     ncm: str = "21069090",
+    mes: str = "01",
+    ano: str = "2026",
 ) -> bytes:
-    """XML de NF-e mínimo e válido, emitido por fornecedor de SP para cliente da BA em janeiro/2026."""
+    """XML de NF-e mínimo e válido, emitido por fornecedor de SP para cliente da BA (padrão janeiro/2026)."""
     bc = v_bc or valor
     ipi_tag = f"<IPI><IPITrib><vIPI>{v_ipi}</vIPI></IPITrib></IPI>" if v_ipi and v_ipi != "0.00" else ""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
   <NFe>
     <infNFe Id="NFe{chave}">
-      <ide><nNF>{numero}</nNF><serie>1</serie><dhEmi>2026-01-{dia}T10:00:00-03:00</dhEmi></ide>
+      <ide><nNF>{numero}</nNF><serie>1</serie><dhEmi>{ano}-{mes}-{dia}T10:00:00-03:00</dhEmi></ide>
       <emit><CNPJ>98765432000180</CNPJ><enderEmit><UF>SP</UF></enderEmit></emit>
       <dest><CNPJ>12345678000195</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
       <total><ICMSTot><vNF>{valor}</vNF><vBC>{bc}</vBC></ICMSTot></total>
@@ -242,6 +244,39 @@ _SPED_JANEIRO_COM_NF901 = """|0000|019|0|01012026|31012026|Cliente BA|1234567800
 |C170|1|P1|PRODUTO|1,000|UN|2000,00|0,00|0|000|6102||2000,00|12,00|240,00|0,00|0,00|0,00|0|50|999|0,00|0,00|0,00|
 |9999|5|
 """
+
+
+def chave_nfe(aamm: str, numero: int) -> str:
+    """Chave de acesso sintética (44 dígitos) do fornecedor SP 98765432000180."""
+    return f"35{aamm}9876543200018055001{numero:09d}1{numero:08d}0"
+
+
+def build_sped_entradas(notas: list) -> bytes:
+    """SPED de janeiro/2026 (BA) com uma C100 de entrada + C170 por item para cada nota.
+
+    Cada nota: {"numero", "chave", "dt_doc" (ddmmaaaa), "dt_entrada" (ddmmaaaa),
+    "itens": [(cfop, "valor com vírgula"), ...]}.
+    """
+    linhas = [
+        "|0000|019|0|01012026|31012026|Cliente BA|12345678000195||BA|123|2927408|||A|1|",
+        "|0150|F1|FORNECEDOR SP|1058|98765432000180||SP|3550308||R|1||C|",
+        "|0200|P1|PRODUTO|||UN|01|21069090|||18,00||",
+    ]
+    for nota in notas:
+        total = sum(float(v.replace(",", ".")) for _c, v in nota["itens"])
+        total_txt = f"{total:.2f}".replace(".", ",")
+        linhas.append(
+            f"|C100|0|1|F1|55|00|1|{nota['numero']}|{nota['chave']}|{nota['dt_doc']}|"
+            f"{nota['dt_entrada']}|{total_txt}|0|0,00|0,00|{total_txt}|0|0,00|0,00|0,00|"
+            f"{total_txt}|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|"
+        )
+        for idx, (cfop, valor) in enumerate(nota["itens"], start=1):
+            linhas.append(
+                f"|C170|{idx}|P1|PRODUTO|1,000|UN|{valor}|0,00|0|000|{cfop}||{valor}|"
+                f"12,00|0,00|0,00|0,00|0,00|0|50|999|0,00|0,00|0,00|"
+            )
+    linhas.append(f"|9999|{len(linhas) + 1}|")
+    return ("\n".join(linhas) + "\n").encode("utf-8")
 
 
 @pytest.fixture
@@ -279,7 +314,11 @@ def cenario_janeiro(db_session, create_sample_excel_template):
     from app.models.solicitacao import Solicitacao
     from app.services.templates_admin.template_manager import TemplateManager
 
-    def _montar(tipos=("antecipacao_parcial", "antecipacao_parcial_antecipado")):
+    def _montar(
+        tipos=("antecipacao_parcial", "antecipacao_parcial_antecipado"),
+        simples: bool = False,
+        atividade: str = "comercio",
+    ):
         for tipo in tipos:
             path = create_sample_excel_template(tipo=tipo)
             with open(path, "rb") as f:
@@ -297,7 +336,8 @@ def cenario_janeiro(db_session, create_sample_excel_template):
         db_session.commit()
 
         empresa = Empresa(razao_social="Cliente BA", cnpj="12345678000195", uf="BA",
-                          perfil_regras_id=perfil.id)
+                          perfil_regras_id=perfil.id, optante_simples_nacional=simples,
+                          atividade=atividade)
         db_session.add(empresa)
         db_session.commit()
 

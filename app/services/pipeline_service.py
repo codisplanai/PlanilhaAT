@@ -45,10 +45,13 @@ from app.constants import (
     ANTECIPACAO_TRIBUTARIA,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
+    DIFAL_ANTECIPADO,
     TIPO_EXCLUSAO_MVA_PENDENTE,
     TIPOS_PLANILHA_LEGADO,
 )
 from app.services.pipeline_helpers import (
+    aceita_difal_retroativa,
+    aviso_difal_retroativa,
     build_header_info,
     crossing_keys,
     enrich_sped_with_xml,
@@ -236,7 +239,20 @@ class ProcessingPipelineService:
 
                 # 4. Camada 7: Checagem de período
                 # Se a nota estiver fora do período definido, ela é ignorada e registrada no relatório
-                if not SanityChecker.is_within_period(nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim):
+                # Exceção: no Regime Normal, nota de uso/consumo/ativo emitida antes do período
+                # e escriturada no SPED do período entra na DIFAL (só os itens de DIFAL).
+                dentro_do_periodo = SanityChecker.is_within_period(
+                    nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
+                )
+                retroativa = (not dentro_do_periodo) and aceita_difal_retroativa(
+                    nf_data, empresa.optante_simples_nacional, solicitacao.periodo_inicio
+                )
+                motivo_fora_periodo = (
+                    f"Data de emissão ({nf_data.data_emissao.strftime('%d/%m/%Y')}) fora do período informado "
+                    f"({solicitacao.periodo_inicio.strftime('%d/%m/%Y')} a "
+                    f"{solicitacao.periodo_fim.strftime('%d/%m/%Y')})."
+                )
+                if not dentro_do_periodo and not retroativa:
                     dt_str = nf_data.data_emissao.strftime('%d/%m/%Y')
                     p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
                     p_fim_str = solicitacao.periodo_fim.strftime('%d/%m/%Y')
@@ -323,6 +339,7 @@ class ProcessingPipelineService:
                 info_a_ori: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
                 info_mva_policy: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
                 itens_bonificacao_desconsiderados: List[Any] = []
+                itens_retroativos_pulados = 0
 
                 for item in nf_data.itens:
                     mva_policy_group = ""
@@ -358,6 +375,9 @@ class ProcessingPipelineService:
                                 destino_item = DIFAL
 
                     if destino_item is None:
+                        if retroativa:
+                            itens_retroativos_pulados += 1
+                            continue
                         if sufixo_item not in CFOP_SUFFIXES_REQUIRING_DESTINATION or (decisoes_bonificacao is None):
                             sufixo = re.sub(r"\D", "", item.cfop or "")
                             sufixo = sufixo[-3:] if len(sufixo) >= 3 else (sufixo or "????")
@@ -395,12 +415,25 @@ class ProcessingPipelineService:
                         destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO
                     elif destino_item == ANTECIPACAO_TRIBUTARIA and pago_antecipadamente:
                         destino_item = ANTECIPACAO_TRIBUTARIA_ANTECIPADO
+                    elif (
+                        destino_item == DIFAL
+                        and pago_antecipadamente
+                        and empresa.optante_simples_nacional
+                    ):
+                        # Simples Nacional: DIFAL da mercadoria ainda sem entrada é paga
+                        # antecipadamente, em planilha própria (mesmo modelo RP-158).
+                        destino_item = DIFAL_ANTECIPADO
 
                     if empresa.optante_simples_nacional:
                         if destino_item == ANTECIPACAO_PARCIAL:
                             destino_item = ANTECIPACAO_PARCIAL_SIMPLES
                         elif destino_item == ANTECIPACAO_PARCIAL_ANTECIPADO:
                             destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES
+
+                    # Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
+                    if retroativa and destino_item != DIFAL:
+                        itens_retroativos_pulados += 1
+                        continue
 
                     if modo_legado:
                         if destino_item != solicitacao.tipo_planilha:
@@ -470,7 +503,7 @@ class ProcessingPipelineService:
                             ncm=item.ncm,
                             descricao=item.descricao if item.descricao_confiavel else None,
                             empresa_id=empresa.id,
-                            apenas_padrao_uf=(destino_item == DIFAL),
+                            apenas_padrao_uf=(destino_item in (DIFAL, DIFAL_ANTECIPADO)),
                             ignorar_termo_acordo=(
                                 destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO)
                             ),
@@ -492,7 +525,7 @@ class ProcessingPipelineService:
                     # de Antecipação (Parcial e Tributária). Na planilha de DIFAL, nunca infere
                     # alíquota de origem não destacada.
                     if (
-                        destino_item != DIFAL
+                        destino_item not in (DIFAL, DIFAL_ANTECIPADO)
                         and is_fornecedor_simples
                         and is_operacao_interestadual
                         and (a_ori is None or a_ori == Decimal("0.00"))
@@ -519,7 +552,7 @@ class ProcessingPipelineService:
                         })
 
                     # No DIFAL, sem destaque de ICMS na NF-e a A.ORI de cálculo é zero (sem crédito)
-                    if destino_item == DIFAL and not a_ori_destacada:
+                    if destino_item in (DIFAL, DIFAL_ANTECIPADO) and not a_ori_destacada:
                         a_ori = Decimal("0.00")
 
                     # Se o perfil tiver a regra ativada e o item se enquadrou em Redução por Produto ou Termo de Acordo:
@@ -640,6 +673,9 @@ class ProcessingPipelineService:
 
                 if not grupos:
                     # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
+                    if retroativa:
+                        notas_ignoradas.append(ignored_note(nf_data, filename, motivo_fora_periodo))
+                        continue
                     if itens_bonificacao_desconsiderados:
                         cfops_str = ", ".join(sorted(list({it.cfop for it in itens_bonificacao_desconsiderados if it.cfop})))
                         notas_ignoradas.append(
@@ -650,6 +686,15 @@ class ProcessingPipelineService:
                             )
                         )
                     continue
+
+                if retroativa and itens_retroativos_pulados:
+                    avisos_avaliacao.append({
+                        "numero_nota": nf_data.numero_nota,
+                        "serie": nf_data.serie,
+                        "item_numero": None,
+                        "arquivo": filename,
+                        "aviso": aviso_difal_retroativa(nf_data),
+                    })
 
                 if itens_bonificacao_desconsiderados:
                     for it_desc in itens_bonificacao_desconsiderados:
@@ -719,7 +764,7 @@ class ProcessingPipelineService:
 
                     aliq_simples = "N"
                     fornecedor_simples = is_fornecedor_simples
-                    if destino_grupo == DIFAL:
+                    if destino_grupo in (DIFAL, DIFAL_ANTECIPADO):
                         if is_fornecedor_simples:
                             aliq_simples = "S"
                         else:
@@ -767,6 +812,7 @@ class ProcessingPipelineService:
                             ANTECIPACAO_PARCIAL_ANTECIPADO,
                             ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
                             ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+                            DIFAL_ANTECIPADO,
                         )
                         else data_entrada_resolvida
                     )
@@ -776,6 +822,7 @@ class ProcessingPipelineService:
                             ANTECIPACAO_PARCIAL_ANTECIPADO,
                             ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
                             ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+                            DIFAL_ANTECIPADO,
                         )
                         else origem_data
                     )
@@ -842,7 +889,7 @@ class ProcessingPipelineService:
                     )
                     a_ori_planilha = (
                         None
-                        if destino_grupo == DIFAL and not info_a_ori.get(grupo_key, {}).get("destacada", True)
+                        if destino_grupo in (DIFAL, DIFAL_ANTECIPADO) and not info_a_ori.get(grupo_key, {}).get("destacada", True)
                         else a_ori
                     )
                     rows_por_destino[destino_grupo].append({
