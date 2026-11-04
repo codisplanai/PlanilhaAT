@@ -29,9 +29,11 @@ import {
   resolveConvenio5291Application,
 } from './convenio5291.ts';
 import {
+  acceptsRetroactiveDifal,
   classifyRevendaMva,
   evaluatePartialMerchandiseExclusion,
   getRevendaAntecipacaoConfig,
+  isDifalDestination,
   mvaColumnForNote,
   noOutputMessage,
   normalizeDescription,
@@ -42,6 +44,7 @@ import {
   resolveMvaForItem,
   resolveOriginRate,
   resolveRevendaMva,
+  retroactiveDifalWarning,
   shouldExcludeEqualRates,
 } from './rules.ts';
 import {
@@ -66,6 +69,7 @@ const EARLY_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_parcial_antecipado',
   'antecipacao_parcial_antecipado_simples',
   'antecipacao_tributaria_antecipado',
+  'difal_antecipado',
 ]);
 
 const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
@@ -76,6 +80,7 @@ const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
 const CONVENIO_52_91_DESTINATIONS = new Set<TipoPlanilha>([
   ...PARTIAL_DESTINATIONS,
   'difal',
+  'difal_antecipado',
 ]);
 
 function cleanDigits(value: string): string {
@@ -118,6 +123,7 @@ function bonusPreAnalysis(
   end: string,
   companyUf: string,
   companyCnpj?: string,
+  isSimples = false,
 ): NotaBonificacaoPendencia[] {
   const pending: NotaBonificacaoPendencia[] = [];
   const cleanEmpresa = cleanDigits(companyCnpj ?? '');
@@ -125,7 +131,7 @@ function bonusPreAnalysis(
     const cleanEmitente = cleanDigits(note.cnpjEmitente);
     if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
     if (note.ufEmitente && companyUf && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
-    if (!withinPeriod(note, start, end)) continue;
+    if (!withinPeriod(note, start, end) && !acceptsRetroactiveDifal(note, start, isSimples)) continue;
     const bonus = note.itens.filter((item) => BONUS_SUFFIXES.has(cleanDigits(item.cfop).slice(-3)));
     if (bonus.length === 0) continue;
     const total = bonus.reduce((sum, item) => sum + item.vTotal, 0);
@@ -175,7 +181,9 @@ function convenio5291PreAnalysis(
     const cleanEmitente = cleanDigits(note.cnpjEmitente);
     if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
     if (note.ufEmitente && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
-    if (!withinPeriod(note, start, end)) continue;
+    const retroactive = !withinPeriod(note, start, end)
+      && acceptsRetroactiveDifal(note, start, Boolean(context.empresa.optante_simples_nacional));
+    if (!withinPeriod(note, start, end) && !retroactive) continue;
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
 
     for (const originalItem of note.itens) {
@@ -195,6 +203,7 @@ function convenio5291PreAnalysis(
 
       if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
       destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
+      if (retroactive && destination !== 'difal') continue;
       if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
       // O Anexo I é global somente na Parcial; o DIFAL conserva o perfil
       // anterior à ativação (sem mudança retroativa da sua regra fiscal).
@@ -328,7 +337,10 @@ export async function processFiscalLocally(
       referenciaArquivo: ignoredNote.arquivo ? 'disponível na interface' : 'não disponível',
     });
   }
-  const pending = bonusPreAnalysis(sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj);
+  const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
+  const pending = bonusPreAnalysis(
+    sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany,
+  );
   if (pending.length > 0 && !request.bonusDecisions) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
     diagnostic?.stage('validacao', 'Processamento pausado para confirmação de bonificações.', {
@@ -423,13 +435,19 @@ export async function processFiscalLocally(
       continue;
     }
 
-    if (!withinPeriod(note, periodoInicio, periodoFim)) {
-      ignored.push(ignoredNote(
-        note,
-        `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`,
-      ));
+    const periodReason = `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`;
+    const inPeriod = withinPeriod(note, periodoInicio, periodoFim);
+    const retroactive = !inPeriod && acceptsRetroactiveDifal(note, periodoInicio, isSimplesCompany);
+    if (!inPeriod && !retroactive) {
+      ignored.push(ignoredNote(note, periodReason));
       continue;
     }
+    let retroactiveSkipped = 0;
+    let firstRetroactiveSkippedItem: number | null = null;
+    const skipRetroactiveItem = (itemNumero: number) => {
+      retroactiveSkipped += 1;
+      firstRetroactiveSkippedItem ??= itemNumero;
+    };
 
     let entryDate = matchEntryDate(note, sources.entryRecords);
     let entryOrigin: string | null = entryDate ? 'planilha_sistema_contabil' : null;
@@ -468,6 +486,10 @@ export async function processFiscalLocally(
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
       }
 
+      if (!destination && retroactive) {
+        skipRetroactiveItem(item.itemNumero);
+        continue;
+      }
       if (!destination) {
         missingCfops[suffix || '????'] = (missingCfops[suffix || '????'] ?? 0) + 1;
         continue;
@@ -489,10 +511,16 @@ export async function processFiscalLocally(
           });
         }
       }
-      destination = routePaidEarlyDestination(destination, paidEarly);
+      destination = routePaidEarlyDestination(destination, paidEarly, isSimplesCompany);
       if (context.empresa.optante_simples_nacional) {
         if (destination === 'antecipacao_parcial') destination = 'antecipacao_parcial_simples';
         if (destination === 'antecipacao_parcial_antecipado') destination = 'antecipacao_parcial_antecipado_simples';
+      }
+
+      // Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
+      if (retroactive && destination !== 'difal') {
+        skipRetroactiveItem(item.itemNumero);
+        continue;
       }
 
       if (PARTIAL_DESTINATIONS.has(destination)) {
@@ -577,7 +605,7 @@ export async function processFiscalLocally(
       // Somente fornecedor Simples sem pICMS em operação interestadual.
       // A taxa é referência de origem, e não um crédito destacado no XML.
       // Não se aplica à planilha de DIFAL.
-      const isDifal = destination === 'difal';
+      const isDifal = isDifalDestination(destination);
       const aOriHighlighted = Boolean(originalAOri && originalAOri > 0);
       const reference = isDifal
         ? { rate: 0, inferred: false }
@@ -760,7 +788,19 @@ export async function processFiscalLocally(
       classifiedItems += 1;
     }
 
-    if (groups.size === 0) continue;
+    if (groups.size === 0) {
+      if (retroactive) ignored.push(ignoredNote(note, periodReason));
+      continue;
+    }
+    if (retroactive && retroactiveSkipped > 0) {
+      warnings.push({
+        numero_nota: note.numeroNota,
+        serie: note.serie,
+        item_numero: firstRetroactiveSkippedItem ?? 1,
+        arquivo: note.filename,
+        aviso: retroactiveDifalWarning(note),
+      });
+    }
 
     const splitByDestination = new Map<TipoPlanilha, number>();
     for (const group of groups.values()) {
@@ -801,7 +841,7 @@ export async function processFiscalLocally(
         ? first?.descricao ?? ''
         : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
       const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? group.mva : 0;
-      const aliqSimples = group.destination === 'difal' && supplierIsSimples ? 'S' : 'N';
+      const aliqSimples = isDifalDestination(group.destination) && supplierIsSimples ? 'S' : 'N';
 
       let valorPago = 0;
       if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)) {
@@ -989,7 +1029,7 @@ export async function processFiscalLocally(
         reducao: null,
         red: '',
         aliq_simples: aliqSimples,
-        a_ori: group.destination === 'difal' && !group.aOriHighlighted ? null : group.aOri,
+        a_ori: isDifalDestination(group.destination) && !group.aOriHighlighted ? null : group.aOri,
         a_dst: group.aDst,
         debito: calculation.debito,
         credito: calculation.credito,

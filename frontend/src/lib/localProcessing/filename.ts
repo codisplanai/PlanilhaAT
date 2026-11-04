@@ -8,6 +8,7 @@ export const MODELO_OFICIAL_POR_TIPO: Record<string, string> = {
   antecipacao_tributaria: 'RP-151',
   antecipacao_tributaria_antecipado: 'RP-151',
   difal: 'RP-158',
+  difal_antecipado: 'RP-158',
 };
 
 export const TIPO_PLANILHA_CURTO: Record<string, string> = {
@@ -18,6 +19,7 @@ export const TIPO_PLANILHA_CURTO: Record<string, string> = {
   antecipacao_tributaria: 'AT',
   antecipacao_tributaria_antecipado: 'AT-Antecipado',
   difal: 'DIFAL',
+  difal_antecipado: 'DIFAL-Antecipado',
 };
 
 const CORPORATE_SUFFIXES = new Set([

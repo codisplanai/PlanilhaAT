@@ -120,3 +120,8 @@ test('buildZipFilenameFromArtifacts: gera nome amigável para o arquivo zip quan
 test('buildZipFilenameFromArtifacts: usa fallback se não houver artefatos', () => {
   assert.equal(buildZipFilenameFromArtifacts([], 'abcdef123456'), 'planilhas_abcdef12.zip');
 });
+
+test('difal_antecipado usa o modelo RP-158 e nome curto DIFAL-Antecipado', () => {
+  assert.equal(resolveModeloPlanilha('difal_antecipado', null), 'RP-158');
+  assert.equal(resolveTipoCurto('difal_antecipado'), 'DIFAL-Antecipado');
+});

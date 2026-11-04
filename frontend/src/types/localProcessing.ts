@@ -52,6 +52,7 @@ export interface LocalProcessingContext {
     | 'uf'
     | 'perfil_regras_id'
     | 'optante_simples_nacional'
+    | 'atividade'
     | 'a_ori_fixa_parcial'
   > & {
     termo_acordo?: {

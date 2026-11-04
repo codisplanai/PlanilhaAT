@@ -362,7 +362,7 @@ class ProcessingPipelineService:
                 info_a_ori: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
                 info_mva_policy: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
                 itens_bonificacao_desconsiderados: List[Any] = []
-                itens_retroativos_pulados = 0
+                itens_retroativos_pulados: List[int] = []
 
                 for item in nf_data.itens:
                     mva_policy_group = ""
@@ -410,7 +410,7 @@ class ProcessingPipelineService:
 
                     if destino_item is None:
                         if retroativa:
-                            itens_retroativos_pulados += 1
+                            itens_retroativos_pulados.append(item.item_numero)
                             continue
                         if sufixo_item not in CFOP_SUFFIXES_REQUIRING_DESTINATION or (decisoes_bonificacao is None):
                             sufixo = re.sub(r"\D", "", item.cfop or "")
@@ -474,7 +474,7 @@ class ProcessingPipelineService:
 
                     # Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
                     if retroativa and destino_item != DIFAL:
-                        itens_retroativos_pulados += 1
+                        itens_retroativos_pulados.append(item.item_numero)
                         continue
 
                     if modo_legado:
@@ -733,7 +733,7 @@ class ProcessingPipelineService:
                     avisos_avaliacao.append({
                         "numero_nota": nf_data.numero_nota,
                         "serie": nf_data.serie,
-                        "item_numero": None,
+                        "item_numero": itens_retroativos_pulados[0],
                         "arquivo": filename,
                         "aviso": aviso_difal_retroativa(nf_data),
                     })

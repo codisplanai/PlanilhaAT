@@ -40,11 +40,36 @@ export function redirectRevendaToAntecipacaoTributaria(
 export function routePaidEarlyDestination(
   destination: TipoPlanilha,
   paidEarly: boolean,
+  isSimples = false,
 ): TipoPlanilha {
   if (!paidEarly) return destination;
   if (destination === 'antecipacao_parcial') return 'antecipacao_parcial_antecipado';
   if (destination === 'antecipacao_tributaria') return 'antecipacao_tributaria_antecipado';
+  // Simples Nacional: DIFAL da mercadoria ainda sem entrada é paga antecipadamente.
+  if (destination === 'difal' && isSimples) return 'difal_antecipado';
   return destination;
+}
+
+export function isDifalDestination(destination: TipoPlanilha): boolean {
+  return destination === 'difal' || destination === 'difal_antecipado';
+}
+
+/**
+ * Regime Normal: nota emitida antes do período, mas escriturada no SPED do
+ * período, entra na DIFAL de uso/consumo e ativo (somente os itens de DIFAL).
+ */
+export function acceptsRetroactiveDifal(
+  note: ExtractedNote,
+  periodoInicio: string,
+  isSimples: boolean,
+): boolean {
+  return !isSimples && note.origemExtracao === 'sped' && note.dataEmissao.slice(0, 10) < periodoInicio;
+}
+
+export function retroactiveDifalWarning(note: ExtractedNote): string {
+  const [year, month, day] = note.dataEmissao.slice(0, 10).split('-');
+  return `Nota emitida antes do período (${day}/${month}/${year}) com entrada no SPED do período: `
+    + 'apenas itens de DIFAL (uso/consumo e ativo) foram considerados.';
 }
 
 export function classifyRevendaMva(
@@ -247,7 +272,7 @@ export function resolveDestinationRate(
 
   // DIFAL: ignora reduções por produto, termos de acordo e exceções por NCM.
   // Prevalece estritamente a Alíquota Padrão da UF.
-  if (destination === 'difal') {
+  if (destination === 'difal' || destination === 'difal_antecipado') {
     const defaultRule = context.regras_aliquotas.find(
       (rule) => rule.uf === uf && !rule.ncm,
     );
