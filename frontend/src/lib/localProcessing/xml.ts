@@ -25,6 +25,23 @@ function number(parent: Element | null | undefined, name: string): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+/**
+ * Alíquota de crédito de ICMS autorizada nas Informações Complementares
+ * ("aliquota para credito de ICMS aproximadamente 3,59 %" -> 0.0359).
+ * Só esta frase autoriza o crédito; a sentença "NAO GERA DIREITO A CREDITO..."
+ * que costuma acompanhá-la é propositalmente ignorada. Espelha
+ * app/services/extraction/inf_compl.py.
+ */
+export function extractCreditRateFromInfCpl(infCpl: string | null | undefined): number | null {
+  if (!infCpl) return null;
+  const normalized = infCpl.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const match = normalized.match(/aliquota\s+(?:para\s+)?credito\s+(?:de\s+)?icms\D{0,40}?(\d{1,3}(?:[.,]\d{1,4})?)\s*%/);
+  if (!match) return null;
+  const percent = Number(match[1].replace(',', '.'));
+  if (!Number.isFinite(percent) || percent <= 0 || percent > 100) return null;
+  return Number((percent / 100).toFixed(6));
+}
+
 function normalizeIssueDate(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new Error('O XML da NF-e não informa a data de emissão obrigatória.');
@@ -75,6 +92,8 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
   const vIcmsNota = number(icmsTot, 'vICMS');
   const vDescNota = number(icmsTot, 'vDesc');
   const vStNota = number(icmsTot, 'vST');
+
+  const aliqCreditoIcmsInfCompl = extractCreditRateFromInfCpl(text(child(infNFe, 'infAdic'), 'infCpl'));
 
   const itens: ExtractedItem[] = [];
   for (const det of Array.from(infNFe.children).filter((node) => node.localName === 'det')) {
@@ -201,6 +220,7 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     vIcmsNota,
     vDescNota,
     vStNota: vStNota > 0 ? vStNota : 0,
+    aliqCreditoIcmsInfCompl,
     origemExtracao: 'xml',
     rawMetadata: {
       qtd_itens: itens.length,

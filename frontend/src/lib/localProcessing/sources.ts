@@ -95,6 +95,7 @@ export function enrichSpedWithXml(sped: ExtractedNote, xml: ExtractedNote): void
   if (xml.vIcmsNota > 0) sped.vIcmsNota = xml.vIcmsNota;
   if ((xml.vDescNota ?? 0) > 0) sped.vDescNota = xml.vDescNota;
   if ((xml.vStNota ?? 0) > 0) sped.vStNota = xml.vStNota;
+  if (xml.aliqCreditoIcmsInfCompl != null) sped.aliqCreditoIcmsInfCompl = xml.aliqCreditoIcmsInfCompl;
 }
 
 function decodeText(bytes: ArrayBuffer | Uint8Array): string {
