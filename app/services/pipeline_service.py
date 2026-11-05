@@ -634,6 +634,30 @@ class ProcessingPipelineService:
                             ),
                         })
 
+                    # No DIFAL, sem pICMS destacado a única fonte de A.ORI é a alíquota de crédito
+                    # autorizada nas Informações Complementares da NF-e (fornecedor do Simples).
+                    a_ori_inf_compl = False
+                    if (
+                        destino_item in (DIFAL, DIFAL_ANTECIPADO)
+                        and not a_ori_destacada
+                        and nf_data.aliq_credito_icms_inf_compl
+                    ):
+                        a_ori = nf_data.aliq_credito_icms_inf_compl
+                        a_ori_destacada = True
+                        a_ori_inf_compl = True
+                        pct_inf = a_ori * Decimal("100.0")
+                        avisos_avaliacao.append({
+                            "numero_nota": nf_data.numero_nota,
+                            "serie": nf_data.serie,
+                            "item_numero": item.item_numero,
+                            "arquivo": filename,
+                            "aviso": (
+                                f"Item {item.item_numero}: A.ORI de {pct_inf:.2f}% obtida das Informações "
+                                "Complementares da NF-e (crédito de ICMS autorizado pelo fornecedor), "
+                                "sem pICMS destacado no item."
+                            ),
+                        })
+
                     # No DIFAL, sem destaque de ICMS na NF-e a A.ORI de cálculo é zero (sem crédito)
                     if destino_item in (DIFAL, DIFAL_ANTECIPADO) and not a_ori_destacada:
                         a_ori = Decimal("0.00")
@@ -733,6 +757,7 @@ class ProcessingPipelineService:
                             "original": str(a_ori_original),
                             "inferida_simples": a_ori_inferida_simples,
                             "destacada": a_ori_destacada,
+                            "inf_compl": a_ori_inf_compl,
                             "p_cred_sn": set(),
                         }
                         info_mva_policy[key] = {
@@ -972,6 +997,7 @@ class ProcessingPipelineService:
                             "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
                             "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
                             "a_ori_destacada": info_a_ori.get(grupo_key, {}).get("destacada", True),
+                            "a_ori_inf_compl": info_a_ori.get(grupo_key, {}).get("inf_compl", False),
                             "p_cred_sn": sorted(info_a_ori.get(grupo_key, {}).get("p_cred_sn", set())) or None,
                             **calc_result.detalhes
                         }

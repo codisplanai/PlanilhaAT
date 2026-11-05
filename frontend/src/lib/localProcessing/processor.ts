@@ -294,6 +294,7 @@ interface Group {
   aOriOriginal: number;
   aOriInferredSimples: boolean;
   aOriHighlighted: boolean;
+  aOriInfCompl: boolean;
   pCredSN: number[];
   mvaPolicyGroup: 'especial' | 'demais' | '';
   mvaPolicySource: string;
@@ -695,7 +696,24 @@ export async function processFiscalLocally(
       // A taxa é referência de origem, e não um crédito destacado no XML.
       // Não se aplica à planilha de DIFAL.
       const isDifal = isDifalDestination(destination);
-      const aOriHighlighted = Boolean(originalAOri && originalAOri > 0);
+      // No DIFAL, sem pICMS destacado, a alíquota de crédito autorizada nas
+      // Informações Complementares (fornecedor do Simples) vale como A.ORI.
+      const infComplRate = isDifal && !(originalAOri && originalAOri > 0)
+        ? (note.aliqCreditoIcmsInfCompl ?? 0)
+        : 0;
+      const aOriInfCompl = infComplRate > 0;
+      const documentAOri = aOriInfCompl ? infComplRate : originalAOri;
+      const aOriHighlighted = Boolean(documentAOri && documentAOri > 0);
+      if (aOriInfCompl) {
+        const ratePct = (infComplRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        warnings.push({
+          numero_nota: note.numeroNota,
+          serie: note.serie,
+          item_numero: item.itemNumero,
+          arquivo: note.filename,
+          aviso: `Item ${item.itemNumero}: A.ORI de ${ratePct}% obtida das Informações Complementares da NF-e (crédito de ICMS autorizado pelo fornecedor), sem pICMS destacado no item.`,
+        });
+      }
       const reference = isDifal
         ? { rate: 0, inferred: false }
         : resolveSimpleOriginReference(
@@ -703,7 +721,7 @@ export async function processFiscalLocally(
         );
       const referenceRate = isDifal ? 0 : reference.rate;
       const resolvedAOri = isDifal
-        ? (aOriHighlighted ? originalAOri : 0)
+        ? (aOriHighlighted ? documentAOri : 0)
         : (convenio?.applied ? Number(convenio.aOri) : referenceRate);
       const originRate = resolveOriginRate(
         context,
@@ -833,6 +851,7 @@ export async function processFiscalLocally(
         aOriOriginal: originalAOri,
         aOriInferredSimples: false,
         aOriHighlighted: false,
+        aOriInfCompl: false,
         pCredSN: [],
         mvaPolicyGroup,
         mvaPolicySource,
@@ -852,6 +871,7 @@ export async function processFiscalLocally(
       group.aOriLimitWaived ||= originRate.limitWaived;
       group.aOriInferredSimples ||= aOriInferredSimples;
       group.aOriHighlighted ||= aOriHighlighted;
+      group.aOriInfCompl ||= aOriInfCompl;
       if (!group.mvaPolicyGroup && mvaPolicyGroup) {
         group.mvaPolicyGroup = mvaPolicyGroup;
         group.mvaPolicySource = mvaPolicySource;
@@ -1094,6 +1114,7 @@ export async function processFiscalLocally(
           a_ori_original: String(group.aOriOriginal),
           a_ori_inferida_simples: group.aOriInferredSimples,
           a_ori_destacada: group.aOriHighlighted,
+          a_ori_inf_compl: group.aOriInfCompl,
           p_cred_sn: group.pCredSN.length ? group.pCredSN : null,
           convenio_52_91_aplicado: group.convenio5291Applied,
           convenio_52_91_anexo: group.convenio5291Anexo || null,
