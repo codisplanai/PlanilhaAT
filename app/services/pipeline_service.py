@@ -59,6 +59,7 @@ from app.services.pipeline_helpers import (
     aviso_difal_retroativa,
     build_controle_row,
     build_header_info,
+    consolidar_linhas_controle,
     crossing_keys,
     enrich_sped_with_xml,
     ignored_note,
@@ -1043,6 +1044,11 @@ class ProcessingPipelineService:
                         "valor_devido": calc_result.valor_devido,
                     })
                     split_index_por_destino[destino_grupo] = split_index + 1
+
+            if rows_por_destino.get(CONTROLE_IMPOSTO_PAGO_ENTRADA):
+                rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA] = consolidar_linhas_controle(
+                    rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA]
+                )
 
             # A planilha de controle não é apuração: não conta como "há o que recolher".
             total_rows = sum(

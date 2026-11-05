@@ -149,3 +149,58 @@ def test_sem_template_de_controle_nao_quebra_a_apuracao(db_session, create_sampl
     assert _saida(res, "antecipacao_parcial") is not None
     controle = _saida(res, CONTROLE_IMPOSTO_PAGO_ENTRADA)
     assert controle is None or (controle.arquivo_path is None and controle.aviso)
+
+
+def _linhas_controle(res):
+    controle = _saida(res, CONTROLE_IMPOSTO_PAGO_ENTRADA)
+    ws = openpyxl.load_workbook(controle.arquivo_path, data_only=False).worksheets[0]
+    linhas = []
+    for r in range(4, 20):
+        if ws[f"E{r}"].value is None:
+            break
+        linhas.append({
+            "nota": ws[f"D{r}"].value,
+            "v_total": ws[f"E{r}"].value,
+            "base": ws[f"F{r}"].value,
+            "a_dst": ws[f"H{r}"].value,
+            "a_ori": ws[f"I{r}"].value,
+        })
+    return linhas
+
+
+def test_controle_soma_itens_da_mesma_nota_com_mesmas_aliquotas(db_session, create_sample_excel_template, tmp_path):
+    """Sem alíquotas diferentes não há desdobramento: uma linha por nota, valores somados."""
+    empresa, _ = _setup_ambiente(db_session, create_sample_excel_template, politica_aliquotas_iguais=False)
+    _subir_template_controle(db_session, tmp_path)
+
+    itens = [
+        _det_item(1, "02102000", "CHARQUE BOVINO PONTA DE AGULHA", "100.00", "12.00"),
+        _det_item(2, "17019900", "ACUCAR CRISTAL BRANCO", "80.00", "12.00"),
+        _det_item(3, "17019900", "ACUCAR CRISTAL REFINADO", "20.00", "12.00"),
+    ]
+    res = _processar(db_session, empresa, itens, "200.00")
+
+    linhas = _linhas_controle(res)
+    assert len(linhas) == 1
+    assert linhas[0]["v_total"] == 200
+    assert linhas[0]["base"] == 200
+    assert "*" not in str(linhas[0]["nota"])
+
+
+def test_controle_desdobra_somente_quando_a_aliquota_de_origem_difere(db_session, create_sample_excel_template, tmp_path):
+    empresa, _ = _setup_ambiente(db_session, create_sample_excel_template, politica_aliquotas_iguais=False)
+    _subir_template_controle(db_session, tmp_path)
+
+    itens = [
+        _det_item(1, "02102000", "CHARQUE BOVINO PONTA DE AGULHA", "100.00", "12.00"),
+        _det_item(2, "17019900", "ACUCAR CRISTAL BRANCO", "80.00", "12.00"),
+        _det_item(3, "17019900", "ACUCAR CRISTAL REFINADO", "50.00", "7.00"),
+    ]
+    res = _processar(db_session, empresa, itens, "230.00")
+
+    linhas = _linhas_controle(res)
+    assert len(linhas) == 2
+    assert linhas[0]["v_total"] == 180 and linhas[0]["a_ori"] == 0.12
+    assert linhas[1]["v_total"] == 50 and linhas[1]["a_ori"] == 0.07
+    assert not str(linhas[0]["nota"]).endswith("*")
+    assert str(linhas[1]["nota"]).endswith("*")
