@@ -76,6 +76,9 @@ const EARLY_DESTINATIONS = new Set<TipoPlanilha>([
   'difal_antecipado',
 ]);
 
+// Planilha de controle (sem apuração) das mercadorias excluídas por imposto pago na entrada.
+const CONTROLE_DESTINATION: TipoPlanilha = 'controle_imposto_pago_entrada';
+
 const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
   'antecipacao_tributaria',
   'antecipacao_tributaria_antecipado',
@@ -620,6 +623,43 @@ export async function processFiscalLocally(
             ipi_despesas: item.ipiDespesas,
             a_ori: item.aOri,
           });
+          // Controle: o item sai da apuração, mas consta na planilha separada de
+          // imposto pago na entrada (Valor pago e Data de pagamento são manuais).
+          if (merchandise.regras?.[0]?.motivo === 'imposto_pago_entrada') {
+            let controlADst: number | undefined;
+            try {
+              controlADst = resolveDestinationRate(context, item, destination).aliquota;
+            } catch {
+              controlADst = undefined; // sem regra de alíquota: A.DST em branco, sem bloquear o controle
+            }
+            (rowsByDestination[CONTROLE_DESTINATION] ??= []).push({
+              numero_nota: note.numeroNota,
+              serie: note.serie,
+              chave_acesso: note.chaveAcesso,
+              cnpj_emitente: note.cnpjEmitente,
+              uf_emitente: note.ufEmitente,
+              cnpj_destinatario: note.cnpjDestinatario,
+              uf_destinatario: context.empresa.uf,
+              data_emissao: note.dataEmissao,
+              data_entrada: EARLY_DESTINATIONS.has(destination) ? null : entryDate,
+              item_numero: item.itemNumero,
+              descricao: item.descricao,
+              ncm: item.ncm,
+              cfop: item.cfop,
+              v_total: item.vTotal,
+              base_calculo: base,
+              ipi_despesas: item.ipiDespesas,
+              mva: 0,
+              reducao: null,
+              red: '',
+              aliq_simples: 'N',
+              a_ori: item.aOri,
+              a_dst: controlADst,
+              debito: 0,
+              credito: 0,
+              valor_devido: 0,
+            });
+          }
           continue;
         }
       }
@@ -1102,7 +1142,9 @@ export async function processFiscalLocally(
 
   for (const rows of Object.values(rowsByDestination)) if (rows) sortRowsByEntryAndNumber(rows);
 
-  const totalRows = Object.values(rowsByDestination).reduce((sum, rows) => sum + (rows?.length ?? 0), 0);
+  // O controle não é apuração: não conta como "há o que recolher".
+  const controlRows = rowsByDestination[CONTROLE_DESTINATION]?.length ?? 0;
+  const totalRows = Object.values(rowsByDestination).reduce((sum, rows) => sum + (rows?.length ?? 0), 0) - controlRows;
   let message: string | null = null;
   if (totalRows === 0) {
     if (Object.keys(missingCfops).length > 0) {
@@ -1119,7 +1161,7 @@ export async function processFiscalLocally(
   }
 
   const artifacts: LocalGeneratedArtifact[] = [];
-  if (totalRows > 0) {
+  if (totalRows > 0 || controlRows > 0) {
     const month = Number(periodoInicio.slice(5, 7));
     const year = Number(periodoInicio.slice(0, 4));
     const competencia = `${String(month).padStart(2, '0')}/${year}`;
@@ -1178,7 +1220,11 @@ export async function processFiscalLocally(
     }
 
     const destinationsWithoutTemplate = Object.entries(rowsByDestination)
-      .filter(([destination, rows]) => rows?.length && !context.templates_ativos.some((item) => item.tipo === destination))
+      .filter(([destination, rows]) => (
+        rows?.length
+        && destination !== CONTROLE_DESTINATION // auxiliar: sem template, apenas não é gerado
+        && !context.templates_ativos.some((item) => item.tipo === destination)
+      ))
       .map(([destination]) => destination);
     if (artifacts.length === 0 && destinationsWithoutTemplate.length > 0) {
       throw new Error(

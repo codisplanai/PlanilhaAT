@@ -405,6 +405,7 @@ const SINGLE_PERIOD_SHEET_TYPES = new Set<LocalTemplateDescriptor['tipo']>([
   'antecipacao_tributaria_antecipado',
   'difal',
   'difal_antecipado',
+  'controle_imposto_pago_entrada',
 ]);
 
 function keepOnlyPeriodSheetVisible(
