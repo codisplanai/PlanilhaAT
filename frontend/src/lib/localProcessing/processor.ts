@@ -17,6 +17,7 @@ import type {
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain.ts';
 import { calculateTax, roundCurrency } from './calculations.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
+import { consolidateControlRows } from './controlRows.ts';
 import { sortRowsByEntryAndNumber } from './rowSorting.ts';
 import { classifyAnexoII, resolveAnexoIIApplication } from './convenio5291Agricola.ts';
 import { effectiveConvenio5291PartialConfig } from './convenio5291Global.ts';
@@ -1161,6 +1162,9 @@ export async function processFiscalLocally(
     }
   }
 
+  if (rowsByDestination[CONTROLE_DESTINATION]?.length) {
+    rowsByDestination[CONTROLE_DESTINATION] = consolidateControlRows(rowsByDestination[CONTROLE_DESTINATION]);
+  }
   for (const rows of Object.values(rowsByDestination)) if (rows) sortRowsByEntryAndNumber(rows);
 
   // O controle não é apuração: não conta como "há o que recolher".
