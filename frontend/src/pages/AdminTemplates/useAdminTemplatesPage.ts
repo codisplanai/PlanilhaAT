@@ -23,6 +23,7 @@ const templateUploadSchema = z.object({
     'antecipacao_tributaria_antecipado',
     'difal',
     'difal_antecipado',
+    'controle_imposto_pago_entrada',
   ]),
   capacidade_linhas: z.number().int().min(1, 'A capacidade deve ser maior ou igual a 1 linha'),
   start_row: z.number().min(1, 'Linha inicial deve ser maior ou igual a 1'),
@@ -57,7 +58,8 @@ type TemplateUploadFormData = z.infer<typeof templateUploadSchema>;
 function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
   const isAntecipado =
     tipo === 'antecipacao_parcial_antecipado' ||
-    tipo === 'antecipacao_parcial_antecipado_simples';
+    tipo === 'antecipacao_parcial_antecipado_simples' ||
+    tipo === 'controle_imposto_pago_entrada';
   const isParcial =
     tipo === 'antecipacao_parcial' ||
     tipo === 'antecipacao_parcial_simples';

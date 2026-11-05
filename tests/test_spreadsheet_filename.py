@@ -93,3 +93,15 @@ def test_build_spreadsheet_filename():
 def test_difal_antecipado_usa_modelo_e_nome_curto_da_difal():
     assert resolve_modelo_planilha("difal_antecipado") == "RP-158"
     assert resolve_tipo_curto("difal_antecipado") == "DIFAL-Antecipado"
+
+
+def test_nome_da_planilha_de_controle_imposto_pago_entrada():
+    from app.services.pipeline_helpers import build_spreadsheet_filename
+
+    nome = build_spreadsheet_filename(
+        razao_social="Cliente BA",
+        tipo="controle_imposto_pago_entrada",
+        month=1,
+        year=2026,
+    )
+    assert nome == "Controle_ClienteBa_Imposto-Pago-Entrada_01-2026.xlsx"

@@ -6,7 +6,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Protocol, Union
 
-from app.constants import TIPO_EXCLUSAO_INDUSTRIA, TIPO_EXCLUSAO_MVA_PENDENTE
+from app.constants import (
+    MOTIVO_IMPOSTO_PAGO_ENTRADA,
+    TIPO_EXCLUSAO_INDUSTRIA,
+    TIPO_EXCLUSAO_MVA_PENDENTE,
+)
 from app.models.empresa import Empresa
 from app.services.extraction.base import ExtractedNFData
 from app.services.extraction.data_entrada_matcher import DataEntradaNormalizer
@@ -194,6 +198,50 @@ def serialize_excluded_item(
     return serialized
 
 
+def is_imposto_pago_entrada(decision: Any) -> bool:
+    """True quando a exclusão por mercadoria tem como motivo o imposto pago na entrada."""
+    regras = getattr(decision, "regras_aplicadas", None) or []
+    return bool(regras) and regras[0].get("motivo") == MOTIVO_IMPOSTO_PAGO_ENTRADA
+
+
+def build_controle_row(
+    nf: ExtractedNFData,
+    item: Any,
+    decision: Any,
+    a_dst: Optional[Decimal],
+    data_entrada: Any,
+) -> dict[str, Any]:
+    """Linha da planilha de controle: sem cálculo; O/P (pago/data) são manuais."""
+    zero = Decimal("0.00")
+    return {
+        "numero_nota": nf.numero_nota,
+        "serie": nf.serie,
+        "chave_acesso": nf.chave_acesso,
+        "cnpj_emitente": nf.cnpj_emitente,
+        "uf_emitente": nf.uf_emitente,
+        "cnpj_destinatario": nf.cnpj_destinatario,
+        "uf_destinatario": None,
+        "data_emissao": nf.data_emissao,
+        "data_entrada": data_entrada,
+        "item_numero": item.item_numero,
+        "descricao": item.descricao,
+        "ncm": item.ncm,
+        "cfop": item.cfop,
+        "v_total": decision.v_total,
+        "base_calculo": decision.base_calculo,
+        "ipi_despesas": decision.ipi_despesas,
+        "mva": zero,
+        "reducao": None,
+        "red": "",
+        "aliq_simples": "N",
+        "a_ori": decision.a_ori,
+        "a_dst": a_dst,
+        "debito": zero,
+        "credito": zero,
+        "valor_devido": zero,
+    }
+
+
 def no_output_message(excluded_items: list[dict[str, Any]]) -> str:
     """Mensagem de uma solicitação concluída sem planilha, só com itens excluídos.
 
@@ -276,6 +324,7 @@ MODELO_OFICIAL_POR_TIPO = {
     "antecipacao_tributaria_antecipado": "RP-151",
     "difal": "RP-158",
     "difal_antecipado": "RP-158",
+    "controle_imposto_pago_entrada": "Controle",
 }
 
 TIPO_PLANILHA_CURTO = {
@@ -287,6 +336,7 @@ TIPO_PLANILHA_CURTO = {
     "antecipacao_tributaria_antecipado": "AT-Antecipado",
     "difal": "DIFAL",
     "difal_antecipado": "DIFAL-Antecipado",
+    "controle_imposto_pago_entrada": "Imposto-Pago-Entrada",
 }
 
 CORPORATE_SUFFIXES = {

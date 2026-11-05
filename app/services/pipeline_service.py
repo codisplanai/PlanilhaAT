@@ -45,6 +45,7 @@ from app.constants import (
     ANTECIPACAO_TRIBUTARIA,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     ATIVIDADE_INDUSTRIA,
+    CONTROLE_IMPOSTO_PAGO_ENTRADA,
     DIFAL,
     DIFAL_ANTECIPADO,
     MOTIVO_DIFAL_AGUARDANDO_ENTRADA,
@@ -56,11 +57,13 @@ from app.constants import (
 from app.services.pipeline_helpers import (
     aceita_difal_retroativa,
     aviso_difal_retroativa,
+    build_controle_row,
     build_header_info,
     crossing_keys,
     enrich_sped_with_xml,
     ignored_note,
     is_cfop_uso_consumo_ativo,
+    is_imposto_pago_entrada,
     nfe_sort_key,
     no_output_message,
     serialize_excluded_item,
@@ -546,6 +549,33 @@ class ProcessingPipelineService:
                                     decisao_mercadoria,
                                 )
                             )
+                            if is_imposto_pago_entrada(decisao_mercadoria):
+                                # Controle: o item sai da apuração, mas consta na
+                                # planilha separada de imposto pago na entrada.
+                                try:
+                                    a_dst_controle = self.resolver.resolve_a_dst(
+                                        perfil_regras_id=empresa.perfil_regras_id,
+                                        uf=empresa.uf,
+                                        ncm=item.ncm,
+                                        descricao=item.descricao if item.descricao_confiavel else None,
+                                        empresa_id=empresa.id,
+                                    ).aliquota
+                                except RuleResolutionException:
+                                    a_dst_controle = None  # sem regra: A.DST em branco, sem bloquear
+                                rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA].append(
+                                    build_controle_row(
+                                        nf_data,
+                                        item,
+                                        decisao_mercadoria,
+                                        a_dst_controle,
+                                        None
+                                        if destino_item in (
+                                            ANTECIPACAO_PARCIAL_ANTECIPADO,
+                                            ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
+                                        )
+                                        else data_entrada_resolvida,
+                                    )
+                                )
                             continue
 
                     # Camada 5: Resolução determinística de A.DST em três níveis
@@ -988,7 +1018,12 @@ class ProcessingPipelineService:
                     })
                     split_index_por_destino[destino_grupo] = split_index + 1
 
-            total_rows = sum(len(v) for v in rows_por_destino.values())
+            # A planilha de controle não é apuração: não conta como "há o que recolher".
+            total_rows = sum(
+                len(v)
+                for destino, v in rows_por_destino.items()
+                if destino != CONTROLE_IMPOSTO_PAGO_ENTRADA
+            )
             if total_rows == 0:
                 if cfops_sem_regra:
                     raise ValidationException(
@@ -1001,6 +1036,13 @@ class ProcessingPipelineService:
                     raise ValidationException(erros_validacao[0])
 
                 if itens_excluidos:
+                    if not modo_legado and rows_por_destino.get(CONTROLE_IMPOSTO_PAGO_ENTRADA):
+                        generated_artifacts = self._gerar_somente_controle(
+                            solicitacao=solicitacao,
+                            empresa=empresa,
+                            rows=rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA],
+                            sped_empresa_info=sped_empresa_info,
+                        )
                     return self.lifecycle.complete_without_output(
                         solicitacao,
                         ignored_notes=notas_ignoradas,
@@ -1068,3 +1110,30 @@ class ProcessingPipelineService:
         except Exception as exc:
             self.lifecycle.fail(solicitacao, generated_artifacts, exc)
             raise
+
+    def _gerar_somente_controle(
+        self,
+        *,
+        solicitacao: Solicitacao,
+        empresa: Empresa,
+        rows: List[Dict[str, Any]],
+        sped_empresa_info: Optional[Dict[str, Any]],
+    ) -> GeneratedArtifacts:
+        """Nada a recolher, mas há itens de controle: gera só a planilha de controle.
+
+        Sem template ativo do tipo, a solicitação continua concluída (o aviso fica
+        no registro de saída): o controle é auxiliar e nunca deve virar erro.
+        """
+        rows = sorted(rows, key=nfe_sort_key)
+        ie = (empresa.inscricao_estadual or "").strip() or (sped_empresa_info.get("ie") if sped_empresa_info else "") or ""
+        try:
+            return self.output_service.generate(
+                solicitacao=solicitacao,
+                empresa=empresa,
+                rows_by_destination={CONTROLE_IMPOSTO_PAGO_ENTRADA: rows},
+                legacy_mode=False,
+                legacy_template=None,
+                header_info=build_header_info(empresa, solicitacao.periodo_inicio, ie),
+            )
+        except ValidationException:
+            return GeneratedArtifacts()
