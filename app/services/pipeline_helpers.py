@@ -246,6 +246,36 @@ def build_controle_row(
     }
 
 
+def consolidar_linhas_controle(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Uma linha por nota e par de alíquotas (A.ORI, A.DST), com os valores somados.
+
+    Mesma regra das demais planilhas: só há desdobramento quando a mesma nota tem
+    alíquotas diferentes. Nesse caso, a partir do segundo grupo a nota recebe "*".
+    """
+    grupos: dict[tuple, list[dict[str, Any]]] = {}
+    for row in rows:
+        nota = (row["chave_acesso"] or row["numero_nota"], row["serie"], row["cnpj_emitente"])
+        grupos.setdefault(nota + (row["a_ori"], row["a_dst"]), []).append(row)
+
+    gerados: list[dict[str, Any]] = []
+    por_nota: dict[tuple, int] = {}
+    for chave, itens in grupos.items():
+        nota = chave[:3]
+        indice = por_nota.get(nota, 0) + 1
+        por_nota[nota] = indice
+        linha = dict(itens[0])
+        linha["v_total"] = sum((i["v_total"] for i in itens), Decimal("0.00"))
+        linha["base_calculo"] = sum((i["base_calculo"] for i in itens), Decimal("0.00"))
+        linha["ipi_despesas"] = sum((i["ipi_despesas"] for i in itens), Decimal("0.00"))
+        linha["data_entrada"] = next((i["data_entrada"] for i in itens if i["data_entrada"]), None)
+        linha["item_numero"] = indice
+        linha["numero_nota"] = f"{linha['numero_nota']}*" if indice > 1 else linha["numero_nota"]
+        if len(itens) > 1:
+            linha["descricao"] = f"NF-e {itens[0]['numero_nota']} ({len(itens)} itens)"
+        gerados.append(linha)
+    return gerados
+
+
 def no_output_message(excluded_items: list[dict[str, Any]]) -> str:
     """Mensagem de uma solicitação concluída sem planilha, só com itens excluídos.
 
