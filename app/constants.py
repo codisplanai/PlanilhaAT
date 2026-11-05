@@ -17,6 +17,11 @@ ANTECIPACAO_TRIBUTARIA_ANTECIPADO: Final = "antecipacao_tributaria_antecipado"
 DIFAL: Final = "difal"
 # DIFAL de Simples Nacional cuja mercadoria ainda não deu entrada (mesmo RP-158).
 DIFAL_ANTECIPADO: Final = "difal_antecipado"
+# Planilha de controle (sem apuração): mercadorias excluídas da Parcial por
+# "imposto pago na entrada". Mesmo layout da Parcial Pago Antecipadamente, com
+# Valor pago (O) e Data de pagamento (P) preenchidos manualmente.
+CONTROLE_IMPOSTO_PAGO_ENTRADA: Final = "controle_imposto_pago_entrada"
+MOTIVO_IMPOSTO_PAGO_ENTRADA: Final = "imposto_pago_entrada"
 IGNORAR: Final = "ignorar"
 MULTI: Final = "multi"
 
@@ -35,6 +40,7 @@ TIPOS_PLANILHA: Final = (
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     DIFAL,
     DIFAL_ANTECIPADO,
+    CONTROLE_IMPOSTO_PAGO_ENTRADA,
 )
 
 DESTINOS_CFOP: Final = (*TIPOS_PLANILHA_LEGADO, IGNORAR)

@@ -123,7 +123,8 @@ export interface LocalOutputRow {
   red?: string;
   aliq_simples: string;
   a_ori: number | null;
-  a_dst: number;
+  /** Opcional só na planilha de controle (ausente se não houver regra de alíquota). */
+  a_dst?: number;
   debito: number;
   credito: number;
   valor_devido: number;

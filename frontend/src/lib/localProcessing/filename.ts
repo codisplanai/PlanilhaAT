@@ -9,6 +9,7 @@ export const MODELO_OFICIAL_POR_TIPO: Record<string, string> = {
   antecipacao_tributaria_antecipado: 'RP-151',
   difal: 'RP-158',
   difal_antecipado: 'RP-158',
+  controle_imposto_pago_entrada: 'Controle',
 };
 
 export const TIPO_PLANILHA_CURTO: Record<string, string> = {
@@ -20,6 +21,7 @@ export const TIPO_PLANILHA_CURTO: Record<string, string> = {
   antecipacao_tributaria_antecipado: 'AT-Antecipado',
   difal: 'DIFAL',
   difal_antecipado: 'DIFAL-Antecipado',
+  controle_imposto_pago_entrada: 'Imposto-Pago-Entrada',
 };
 
 const CORPORATE_SUFFIXES = new Set([
@@ -157,7 +159,8 @@ export function buildZipFilenameFromArtifacts(
     const base = artifacts[0].filename.replace(/\.xlsx$/i, '');
     const parts = base.split('_');
     if (parts.length >= 4) {
-      const empresa = parts[0].startsWith('RP-') ? parts[1] : parts[0];
+      // O primeiro trecho é o modelo oficial (RP-xxx) ou "Controle", nunca a empresa.
+      const empresa = parts[0].startsWith('RP-') || parts[0] === 'Controle' ? parts[1] : parts[0];
       const competencia = parts[parts.length - 1];
       return `${empresa}_Planilhas_${competencia}.zip`;
     }

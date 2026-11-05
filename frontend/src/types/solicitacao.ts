@@ -77,7 +77,8 @@ export type TipoPlanilha =
   | 'antecipacao_tributaria'
   | 'antecipacao_tributaria_antecipado'
   | 'difal'
-  | 'difal_antecipado';
+  | 'difal_antecipado'
+  | 'controle_imposto_pago_entrada';
 export type StatusSolicitacao = 'pendente' | 'processando' | 'concluido' | 'erro';
 
 export interface SolicitacaoSaida {

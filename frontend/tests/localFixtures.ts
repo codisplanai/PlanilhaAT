@@ -65,6 +65,8 @@ const TEMPLATE_FILES: Partial<Record<TipoPlanilha, string>> = {
   antecipacao_tributaria: 'modelo_padrao_antecipacao_tributaria.xlsx',
   difal: 'modelo_padrao_difal.xlsx',
   difal_antecipado: 'modelo_padrao_difal.xlsx',
+  // Mesmo layout A-I da Parcial Pago Antecipadamente (O/P são manuais).
+  controle_imposto_pago_entrada: 'modelo_padrao_antecipacao_parcial_antecipado.xlsx',
 };
 
 const DIFAL_COLUMNS = {

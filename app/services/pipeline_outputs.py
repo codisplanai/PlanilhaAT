@@ -12,6 +12,7 @@ from app.constants import (
     ANTECIPACAO_PARCIAL_ANTECIPADO,
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+    CONTROLE_IMPOSTO_PAGO_ENTRADA,
     DIFAL,
     DIFAL_ANTECIPADO,
 )
@@ -120,6 +121,10 @@ class PipelineOutputService:
         try:
             for saida in solicitacao.saidas:
                 if not saida.template_id or not saida.arquivo_path:
+                    continue
+                # O controle não tem notas processadas persistidas (vem dos itens
+                # excluídos); regenerá-lo aqui o esvaziaria.
+                if saida.tipo == CONTROLE_IMPOSTO_PAGO_ENTRADA:
                     continue
                 template = self.db.get(TemplateXlsx, saida.template_id)
                 if not template:
