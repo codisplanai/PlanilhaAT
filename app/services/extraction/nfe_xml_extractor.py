@@ -6,6 +6,7 @@ import re
 
 from app.core.exceptions import ValidationException
 from app.services.extraction.base import BaseNFEExtractor, ExtractedNFData, ExtractedItemNF, IBGE_UF_MAP
+from app.services.extraction.inf_compl import extrair_aliquota_credito_icms
 
 class NFeXMLExtractor(BaseNFEExtractor):
     """
@@ -135,6 +136,12 @@ class NFeXMLExtractor(BaseNFEExtractor):
         v_bc_nota = self._get_decimal(icms_tot, "vBC")
         v_icms_nota = self._get_decimal(icms_tot, "vICMS")
         v_desc_nota = self._get_decimal(icms_tot, "vDesc")
+
+        # Informações Complementares (<infAdic>/<infCpl>): pode autorizar crédito de ICMS
+        inf_adic = self._find_elem(inf_nfe, "infAdic")
+        aliq_credito_icms_inf_compl = extrair_aliquota_credito_icms(
+            self._get_text(inf_adic, "infCpl")
+        )
 
         # Itens da Nota (<det>)
         itens: list[ExtractedItemNF] = []
@@ -279,6 +286,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
             v_bc_nota=v_bc_nota,
             v_icms_nota=v_icms_nota,
             v_desc_nota=v_desc_nota,
+            aliq_credito_icms_inf_compl=aliq_credito_icms_inf_compl,
             itens=itens,
             raw_metadata={
                 "qtd_itens": len(itens),

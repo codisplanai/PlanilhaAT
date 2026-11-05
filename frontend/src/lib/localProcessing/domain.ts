@@ -51,6 +51,8 @@ export interface ExtractedNote {
   vDescNota?: number;
   /** Total de ICMS ST destacado na nota (tag vST em total/ICMSTot). */
   vStNota?: number;
+  /** Alíquota de crédito de ICMS autorizada em Informações Complementares (ex: 0.0359); null se ausente. */
+  aliqCreditoIcmsInfCompl?: number | null;
   origemExtracao: 'xml' | 'sped';
   rawMetadata: Record<string, string | number | boolean | null>;
   itens: ExtractedItem[];
