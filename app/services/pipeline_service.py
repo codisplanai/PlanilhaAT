@@ -585,6 +585,10 @@ class ProcessingPipelineService:
                             continue
 
                     # Camada 5: Resolução determinística de A.DST em três níveis
+                    is_tributaria = destino_item in (
+                        ANTECIPACAO_TRIBUTARIA,
+                        ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+                    )
                     try:
                         resolucao = self.resolver.resolve_a_dst(
                             perfil_regras_id=empresa.perfil_regras_id,
@@ -593,9 +597,17 @@ class ProcessingPipelineService:
                             descricao=item.descricao if item.descricao_confiavel else None,
                             empresa_id=empresa.id,
                             apenas_padrao_uf=(destino_item in (DIFAL, DIFAL_ANTECIPADO)),
-                            ignorar_termo_acordo=(
-                                destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO)
-                            ),
+                            ignorar_termo_acordo=is_tributaria,
+                            ignorar_reducao_produto=is_tributaria,
+                        )
+                        resolucao_red_trib = (
+                            self.resolver.resolve_reducao_tributaria(
+                                perfil_regras_id=empresa.perfil_regras_id,
+                                ncm=item.ncm,
+                                descricao=item.descricao if item.descricao_confiavel else None,
+                            )
+                            if is_tributaria
+                            else None
                         )
                     except RuleResolutionException as err:
                         # Sem identificar a nota, a mensagem não é acionável.
@@ -603,22 +615,9 @@ class ProcessingPipelineService:
                             f"NF-e {nf_data.numero_nota} (arquivo {filename}): {err.message}"
                         ) from err
                     a_dst = resolucao.aliquota
-                    reducao_item: Optional[Decimal] = None
-                    if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) and (
-                        (resolucao.origem or "").startswith("reducao_produto:")
-                        or (resolucao.origem or "").startswith("excecao:")
-                    ):
-                        resolucao_padrao = self.resolver.resolve_a_dst_padrao(
-                            perfil_regras_id=empresa.perfil_regras_id,
-                            uf=empresa.uf,
-                            ncm=item.ncm,
-                        )
-                        reducao_calculada = self.resolver.calcular_reducao_base_tributaria(
-                            resolucao.aliquota, resolucao_padrao.aliquota
-                        )
-                        if reducao_calculada is not None:
-                            reducao_item = reducao_calculada
-                            a_dst = resolucao_padrao.aliquota
+                    reducao_item: Optional[Decimal] = (
+                        resolucao_red_trib.aliquota if resolucao_red_trib is not None else None
+                    )
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
                     a_ori_destacada = bool(a_ori is not None and a_ori > Decimal("0.00"))

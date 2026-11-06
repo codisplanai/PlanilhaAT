@@ -37,12 +37,25 @@ class ExcecaoReducaoOut(BaseModel):
         orm_mode = True
 
 
+ESCOPOS_REDUCAO_VALIDOS = {"antecipacao_parcial", "antecipacao_tributaria"}
+
+
+def _validar_escopo_reducao(v: Optional[str]) -> str:
+    limpo = (v or "antecipacao_parcial").strip().lower()
+    if limpo not in ESCOPOS_REDUCAO_VALIDOS:
+        raise ValueError(
+            "Escopo inválido. Valores permitidos: 'antecipacao_parcial' ou 'antecipacao_tributaria'"
+        )
+    return limpo
+
+
 class RegraReducaoBase(BaseModel):
     perfil_regras_id: int = Field(..., example=1)
     ncm: str = Field(..., example="72142000")
     termos_inclusao: List[str] = Field(default_factory=list, example=["vergalh*"])
     termos_exclusao: List[str] = Field(default_factory=list, example=["cobre"])
     aliquota: Decimal = Field(..., example=0.1200)
+    escopo: str = Field("antecipacao_parcial", example="antecipacao_parcial")
     descricao: Optional[str] = Field(None, max_length=255, example="Vergalhões — Decreto 12.345")
 
     @validator("ncm")
@@ -61,6 +74,10 @@ class RegraReducaoBase(BaseModel):
     def validate_aliquota(cls, v):
         return normalizar_aliquota(v)
 
+    @validator("escopo", pre=True, always=True)
+    def validate_escopo(cls, v):
+        return _validar_escopo_reducao(v)
+
     class Config:
         extra = "forbid"
 
@@ -75,6 +92,7 @@ class RegraReducaoUpdate(BaseModel):
     termos_inclusao: Optional[List[str]] = None
     termos_exclusao: Optional[List[str]] = None
     aliquota: Optional[Decimal] = None
+    escopo: Optional[str] = None
     descricao: Optional[str] = None
 
     @validator("ncm")
@@ -92,6 +110,10 @@ class RegraReducaoUpdate(BaseModel):
     @validator("aliquota")
     def validate_aliquota(cls, v):
         return normalizar_aliquota(v)
+
+    @validator("escopo")
+    def validate_escopo(cls, v):
+        return _validar_escopo_reducao(v) if v is not None else v
 
     class Config:
         extra = "forbid"

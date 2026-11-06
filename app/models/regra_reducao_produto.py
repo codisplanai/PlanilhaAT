@@ -24,7 +24,14 @@ class RegraReducaoProduto(Base):
     ncm = Column(String(8), nullable=False, index=True)
     termos_inclusao = Column(JSON, default=list, nullable=False)
     termos_exclusao = Column(JSON, default=list, nullable=False)
-    aliquota = Column(Numeric(6, 4), nullable=False)
+    aliquota = Column(Numeric(8, 5), nullable=False)
+    escopo = Column(
+        String(30),
+        default="antecipacao_parcial",
+        server_default="antecipacao_parcial",
+        nullable=False,
+        index=True,
+    )
     descricao = Column(String(255), nullable=True)
     # Reservados: existem no schema para que ligar vigência depois não exija
     # migração de dados. Não expostos em schema Pydantic, endpoint nem tela.

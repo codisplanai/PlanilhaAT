@@ -1,3 +1,5 @@
+export type EscopoReducao = 'antecipacao_parcial' | 'antecipacao_tributaria';
+
 export interface ExcecaoReducao {
   id: number;
   regra_reducao_id: number;
@@ -15,6 +17,7 @@ export interface RegraReducao {
   termos_inclusao: string[];
   termos_exclusao: string[];
   aliquota: number;
+  escopo?: EscopoReducao;
   descricao?: string | null;
   excecoes: ExcecaoReducao[];
   criado_em: string;
@@ -27,6 +30,7 @@ export interface RegraReducaoCreate {
   termos_inclusao: string[];
   termos_exclusao?: string[];
   aliquota: number;
+  escopo?: EscopoReducao;
   descricao?: string | null;
 }
 
@@ -35,6 +39,7 @@ export interface RegraReducaoUpdate {
   termos_inclusao?: string[];
   termos_exclusao?: string[];
   aliquota?: number;
+  escopo?: EscopoReducao;
   descricao?: string | null;
 }
 

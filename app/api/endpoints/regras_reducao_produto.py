@@ -20,15 +20,23 @@ router = APIRouter(
 )
 
 
-def _conflita(db: Session, perfil_id: int, ncm: str, termos: List[str], ignorar_id: Optional[int] = None) -> bool:
-    """Duplicata literal: mesmo perfil, mesmo NCM e mesmo conjunto de termos.
+def _conflita(
+    db: Session,
+    perfil_id: int,
+    ncm: str,
+    termos: List[str],
+    escopo: str = "antecipacao_parcial",
+    ignorar_id: Optional[int] = None,
+) -> bool:
+    """Duplicata literal: mesmo perfil, mesmo escopo, mesmo NCM e mesmo conjunto de termos.
 
-    Duas regras para o mesmo NCM são legítimas (vergalhão e barra chata); o que
-    não pode é a mesma regra duas vezes.
+    Duas regras para o mesmo NCM são legítimas (vergalhão e barra chata, ou Parcial e Tributária);
+    o que não pode é a mesma regra duas vezes na mesma aba.
     """
     query = db.query(RegraReducaoProduto).filter(
         RegraReducaoProduto.perfil_regras_id == perfil_id,
         RegraReducaoProduto.ncm == ncm,
+        RegraReducaoProduto.escopo == escopo,
     )
     if ignorar_id is not None:
         query = query.filter(RegraReducaoProduto.id != ignorar_id)
@@ -42,7 +50,7 @@ def criar_regra_reducao(payload: RegraReducaoCreate, db: Session = Depends(get_d
     if not perfil:
         raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
 
-    if _conflita(db, payload.perfil_regras_id, payload.ncm, payload.termos_inclusao):
+    if _conflita(db, payload.perfil_regras_id, payload.ncm, payload.termos_inclusao, payload.escopo):
         raise HTTPException(
             status_code=409,
             detail=f"Já existe uma regra para o NCM '{payload.ncm}' com estes mesmos termos de inclusão.",
@@ -54,6 +62,7 @@ def criar_regra_reducao(payload: RegraReducaoCreate, db: Session = Depends(get_d
         termos_inclusao=payload.termos_inclusao,
         termos_exclusao=payload.termos_exclusao,
         aliquota=payload.aliquota,
+        escopo=payload.escopo,
         descricao=payload.descricao,
     )
     db.add(regra)
@@ -64,6 +73,7 @@ def criar_regra_reducao(payload: RegraReducaoCreate, db: Session = Depends(get_d
 def listar_regras_reducao(
     perfil_id: Optional[int] = None,
     ncm: Optional[str] = None,
+    escopo: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     # ``RegraReducaoOut`` serializa as exceções de cada regra: sem carregá-las
@@ -75,6 +85,8 @@ def listar_regras_reducao(
         query = query.filter(RegraReducaoProduto.perfil_regras_id == perfil_id)
     if ncm:
         query = query.filter(RegraReducaoProduto.ncm == ncm.strip())
+    if escopo:
+        query = query.filter(RegraReducaoProduto.escopo == escopo.strip().lower())
     return query.all()
 
 
@@ -95,10 +107,19 @@ def atualizar_regra_reducao(id: int, payload: RegraReducaoUpdate, db: Session = 
         regra.termos_exclusao = payload.termos_exclusao
     if payload.aliquota is not None:
         regra.aliquota = payload.aliquota
+    if payload.escopo is not None:
+        regra.escopo = payload.escopo
     if "descricao" in payload.__fields_set__:
         regra.descricao = payload.descricao
 
-    if _conflita(db, regra.perfil_regras_id, regra.ncm, regra.termos_inclusao, ignorar_id=id):
+    if _conflita(
+        db,
+        regra.perfil_regras_id,
+        regra.ncm,
+        regra.termos_inclusao,
+        regra.escopo or "antecipacao_parcial",
+        ignorar_id=id,
+    ):
         raise HTTPException(
             status_code=409,
             detail=f"Já existe uma regra para o NCM '{regra.ncm}' com estes mesmos termos de inclusão.",
