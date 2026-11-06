@@ -123,6 +123,7 @@ def _serialize_reducao(regra: RegraReducaoProduto) -> Dict[str, Any]:
         "termos_inclusao": regra.termos_inclusao or [],
         "termos_exclusao": regra.termos_exclusao or [],
         "aliquota": _serialize_decimal(regra.aliquota),
+        "escopo": regra.escopo or "antecipacao_parcial",
         "descricao": regra.descricao,
         "excecoes": [
             {

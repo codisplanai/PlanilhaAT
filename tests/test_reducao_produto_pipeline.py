@@ -262,4 +262,28 @@ def test_antecipacao_tributaria_preenche_reducao_41_463_e_mantem_a_dst_20_5_e_a_
     assert sem_reducao.valor_devido == Decimal("177.25")
 
 
+def test_contexto_processamento_local_inclui_escopo_nas_regras_reducao(client, db_session, cenario_janeiro):
+    sol = cenario_janeiro()
+    empresa = db_session.query(Empresa).filter(Empresa.id == sol.empresa_id).one()
+    db_session.add(
+        RegraReducaoProduto(
+            perfil_regras_id=empresa.perfil_regras_id,
+            ncm="72142000",
+            termos_inclusao=["VERGALH*"],
+            termos_exclusao=[],
+            aliquota=Decimal("0.41463"),
+            escopo="antecipacao_tributaria",
+            descricao="Vergalhão — Art. 266, II",
+        )
+    )
+    db_session.commit()
+
+    res = client.get("/api/v1/processamento-local/contexto", params={"empresa_id": empresa.id})
+    assert res.status_code == 200
+    regras = res.json()["regras_reducao"]
+    regra_trib = next((r for r in regras if r["ncm"] == "72142000" and abs(r["aliquota"] - 0.41463) < 1e-6), None)
+    assert regra_trib is not None
+    assert regra_trib.get("escopo") == "antecipacao_tributaria"
+
+
 

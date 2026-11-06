@@ -35,8 +35,10 @@ const CAMPO_LABELS: Record<string, string> = {
   base_calculo: 'Base de cálculo',
   ipi_despesas: 'IPI + despesas',
   mva: 'MVA',
+  reducao: 'Redução',
   a_dst: 'A.DST',
   a_ori: 'A.ORI',
+  valor_pago: 'VR. PG.',
 };
 
 const plural = (n: number, singular: string, plural_: string): string =>
@@ -518,12 +520,20 @@ export const AdminTemplatesPage: React.FC = () => {
                 tipoUpload === 'antecipacao_tributaria'
                 || tipoUpload === 'antecipacao_tributaria_antecipado'
               ) && (
-                <Input
-                  label="MVA"
-                  placeholder="Ex: H"
-                  {...register('col_mva')}
-                  error={errors.col_mva?.message}
-                />
+                <>
+                  <Input
+                    label="MVA"
+                    placeholder="Ex: H"
+                    {...register('col_mva')}
+                    error={errors.col_mva?.message}
+                  />
+                  <Input
+                    label="Redução"
+                    placeholder="Ex: I"
+                    {...register('col_reducao')}
+                    error={errors.col_reducao?.message}
+                  />
+                </>
               )}
               <Input
                 label="A.DST (destino)"
