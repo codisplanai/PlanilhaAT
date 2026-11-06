@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, Edit2, Percent, Plus, Trash2, TriangleAlert, X } from 'lucide-react';
 
 import { Button } from '../../components/ui/Button';
+import { CopiarRegrasButton } from './CopiarRegrasButton';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
@@ -209,13 +210,21 @@ export const ReducaoProdutoSection: React.FC<Props> = ({
           </span>
         }
         headerAction={
-          <Button
-            size="sm"
-            onClick={abrirModalCriacao}
-            leftIcon={<Plus className="w-3.5 h-3.5" />}
-          >
-            Nova redução
-          </Button>
+          <>
+            <CopiarRegrasButton
+              perfilId={perfilId}
+              secao="reducao"
+              label="Copiar para..."
+              descricao="Copia todas as reduções por produto (Antecipação Parcial e Tributária), com suas exceções."
+            />
+            <Button
+              size="sm"
+              onClick={abrirModalCriacao}
+              leftIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Nova redução
+            </Button>
+          </>
         }
       >
         <div className="p-5 pb-0">
@@ -350,6 +359,12 @@ export const ReducaoProdutoSection: React.FC<Props> = ({
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <CopiarRegrasButton
+                          perfilId={perfilId}
+                          secao="reducao"
+                          regraIds={[regra.id]}
+                          descricao="Copia esta redução, com suas exceções."
+                        />
                         <button
                           type="button"
                           onClick={() => abrirModalEdicao(regra)}

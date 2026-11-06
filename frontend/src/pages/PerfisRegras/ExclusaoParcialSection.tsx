@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '../../components/ui/Button';
+import { CopiarRegrasButton } from './CopiarRegrasButton';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
@@ -177,13 +178,21 @@ export const ExclusaoParcialSection: React.FC<Props> = ({ perfilId, open, onOpen
           </span>
         }
         headerAction={
-          <Button
-            size="sm"
-            onClick={handleOpenCreate}
-            leftIcon={<Plus className="w-3.5 h-3.5" />}
-          >
-            Nova regra de exclusão
-          </Button>
+          <>
+            <CopiarRegrasButton
+              perfilId={perfilId}
+              secao="exclusao"
+              label="Copiar para..."
+              descricao="Copia todas as regras de exclusão da Antecipação Parcial deste perfil (todas as UFs)."
+            />
+            <Button
+              size="sm"
+              onClick={handleOpenCreate}
+              leftIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Nova regra de exclusão
+            </Button>
+          </>
         }
       >
         <div className="space-y-4 p-5 pb-0">
@@ -349,6 +358,12 @@ export const ExclusaoParcialSection: React.FC<Props> = ({ perfilId, open, onOpen
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <CopiarRegrasButton
+                          perfilId={perfilId}
+                          secao="exclusao"
+                          regraIds={[regra.id]}
+                          descricao="Copia esta regra de exclusão."
+                        />
                         <button
                           type="button"
                           onClick={() => handleOpenEdit(regra)}

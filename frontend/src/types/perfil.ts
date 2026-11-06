@@ -70,3 +70,24 @@ export interface PerfilRegrasUpdate {
   descricao?: string | null;
   configuracoes_extras?: PerfilConfiguracoesExtras;
 }
+
+export type CopiarRegrasSecao = 'aliquotas' | 'cfop' | 'reducao' | 'reclassificacao' | 'exclusao';
+
+export interface CopiarRegrasPayload {
+  secao: CopiarRegrasSecao;
+  /** Omitido = seção inteira. */
+  regra_ids?: number[];
+  perfil_destino_ids?: number[];
+  todos_os_demais?: boolean;
+}
+
+export interface CopiarRegrasResultadoPerfil {
+  perfil_id: number;
+  perfil_nome: string;
+  copiadas: number;
+  ignoradas: number;
+}
+
+export interface CopiarRegrasResultado {
+  resultados: CopiarRegrasResultadoPerfil[];
+}
