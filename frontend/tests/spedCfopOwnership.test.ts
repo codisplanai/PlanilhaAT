@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { installDomParserPolyfill } from './domPolyfill.ts';
 import { parseSped } from '../src/lib/localProcessing/sped.ts';
 import { parseNfeXml } from '../src/lib/localProcessing/xml.ts';
-import { enrichSpedWithXml, assertSpedBelongsToCompany } from '../src/lib/localProcessing/sources.ts';
+import { enrichSpedWithXml, assertSpedBelongsToCompany, loadLocalFiscalSources } from '../src/lib/localProcessing/sources.ts';
 
 installDomParserPolyfill();
 
@@ -98,4 +98,68 @@ test('SPED com entrada de emissão própria (IND_EMIT = 0) atribui emitente como
   assert.equal(parsed.notes[0].cnpjEmitente, '12345678000195');
   assert.equal(parsed.notes[0].cnpjDestinatario, '12345678000195');
   assert.equal(parsed.notes[0].rawMetadata.ind_emit, '0');
+});
+
+test('múltiplos arquivos SPED fracionados na mesma competência consolidam notas e cruzam com XMLs', async () => {
+  const key1 = '35261011111111000191550010000001011000000101';
+  const key2 = '35261011111111000191550010000002021000000202';
+  const sped1 = [
+    '|0000|020|0|01102026|15102026|EMPRESA EXEMPLO|12345678000195||BA|12345678|0000000|||A|1|',
+    '|0150|FORN|FORNECEDOR EXEMPLO|1058|11111111000191||00000000|3550308||LOGRADOURO||',
+    '|0200|P1|PRODUTO 1|||UN|00|84244100||||||',
+    `|C100|0|1|FORN|55|00|1|101|${key1}|05102026|10102026|1000,00|0|0|0|1000,00|0|0|0|0|0|1000,00|120,00|0|0|0||`,
+    '|C170|1|P1||1,000|UN|1000,00|0,00|0|000|2102||1000,00|12,00|120,00|0|0|0|0|0||||0|0|||',
+  ].join('\r\n');
+  const sped2 = [
+    '|0000|020|0|16102026|30102026|EMPRESA EXEMPLO|12345678000195||BA|12345678|0000000|||A|1|',
+    '|0150|FORN|FORNECEDOR EXEMPLO|1058|11111111000191||00000000|3550308||LOGRADOURO||',
+    '|0200|P1|PRODUTO 2|||UN|00|84244100||||||',
+    `|C100|0|1|FORN|55|00|1|202|${key2}|20102026|25102026|1500,00|0|0|0|1500,00|0|0|0|0|0|1500,00|180,00|0|0|0||`,
+    '|C170|1|P1||1,000|UN|1500,00|0,00|0|000|2556||1500,00|12,00|180,00|0|0|0|0|0||||0|0|||',
+  ].join('\r\n');
+
+  const sources = await loadLocalFiscalSources(
+    {
+      xmlFiles: [],
+      spedFiles: [
+        new File([sped1], 'sped_01_15_out.txt'),
+        new File([sped2], 'sped_16_30_out.txt'),
+      ],
+      entrySheet: null,
+    },
+    '2026-10-01',
+    '2026-10-31',
+  );
+
+  assert.equal(sources.notes.length, 2);
+  assert.deepEqual(sources.notes.map((n) => n.numeroNota), ['101', '202']);
+  assert.deepEqual(sources.notes.map((n) => n.dataEntrada), ['2026-10-10', '2026-10-25']);
+  assert.equal(sources.spedCompanyInfos?.length, 2);
+});
+
+test('múltiplos arquivos SPED bloqueiam se um deles estiver fora do período da solicitação', async () => {
+  const spedOutubro = [
+    '|0000|020|0|01102026|15102026|EMPRESA EXEMPLO|12345678000195||BA|12345678|0000000|||A|1|',
+    `|C100|0|1|FORN|55|00|1|101|${key}|05102026|10102026|1000,00|0|0|0|1000,00|0|0|0|0|0|1000,00|120,00|0|0|0||`,
+  ].join('\r\n');
+  const spedSetembro = [
+    '|0000|020|0|01092026|30092026|EMPRESA EXEMPLO|12345678000195||BA|12345678|0000000|||A|1|',
+    `|C100|0|1|FORN|55|00|1|102|${key}|05092026|10092026|1000,00|0|0|0|1000,00|0|0|0|0|0|1000,00|120,00|0|0|0||`,
+  ].join('\r\n');
+
+  await assert.rejects(
+    () => loadLocalFiscalSources(
+      {
+        xmlFiles: [],
+        spedFiles: [
+          new File([spedOutubro], 'sped_out_1.txt'),
+          new File([spedSetembro], 'sped_set.txt'),
+        ],
+        entrySheet: null,
+      },
+      '2026-10-01',
+      '2026-10-31',
+    ),
+    /sped_set\.txt/,
+  );
 });

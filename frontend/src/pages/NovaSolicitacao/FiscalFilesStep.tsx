@@ -27,7 +27,7 @@ function formatBytes(bytes: number): string {
 
 export interface FiscalFilesStepProps {
   xmlFiles: File[];
-  spedFile: File | null;
+  spedFiles: File[];
   planilhaEntradaFile: File | null;
   onXmlDrop: (event: React.DragEvent<HTMLDivElement>) => void;
   onXmlInput: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -35,7 +35,8 @@ export interface FiscalFilesStepProps {
   onClearXmls: () => void;
   onSpedDrop: (event: React.DragEvent<HTMLDivElement>) => void;
   onSpedInput: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onRemoveSped: () => void;
+  onRemoveSped: (index: number) => void;
+  onClearSpeds: () => void;
   onPlanilhaDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
   onPlanilhaInput: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onRemovePlanilha: () => void;
@@ -45,7 +46,7 @@ export interface FiscalFilesStepProps {
 
 export const FiscalFilesStep: React.FC<FiscalFilesStepProps> = ({
   xmlFiles,
-  spedFile,
+  spedFiles,
   planilhaEntradaFile,
   onXmlDrop,
   onXmlInput,
@@ -54,6 +55,7 @@ export const FiscalFilesStep: React.FC<FiscalFilesStepProps> = ({
   onSpedDrop,
   onSpedInput,
   onRemoveSped,
+  onClearSpeds,
   onPlanilhaDrop,
   onPlanilhaInput,
   onRemovePlanilha,
@@ -65,7 +67,8 @@ export const FiscalFilesStep: React.FC<FiscalFilesStepProps> = ({
   const [dragOverPlanilha, setDragOverPlanilha] = useState(false);
 
   const totalXmlBytes = xmlFiles.reduce((acc, f) => acc + f.size, 0);
-  const hasRequiredFiles = xmlFiles.length > 0 || spedFile !== null;
+  const totalSpedBytes = spedFiles.reduce((acc, f) => acc + f.size, 0);
+  const hasRequiredFiles = xmlFiles.length > 0 || spedFiles.length > 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -252,8 +255,10 @@ export const FiscalFilesStep: React.FC<FiscalFilesStepProps> = ({
             </div>
 
             <div>
-              {spedFile ? (
-                <Badge variant="success">Anexado</Badge>
+              {spedFiles.length > 0 ? (
+                <Badge variant="success">
+                  {spedFiles.length} selecionado(s) ({formatBytes(totalSpedBytes)})
+                </Badge>
               ) : (
                 <Badge variant="purple">Recomendado</Badge>
               )}
@@ -263,73 +268,99 @@ export const FiscalFilesStep: React.FC<FiscalFilesStepProps> = ({
           <input
             id="sped-file-input"
             type="file"
+            multiple
             accept=".txt,text/plain"
             onChange={onSpedInput}
             className="hidden"
           />
 
-          {!spedFile ? (
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label="Selecionar arquivo SPED Fiscal"
-              onClick={() => document.getElementById('sped-file-input')?.click()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  document.getElementById('sped-file-input')?.click();
-                }
-              }}
-              onDragOver={(e) => {
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Selecionar arquivos SPED Fiscal"
+            onClick={() => document.getElementById('sped-file-input')?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                setDragOverSped(true);
-              }}
-              onDragLeave={() => setDragOverSped(false)}
-              onDrop={(e) => {
-                setDragOverSped(false);
-                onSpedDrop(e);
-              }}
-              className={`border-2 border-dashed rounded-xl p-5 text-center transition-all cursor-pointer ${
-                dragOverSped
-                  ? 'border-indigo-500 bg-indigo-50/70 scale-[0.99]'
-                  : 'border-indigo-200/90 bg-indigo-50/20 hover:border-indigo-400 hover:bg-indigo-50/40'
-              }`}
-            >
-              <div className="flex flex-col items-center gap-1.5">
-                <Upload className="w-5 h-5 text-indigo-600 mb-0.5" />
-                <p className="text-xs sm:text-sm font-semibold text-slate-800">
-                  Arraste o arquivo <span className="text-indigo-700 font-bold">SPED Fiscal (.txt)</span> aqui, ou{' '}
-                  <span className="text-indigo-700 underline font-bold">clique para selecionar</span>
-                </p>
-                <p className="text-[11px] text-slate-500">
-                  Arquivo EFD com blocos 0 e C • até 50 MB
-                </p>
-              </div>
+                document.getElementById('sped-file-input')?.click();
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOverSped(true);
+            }}
+            onDragLeave={() => setDragOverSped(false)}
+            onDrop={(e) => {
+              setDragOverSped(false);
+              onSpedDrop(e);
+            }}
+            className={`border-2 border-dashed rounded-xl p-5 text-center transition-all cursor-pointer ${
+              dragOverSped
+                ? 'border-indigo-500 bg-indigo-50/70 scale-[0.99]'
+                : 'border-indigo-200/90 bg-indigo-50/20 hover:border-indigo-400 hover:bg-indigo-50/40'
+            }`}
+          >
+            <div className="flex flex-col items-center gap-1.5">
+              <Upload className="w-5 h-5 text-indigo-600 mb-0.5" />
+              <p className="text-xs sm:text-sm font-semibold text-slate-800">
+                Arraste os arquivos <span className="text-indigo-700 font-bold">SPED Fiscal (.txt)</span> aqui, ou{' '}
+                <span className="text-indigo-700 underline font-bold">clique para selecionar</span>
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Um ou mais arquivos EFD (ex.: períodos fracionados na competência) • até 50 MB por arquivo
+              </p>
             </div>
-          ) : (
-            <div className="border border-indigo-200 bg-indigo-50/60 rounded-xl p-3.5 flex items-center justify-between">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                  <CheckCircle2 className="w-4 h-4" />
-                </div>
-                <div className="overflow-hidden">
-                  <p className="text-xs font-bold text-indigo-950 truncate" title={spedFile.name}>
-                    {spedFile.name}
-                  </p>
-                  <p className="text-[11px] text-indigo-700">
-                    {formatBytes(spedFile.size)} • EFD ICMS/IPI pronto
-                  </p>
+          </div>
+
+          {spedFiles.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-700 px-1">
+                <span>Arquivos SPED ({spedFiles.length})</span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('sped-file-input')?.click()}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:text-indigo-800 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Adicionar mais
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClearSpeds}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-800 cursor-pointer"
+                  >
+                    Limpar todos
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={onRemoveSped}
-                aria-label="Remover arquivo SPED"
-                className="p-1.5 rounded-lg text-indigo-800 hover:text-rose-700 hover:bg-indigo-100 transition-colors cursor-pointer"
-                title="Remover arquivo"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              <div className="max-h-44 overflow-y-auto rounded-xl border border-indigo-200/80 divide-y divide-indigo-100 bg-indigo-50/30">
+                {spedFiles.map((file, idx) => (
+                  <div
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="p-2.5 px-3 flex items-center justify-between text-xs hover:bg-white transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                      <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span className="font-medium text-indigo-950 truncate" title={file.name}>
+                        {file.name}
+                      </span>
+                      <span className="text-[10px] text-indigo-500 font-mono shrink-0">
+                        {formatBytes(file.size)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveSped(idx)}
+                      aria-label={`Remover ${file.name}`}
+                      className="text-indigo-400 hover:text-rose-600 p-1 rounded-md hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+                      title="Remover arquivo"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

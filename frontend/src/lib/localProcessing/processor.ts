@@ -58,6 +58,7 @@ import {
   loadLocalFiscalSources,
   matchEntryCfop,
   matchEntryDate,
+  resolveSpedFiles,
 } from './sources.ts';
 import { selectTemplateForRows } from './templateSelection.ts';
 import { fillTemplateLocally } from './xlsx.ts';
@@ -329,15 +330,22 @@ export async function processFiscalLocally(
     throw new Error(`CNPJ da empresa selecionada "${context.empresa.cnpj}" é inválido.`);
   }
 
+  const spedFiles = resolveSpedFiles(request.input);
+  const hasSped = spedFiles.length > 0;
   const sources = await loadLocalFiscalSources(request.input, periodoInicio, periodoFim);
-  if (request.input.spedFile) {
-    assertSpedBelongsToCompany(sources.spedCompanyInfo, context.empresa.cnpj);
+  if (hasSped) {
+    const companyInfos = sources.spedCompanyInfos?.length
+      ? sources.spedCompanyInfos
+      : [sources.spedCompanyInfo];
+    for (const info of companyInfos) {
+      assertSpedBelongsToCompany(info, context.empresa.cnpj);
+    }
   }
   diagnostic?.event('info', 'leitura', 'Fontes fiscais interpretadas.', {
     notasLidas: sources.notes.length,
     registrosEntrada: sources.entryRecords.length,
     notasInvalidas: sources.ignoredNotes.length,
-    possuiSped: Boolean(request.input.spedFile),
+    possuiSped: hasSped,
     possuiPlanilhaEntrada: Boolean(request.input.entrySheet),
   }, Math.round(performance.now() - sourceStartedAt));
   diagnostic?.setSummary({
@@ -381,7 +389,7 @@ export async function processFiscalLocally(
   const transformationStartedAt = performance.now();
   diagnostic?.stage('transformacao', 'Validação fiscal, aplicação de regras e cálculos iniciados.');
 
-  const hasEntrySource = Boolean(request.input.spedFile) || Boolean(request.input.entrySheet) || sources.entryRecords.length > 0;
+  const hasEntrySource = hasSped || Boolean(request.input.entrySheet) || sources.entryRecords.length > 0;
   const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
   const convenio5291SavedIndustrialConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
   const convenio5291Config = effectiveConvenio5291PartialConfig(convenio5291SavedIndustrialConfig);

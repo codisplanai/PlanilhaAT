@@ -12,7 +12,7 @@ const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 
 export function useFiscalInputFiles() {
   const [xmlFiles, setXmlFiles] = useState<File[]>([]);
-  const [spedFile, setSpedFile] = useState<File | null>(null);
+  const [spedFiles, setSpedFiles] = useState<File[]>([]);
   const [planilhaEntradaFile, setPlanilhaEntradaFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -63,38 +63,43 @@ export function useFiscalInputFiles() {
     setXmlFiles((currentFiles) => currentFiles.filter((_, itemIndex) => itemIndex !== index));
   };
 
+  const addSpedFiles = (newFiles: File[]) => {
+    if (newFiles.length === 0) return;
+
+    const validFiles = newFiles.filter(
+      (file) => file.name.toLowerCase().endsWith('.txt') && file.size > 0 && file.size <= MAX_SPED_BYTES,
+    );
+    const fileKey = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
+    const existingKeys = new Set(spedFiles.map(fileKey));
+    const addedFiles = validFiles.filter((file) => !existingKeys.has(fileKey(file)));
+    const nextFiles = [...spedFiles, ...addedFiles];
+
+    if (addedFiles.length > 0) setSpedFiles(nextFiles);
+
+    if (validFiles.length < newFiles.length) {
+      const hasInvalidExt = newFiles.some((file) => !file.name.toLowerCase().endsWith('.txt'));
+      setFileError(
+        hasInvalidExt
+          ? 'Selecione apenas arquivos de texto (.txt) do SPED Fiscal.'
+          : 'Cada arquivo SPED deve ser não vazio e ter no máximo 50 MB.',
+      );
+    } else {
+      setFileError(null);
+    }
+  };
+
   const handleSpedInput = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.txt')) {
-      setFileError('Selecione um arquivo de texto (.txt) do SPED Fiscal.');
-      event.target.value = '';
-      return;
-    }
-    if (file.size === 0 || file.size > MAX_SPED_BYTES) {
-      setFileError('O arquivo SPED deve ser não vazio e ter no máximo 50 MB.');
-      event.target.value = '';
-      return;
-    }
-    setSpedFile(file);
-    setFileError(null);
+    addSpedFiles(Array.from(event.target.files ?? []));
     event.target.value = '';
   };
 
   const handleSpedDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const file = event.dataTransfer.files[0];
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.txt')) {
-      setFileError('Selecione um arquivo com extensão .txt para o SPED Fiscal.');
-      return;
-    }
-    if (file.size === 0 || file.size > MAX_SPED_BYTES) {
-      setFileError('O arquivo SPED deve ser não vazio e ter no máximo 50 MB.');
-      return;
-    }
-    setSpedFile(file);
-    setFileError(null);
+    addSpedFiles(Array.from(event.dataTransfer.files));
+  };
+
+  const removeSpedFile = (index: number) => {
+    setSpedFiles((currentFiles) => currentFiles.filter((_, itemIndex) => itemIndex !== index));
   };
 
   const handlePlanilhaEntradaInput = (event: ChangeEvent<HTMLInputElement>) => {
@@ -137,23 +142,25 @@ export function useFiscalInputFiles() {
 
   const resetFiles = () => {
     setXmlFiles([]);
-    setSpedFile(null);
+    setSpedFiles([]);
     setPlanilhaEntradaFile(null);
     setFileError(null);
   };
 
   return {
     xmlFiles,
-    spedFile,
+    spedFiles,
+    spedFile: spedFiles[0] ?? null,
     planilhaEntradaFile,
     setXmlFiles,
-    setSpedFile,
+    setSpedFiles,
     setPlanilhaEntradaFile,
     handleXmlDrop,
     handleXmlInput,
     removeXmlFile,
     handleSpedInput,
     handleSpedDrop,
+    removeSpedFile,
     handlePlanilhaEntradaInput,
     handlePlanilhaEntradaDrop,
     resetFiles,

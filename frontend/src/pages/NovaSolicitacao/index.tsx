@@ -42,16 +42,17 @@ export const NovaSolicitacaoPage: React.FC = () => {
     periodoFim,
     setPeriodoFim,
     xmlFiles,
-    spedFile,
+    spedFiles,
     planilhaEntradaFile,
     setXmlFiles,
-    setSpedFile,
+    setSpedFiles,
     setPlanilhaEntradaFile,
     handleXmlDrop,
     handleXmlInput,
     removeXmlFile,
     handleSpedInput,
     handleSpedDrop,
+    removeSpedFile,
     handlePlanilhaEntradaInput,
     handlePlanilhaEntradaDrop,
     fileError,
@@ -130,7 +131,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
         {currentStep === 3 && (
           <FiscalFilesStep
             xmlFiles={xmlFiles}
-            spedFile={spedFile}
+            spedFiles={spedFiles}
             planilhaEntradaFile={planilhaEntradaFile}
             onXmlDrop={handleXmlDrop}
             onXmlInput={handleXmlInput}
@@ -138,7 +139,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
             onClearXmls={() => setXmlFiles([])}
             onSpedDrop={handleSpedDrop}
             onSpedInput={handleSpedInput}
-            onRemoveSped={() => setSpedFile(null)}
+            onRemoveSped={removeSpedFile}
+            onClearSpeds={() => setSpedFiles([])}
             onPlanilhaDrop={handlePlanilhaEntradaDrop}
             onPlanilhaInput={handlePlanilhaEntradaInput}
             onRemovePlanilha={() => setPlanilhaEntradaFile(null)}
@@ -202,14 +204,18 @@ export const NovaSolicitacaoPage: React.FC = () => {
                               ? `${xmlFiles.length} arquivo(s) (XML/ZIP)`
                               : `${xmlFiles.length} XML(s)`
                             : null,
-                          spedFile ? `SPED (${spedFile.name})` : null,
+                          spedFiles.length > 0
+                            ? spedFiles.length === 1
+                              ? `SPED (${spedFiles[0].name})`
+                              : `${spedFiles.length} SPEDs (${spedFiles.map((f) => f.name).join(', ')})`
+                            : null,
                         ].filter(Boolean).join(' + ')}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-500">Datas de entrada contábeis:</span>
-                      {spedFile ? (
+                      {spedFiles.length > 0 ? (
                         <span className="font-semibold text-indigo-700 flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Extração nativa do SPED (Registro C100)
                         </span>
