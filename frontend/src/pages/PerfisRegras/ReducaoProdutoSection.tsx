@@ -91,7 +91,7 @@ export const ReducaoProdutoSection: React.FC<Props> = ({
   const [enquadrado, setEnquadrado] = useState('nao');
   const [observacao, setObservacao] = useState('');
 
-  const todasRegras = regras.data ?? [];
+  const todasRegras = useMemo(() => regras.data ?? [], [regras.data]);
   const regrasParcial = useMemo(
     () => todasRegras.filter((r) => (r.escopo ?? 'antecipacao_parcial') === 'antecipacao_parcial'),
     [todasRegras],
