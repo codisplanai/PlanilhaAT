@@ -1,4 +1,4 @@
-from copy import deepcopy
+﻿from copy import deepcopy
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
 from app.models.perfil_regras import PerfilRegras
-from app.schemas.perfil_regras import PerfilRegrasCreate, PerfilRegrasUpdate, PerfilRegrasOut, PerfilRegrasDuplicar
+from app.schemas.perfil_regras import (
+    PerfilRegrasCreate, PerfilRegrasUpdate, PerfilRegrasOut, PerfilRegrasDuplicar,
+    PerfilRegrasCopiarRegras, CopiaRegrasResultado,
+)
+from app.services.copia_regras import SECOES, copiar_regras
+from sqlalchemy.exc import SQLAlchemyError
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 
 router = APIRouter(
@@ -94,3 +99,37 @@ def duplicar_perfil(id: int, payload: PerfilRegrasDuplicar, db: Session = Depend
     # Uma única transação evita deixar um perfil parcialmente duplicado.
     db.add(copia)
     return commit_and_refresh(db, copia, "Outro perfil já utiliza este nome.")
+
+
+@router.post(
+    "/{id}/copiar-regras",
+    response_model=CopiaRegrasResultado,
+    dependencies=[Depends(require_admin)],
+)
+def copiar_regras_para_perfis(id: int, payload: PerfilRegrasCopiarRegras, db: Session = Depends(get_db)):
+    origem = get_by_id_or_404(db, PerfilRegras, id, "Perfil de regras não encontrado.")
+
+    if payload.todos_os_demais:
+        destinos = db.query(PerfilRegras).filter(PerfilRegras.id != id).order_by(PerfilRegras.nome).all()
+    else:
+        ids = list(dict.fromkeys(payload.perfil_destino_ids))
+        if id in ids:
+            raise HTTPException(status_code=422, detail="O perfil de origem não pode ser destino.")
+        destinos = db.query(PerfilRegras).filter(PerfilRegras.id.in_(ids)).all()
+        if len(destinos) != len(ids):
+            raise HTTPException(status_code=404, detail="Perfil de destino não encontrado.")
+
+    if payload.regra_ids is not None:
+        relacao = SECOES[payload.secao][0]
+        ids_origem = {r.id for r in getattr(origem, relacao)}
+        if not set(payload.regra_ids) <= ids_origem:
+            raise HTTPException(status_code=404, detail="Regra não encontrada no perfil de origem.")
+
+    resultados = copiar_regras(db, origem, payload.secao, destinos, payload.regra_ids)
+    # Uma única transação: nenhum perfil fica parcialmente copiado.
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Não foi possível copiar as regras.")
+    return {"resultados": resultados}
