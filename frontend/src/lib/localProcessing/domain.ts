@@ -76,6 +76,12 @@ export interface ParsedFiscalSources {
     ie?: string;
     nome?: string;
   };
+  spedCompanyInfos?: Array<{
+    cnpj?: string;
+    uf?: string;
+    ie?: string;
+    nome?: string;
+  }>;
 }
 
 export interface CfopResolution {

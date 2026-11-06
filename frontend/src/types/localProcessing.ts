@@ -87,6 +87,7 @@ export interface LocalMvaEntry {
 export interface LocalFiscalInput {
   xmlFiles: File[];
   spedFile?: File | null;
+  spedFiles?: File[];
   entrySheet?: File | null;
 }
 

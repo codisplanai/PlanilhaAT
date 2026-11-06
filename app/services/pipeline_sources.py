@@ -38,15 +38,21 @@ class PipelineSourceLoader:
         solicitacao: Solicitacao,
         empresa: Empresa,
         xml_files: Optional[List[Tuple[str, bytes]]],
-        sped_content: Optional[bytes],
-        sped_filename: Optional[str],
-        entry_sheet_content: Optional[bytes],
-        entry_sheet_filename: Optional[str],
+        sped_content: Optional[bytes] = None,
+        sped_filename: Optional[str] = None,
+        sped_files: Optional[List[Tuple[str, bytes]]] = None,
+        entry_sheet_content: Optional[bytes] = None,
+        entry_sheet_filename: Optional[str] = None,
     ) -> PipelineSources:
+        normalized_speds = self._normalize_sped_files(
+            sped_files=sped_files,
+            sped_content=sped_content,
+            sped_filename=sped_filename,
+        )
         sped_company_info = self._validate_sped_period(
             solicitacao,
             empresa,
-            sped_content,
+            normalized_speds,
         )
         entry_records = self._parse_entry_sheet(
             entry_sheet_content,
@@ -54,8 +60,7 @@ class PipelineSourceLoader:
         )
         notes, ignored_notes = self._extract_notes(
             xml_files,
-            sped_content,
-            sped_filename,
+            normalized_speds,
         )
         if not notes:
             raise ValidationException(
@@ -69,35 +74,66 @@ class PipelineSourceLoader:
             sped_company_info=sped_company_info,
         )
 
+    @staticmethod
+    def _normalize_sped_files(
+        *,
+        sped_files: Optional[List[Tuple[str, bytes]]],
+        sped_content: Optional[bytes],
+        sped_filename: Optional[str],
+    ) -> List[Tuple[str, bytes]]:
+        items: List[Tuple[str, bytes]] = [
+            (name or "sped_fiscal.txt", content)
+            for name, content in (sped_files or [])
+            if content
+        ]
+        if sped_content:
+            items.append((sped_filename or "sped_fiscal.txt", sped_content))
+        return items
+
     def _validate_sped_period(
         self,
         solicitacao: Solicitacao,
         empresa: Empresa,
-        sped_content: Optional[bytes],
+        sped_files: List[Tuple[str, bytes]],
     ) -> Dict[str, str]:
-        if not sped_content:
+        if not sped_files:
             return {}
 
-        company_info = self.sped_extractor.extract_empresa_info(sped_content)
-        if not empresa.inscricao_estadual and company_info.get("ie"):
-            empresa.inscricao_estadual = company_info["ie"]
+        merged_info: Dict[str, str] = {}
+        seen_cnpjs: set[str] = set()
+        for filename, sped_content in sped_files:
+            company_info = self.sped_extractor.extract_empresa_info(sped_content)
+            cnpj = (company_info.get("cnpj") or "").strip()
+            if cnpj:
+                seen_cnpjs.add(cnpj)
+                if len(seen_cnpjs) > 1:
+                    raise ValidationException(
+                        "Os arquivos SPED enviados pertencem a CNPJs distintos no registro 0000. "
+                        "Envie apenas arquivos SPED do mesmo estabelecimento."
+                    )
+            for key, value in company_info.items():
+                if value and not merged_info.get(key):
+                    merged_info[key] = value
 
-        start, end = self.sped_extractor.extract_periodo(sped_content)
-        if start and end:
-            no_intersection = (
-                end < solicitacao.periodo_inicio
-                or start > solicitacao.periodo_fim
-            )
-            if no_intersection:
-                raise ValidationException(
-                    f"O arquivo SPED enviado refere-se ao período de "
-                    f"{start.strftime('%d/%m/%Y')} a {end.strftime('%d/%m/%Y')}, "
-                    f"que não coincide com o período da solicitação "
-                    f"({solicitacao.periodo_inicio.strftime('%d/%m/%Y')} a "
-                    f"{solicitacao.periodo_fim.strftime('%d/%m/%Y')}). "
-                    f"Envie o SPED Fiscal da mesma competência que está sendo apurada."
+            start, end = self.sped_extractor.extract_periodo(sped_content)
+            if start and end:
+                no_intersection = (
+                    end < solicitacao.periodo_inicio
+                    or start > solicitacao.periodo_fim
                 )
-        return company_info
+                if no_intersection:
+                    raise ValidationException(
+                        f"O arquivo SPED enviado ({filename}) refere-se ao período de "
+                        f"{start.strftime('%d/%m/%Y')} a {end.strftime('%d/%m/%Y')}, "
+                        f"que não coincide com o período da solicitação "
+                        f"({solicitacao.periodo_inicio.strftime('%d/%m/%Y')} a "
+                        f"{solicitacao.periodo_fim.strftime('%d/%m/%Y')}). "
+                        f"Envie o SPED Fiscal da mesma competência que está sendo apurada."
+                    )
+
+        if not empresa.inscricao_estadual and merged_info.get("ie"):
+            empresa.inscricao_estadual = merged_info["ie"]
+        return merged_info
 
     @staticmethod
     def _parse_entry_sheet(
@@ -114,25 +150,20 @@ class PipelineSourceLoader:
     def _extract_notes(
         self,
         xml_files: Optional[List[Tuple[str, bytes]]],
-        sped_content: Optional[bytes],
-        sped_filename: Optional[str],
+        sped_files: List[Tuple[str, bytes]],
     ) -> Tuple[List[Tuple[str, ExtractedNFData]], List[Dict[str, Any]]]:
         notes: List[Tuple[str, ExtractedNFData]] = []
         ignored_notes: List[Dict[str, Any]] = []
-        sped_notes: List[ExtractedNFData] = []
+        sped_by_key: Dict[str, ExtractedNFData] = {}
 
-        if sped_content:
-            sped_notes = self.sped_extractor.extract_from_sped(sped_content)
-            notes.extend(
-                (sped_filename or "sped_fiscal.txt", note)
-                for note in sped_notes
-            )
-
-        sped_by_key = {
-            key: note
-            for note in sped_notes
-            for key in crossing_keys(note)
-        }
+        for sped_filename, sped_content in sped_files:
+            for note in self.sped_extractor.extract_from_sped(sped_content):
+                keys = crossing_keys(note)
+                if any(key in sped_by_key for key in keys):
+                    continue
+                notes.append((sped_filename or "sped_fiscal.txt", note))
+                for key in keys:
+                    sped_by_key[key] = note
         for filename, xml_content in xml_files or []:
             try:
                 xml_note = self.xml_extractor.extract_from_xml(xml_content)
