@@ -1,6 +1,6 @@
 """Adiciona escopo (Parcial vs Tributária) em regras_reducao_produto e remove seed automático do Art. 266, II.
 
-Revision ID: 025_reducao_tributaria_aba_manual
+Revision ID: 025_reducao_tributaria_manual
 Revises: 024_art266_ii_reducoes
 Create Date: 2026-11-06
 """
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "025_reducao_tributaria_aba_manual"
+revision: str = "025_reducao_tributaria_manual"
 down_revision: Union[str, None] = "024_art266_ii_reducoes"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
