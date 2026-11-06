@@ -176,14 +176,14 @@ def test_manter_a_ori_menor_que_10_mesmo_com_configuracao_ativa(db_session, cena
 def test_antecipacao_tributaria_preenche_reducao_41_463_e_mantem_a_dst_20_5_e_a_ori_integral(
     db_session, cenario_janeiro
 ):
-    """Na Antecipação Tributária (RICMS/BA Dec. 13.780/12, Art. 266, II):
+    """Na Antecipação Tributária (aba manual 'antecipacao_tributaria'):
+    - Regras da aba Antecipação Parcial não interferem na Antecipação Tributária
+    - Regras da aba Antecipação Tributária preenchem Redução = 0.41463 (41,463% na planilha)
     - A.DST permanece na alíquota interna padrão da UF (20,5%)
-    - Redução recebe 0.41463 (41,463% na planilha)
     - A.ORI permanece integral (12%, sem limitar a 10% mesmo com flag ativa)
-    - Item de cobre em 7317 não recebe a redução e desdobra em outra linha.
+    - Item excluído por termo ('COBRE') não recebe a redução e desdobra em outra linha.
     """
     from app.constants import ANTECIPACAO_TRIBUTARIA
-    from app.core.seeds import seed_default_art266_reducoes
     from app.models.regra_aliquota import RegraAliquotaDestino
 
     sol = cenario_janeiro(tipos=(ANTECIPACAO_TRIBUTARIA,))
@@ -196,8 +196,19 @@ def test_antecipacao_tributaria_preenche_reducao_41_463_e_mantem_a_dst_20_5_e_a_
         .one()
     )
     regra_ba.aliquota = Decimal("0.2050")
+    # Cadastra regra manual na aba Antecipação Tributária (41,463%)
+    db_session.add(
+        RegraReducaoProduto(
+            perfil_regras_id=empresa.perfil_regras_id,
+            ncm="7317",
+            termos_inclusao=[],
+            termos_exclusao=["COBRE"],
+            aliquota=Decimal("0.41463"),
+            escopo="antecipacao_tributaria",
+            descricao="RICMS/BA Dec. 13.780/12, Art. 266, II",
+        )
+    )
     db_session.commit()
-    seed_default_art266_reducoes(db_session)
 
     xml_tributaria = f"""<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">

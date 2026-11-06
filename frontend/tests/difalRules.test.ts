@@ -90,7 +90,7 @@ test('DIFAL: ignora termo de acordo, redução por produto e NCM, usando a alíq
   assert.equal(resDifal.origem, 'padrao_uf:10');
 });
 
-test('Não-DIFAL: usa regras de redução por produto normalmente na Parcial e Tributária', () => {
+test('Não-DIFAL: usa regras de redução da aba Parcial na Parcial e mantém A.DST normal na Tributária', () => {
   const ctx = createDifalContext();
   const item = createItem();
 
@@ -99,8 +99,8 @@ test('Não-DIFAL: usa regras de redução por produto normalmente na Parcial e T
   assert.equal(resParcial.origem, 'reducao_produto:5');
 
   const resTributaria = resolveDestinationRate(ctx, item, 'antecipacao_tributaria');
-  assert.equal(resTributaria.aliquota, 0.12);
-  assert.equal(resTributaria.origem, 'reducao_produto:5');
+  assert.equal(resTributaria.aliquota, 0.18);
+  assert.equal(resTributaria.origem, 'regra_ncm:11');
 });
 
 test('Antecipação Tributária (normal e antecipado): ignora termo de acordo e usa NCM ou padrão UF', () => {

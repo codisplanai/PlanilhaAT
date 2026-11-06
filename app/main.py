@@ -19,7 +19,6 @@ from app.core.config import ensure_storage_directories, settings
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.exceptions import PlanilhaATException
 from app.core.seeds import (
-    seed_default_art266_reducoes,
     seed_default_cfop_rules,
     seed_default_templates,
 )
@@ -40,7 +39,6 @@ async def lifespan(_app: FastAPI):
         try:
             seed_default_templates(db)
             seed_default_cfop_rules(db)
-            seed_default_art266_reducoes(db)
         finally:
             db.close()
     yield

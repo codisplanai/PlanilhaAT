@@ -31,7 +31,6 @@ import {
 } from './convenio5291.ts';
 import {
   acceptsRetroactiveDifal,
-  calculateTributariaBaseReduction,
   classifyRevendaMva,
   DIFAL_AWAITING_ENTRY_REASON,
   evaluatePartialMerchandiseExclusion,
@@ -50,7 +49,7 @@ import {
   resolveMvaForItem,
   resolveOriginRate,
   resolveRevendaMva,
-  resolveStandardDestinationRate,
+  resolveTributariaReduction,
   retroactiveDifalWarning,
   shouldExcludeEqualRates,
 } from './rules.ts';
@@ -696,19 +695,11 @@ export async function processFiscalLocally(
             note, item, context.empresa.uf, industrialDecisions,
           ), anexo: 'I' as const }
           : null;
-      let itemReducao: number | null = null;
-      let effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
-      if (
-        TAX_SUBSTITUTION_DESTINATIONS.has(destination)
-        && (rate.origem.startsWith('reducao_produto:') || rate.origem.startsWith('excecao:'))
-      ) {
-        const standardRate = resolveStandardDestinationRate(context, item);
-        const computedReduction = calculateTributariaBaseReduction(rate.aliquota, standardRate.aliquota);
-        if (computedReduction != null) {
-          itemReducao = computedReduction;
-          effectiveADst = standardRate.aliquota;
-        }
-      }
+      const tributariaReduction = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+        ? resolveTributariaReduction(context, item)
+        : null;
+      const itemReducao: number | null = tributariaReduction ? tributariaReduction.aliquota : null;
+      const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
       const originalAOri = item.aOri;
       const effectiveRate = convenio?.applied
         ? {

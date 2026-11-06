@@ -84,7 +84,12 @@ class AliquotaResolver:
                 .first()
             )
 
-    def _regras_reducao(self, perfil_regras_id: int, ncm: str) -> List[RegraReducaoProduto]:
+    def _regras_reducao(
+        self,
+        perfil_regras_id: int,
+        ncm: str,
+        escopo: str = "antecipacao_parcial",
+    ) -> List[RegraReducaoProduto]:
         clean_ncm = re.sub(r"\D", "", ncm or "")
         if len(clean_ncm) < 4 or set(clean_ncm) == {"0"}:
             return []
@@ -96,7 +101,13 @@ class AliquotaResolver:
                 .filter(RegraReducaoProduto.perfil_regras_id == perfil_regras_id)
                 .all()
             )
-        return [r for r in todas if r.ncm and clean_ncm.startswith(r.ncm)]
+        return [
+            r
+            for r in todas
+            if (getattr(r, "escopo", None) or "antecipacao_parcial") == escopo
+            and r.ncm
+            and clean_ncm.startswith(r.ncm)
+        ]
 
     def _termo_acordo(self, empresa_id: int) -> Optional[RegraAliquotaEmpresa]:
         if empresa_id not in self._termos_acordo:
@@ -118,6 +129,7 @@ class AliquotaResolver:
         empresa_id: Optional[int] = None,
         apenas_padrao_uf: bool = False,
         ignorar_termo_acordo: bool = False,
+        ignorar_reducao_produto: bool = False,
     ) -> ResolucaoAliquota:
         clean_uf = uf.strip().upper() if uf else ""
         clean_ncm = ncm.strip() if ncm else None
@@ -125,9 +137,12 @@ class AliquotaResolver:
         if apenas_padrao_uf:
             return self._nivel_padrao_uf(perfil_regras_id, clean_uf)
 
-        reducao = self._nivel_reducao_produto(perfil_regras_id, clean_ncm, descricao)
-        if reducao is not None:
-            return reducao
+        if not ignorar_reducao_produto:
+            reducao = self._nivel_reducao_produto(
+                perfil_regras_id, clean_ncm, descricao, escopo="antecipacao_parcial"
+            )
+            if reducao is not None:
+                return reducao
 
         if not ignorar_termo_acordo:
             acordo = self._nivel_termo_acordo(empresa_id)
@@ -135,6 +150,22 @@ class AliquotaResolver:
                 return acordo
 
         return self._nivel_padrao(perfil_regras_id, clean_uf, clean_ncm)
+
+    def resolve_reducao_tributaria(
+        self,
+        perfil_regras_id: int,
+        ncm: Optional[str] = None,
+        descricao: Optional[str] = None,
+    ) -> Optional[ResolucaoAliquota]:
+        """Resolve o percentual de redução da Base ST (ex: 0.41463) cadastrado na aba
+        Antecipação Tributária de Reduções por Produto."""
+        clean_ncm = ncm.strip() if ncm else None
+        return self._nivel_reducao_produto(
+            perfil_regras_id,
+            clean_ncm,
+            descricao,
+            escopo="antecipacao_tributaria",
+        )
 
     def resolve_a_dst_padrao(
         self, perfil_regras_id: int, uf: str, ncm: Optional[str] = None
@@ -147,11 +178,15 @@ class AliquotaResolver:
     # -- níveis --------------------------------------------------------------
 
     def _nivel_reducao_produto(
-        self, perfil_regras_id: int, ncm: Optional[str], descricao: Optional[str]
+        self,
+        perfil_regras_id: int,
+        ncm: Optional[str],
+        descricao: Optional[str],
+        escopo: str = "antecipacao_parcial",
     ) -> Optional[ResolucaoAliquota]:
         if not ncm:
             return None
-        regras = self._regras_reducao(perfil_regras_id, ncm)
+        regras = self._regras_reducao(perfil_regras_id, ncm, escopo=escopo)
         if not regras:
             return None
         desc = normalizar(descricao) if descricao else ""

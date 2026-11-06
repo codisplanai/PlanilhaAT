@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Check, Percent, Plus, Trash2, TriangleAlert, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Check, Edit2, Percent, Plus, Trash2, TriangleAlert, X } from 'lucide-react';
 
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -7,17 +7,44 @@ import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Select } from '../../components/ui/Select';
+import { Tabs } from '../../components/ui/Tabs';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { SectionEmpty } from '../../components/feedback/SectionEmpty';
 import { useReducaoProdutoSection } from './useReducaoProdutoSection';
-import type { RegraReducao } from '../../types/regraReducao';
+import type { EscopoReducao, RegraReducao } from '../../types/regraReducao';
 import { parseCommaSeparatedTerms } from '../../lib/terms';
 
 const AJUDA_TERMOS =
-  'Opcional: deixe em branco para enquadrar qualquer descrição do NCM/prefixo. ' +
-  'Ou separe por vírgula e use * no fim para casar prefixo (ex.: vergalh* pega VERGALHAO e VERGALHOES).';
+  'Opcional: deixe em branco para enquadrar qualquer descrição do NCM/prefixo (inclusive abreviações como VERG CA50 e SPED sem C170). ' +
+  'Ou separe por vírgula e use * no fim para casar prefixo (ex.: verg*, vergalh*).';
 
-const percentual = (aliquota: number): string => `${(aliquota * 100).toFixed(2)}%`;
+const REDUCAO_TRIBUTARIA_PADRAO = '41,463';
+
+const formatarPercentualRegra = (aliquota: number, escopo: EscopoReducao): string => {
+  const pct = Math.round((aliquota * 100 + Number.EPSILON) * 1000) / 1000;
+  if (escopo === 'antecipacao_tributaria') {
+    const hasThirdDecimal = Math.abs(pct * 100 - Math.round(pct * 100)) > 1e-4;
+    return `${pct.toLocaleString('pt-BR', {
+      minimumFractionDigits: hasThirdDecimal ? 3 : 2,
+      maximumFractionDigits: 3,
+    })}%`;
+  }
+  return `${pct.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+};
+
+const formatarValorInput = (aliquota: number, escopo: EscopoReducao): string => {
+  const pct = Math.round((aliquota * 100 + Number.EPSILON) * 1000) / 1000;
+  if (escopo === 'antecipacao_tributaria') {
+    const hasThirdDecimal = Math.abs(pct * 100 - Math.round(pct * 100)) > 1e-4;
+    return pct
+      .toFixed(hasThirdDecimal ? 3 : 2)
+      .replace('.', ',');
+  }
+  return pct.toFixed(2).replace('.', ',');
+};
 
 interface Props {
   perfilId: number;
@@ -26,11 +53,26 @@ interface Props {
   marker?: React.ReactNode;
 }
 
-export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenChange, marker }) => {
-  const { regras, criarRegra, deletarRegra, criarExcecao, deletarExcecao, erro, setErro } =
-    useReducaoProdutoSection(perfilId);
+export const ReducaoProdutoSection: React.FC<Props> = ({
+  perfilId,
+  open,
+  onOpenChange,
+  marker,
+}) => {
+  const {
+    regras,
+    criarRegra,
+    atualizarRegra,
+    deletarRegra,
+    criarExcecao,
+    deletarExcecao,
+    erro,
+    setErro,
+  } = useReducaoProdutoSection(perfilId);
 
+  const [abaAtiva, setAbaAtiva] = useState<EscopoReducao>('antecipacao_parcial');
   const [modalRegraAberto, setModalRegraAberto] = useState(false);
+  const [regraEditando, setRegraEditando] = useState<RegraReducao | null>(null);
   const [regraDaExcecao, setRegraDaExcecao] = useState<RegraReducao | null>(null);
   const [regraParaExcluir, setRegraParaExcluir] = useState<RegraReducao | null>(null);
   const [excecaoParaExcluir, setExcecaoParaExcluir] = useState<{
@@ -49,23 +91,81 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
   const [enquadrado, setEnquadrado] = useState('nao');
   const [observacao, setObservacao] = useState('');
 
-  const limparFormRegra = () => {
-    setNcm(''); setInclusao(''); setExclusao(''); setAliquota(''); setDescricao('');
+  const todasRegras = regras.data ?? [];
+  const regrasParcial = useMemo(
+    () => todasRegras.filter((r) => (r.escopo ?? 'antecipacao_parcial') === 'antecipacao_parcial'),
+    [todasRegras],
+  );
+  const regrasTributaria = useMemo(
+    () => todasRegras.filter((r) => r.escopo === 'antecipacao_tributaria'),
+    [todasRegras],
+  );
+  const regrasVisiveis = abaAtiva === 'antecipacao_tributaria' ? regrasTributaria : regrasParcial;
+  const isTributariaTab = abaAtiva === 'antecipacao_tributaria';
+
+  const abrirModalCriacao = () => {
+    setErro(null);
+    setRegraEditando(null);
+    setNcm('');
+    setInclusao('');
+    setExclusao('');
+    setAliquota(isTributariaTab ? REDUCAO_TRIBUTARIA_PADRAO : '');
+    setDescricao('');
+    setModalRegraAberto(true);
+  };
+
+  const abrirModalEdicao = (regra: RegraReducao) => {
+    const escopoRegra: EscopoReducao =
+      regra.escopo === 'antecipacao_tributaria' ? 'antecipacao_tributaria' : 'antecipacao_parcial';
+    setErro(null);
+    setRegraEditando(regra);
+    setNcm(regra.ncm);
+    setInclusao((regra.termos_inclusao ?? []).join(', '));
+    setExclusao((regra.termos_exclusao ?? []).join(', '));
+    setAliquota(formatarValorInput(regra.aliquota, escopoRegra));
+    setDescricao(regra.descricao || '');
+    setModalRegraAberto(true);
+  };
+
+  const fecharModalRegra = () => {
+    setModalRegraAberto(false);
+    setRegraEditando(null);
   };
 
   const submeterRegra = (e: React.FormEvent) => {
     e.preventDefault();
     setErro(null);
+    const valorNumerico = Number(aliquota.replace(',', '.'));
+
+    if (regraEditando) {
+      atualizarRegra.mutate(
+        {
+          id: regraEditando.id,
+          payload: {
+            ncm,
+            termos_inclusao: parseCommaSeparatedTerms(inclusao),
+            termos_exclusao: parseCommaSeparatedTerms(exclusao),
+            aliquota: valorNumerico,
+            escopo: regraEditando.escopo ?? abaAtiva,
+            descricao: descricao || null,
+          },
+        },
+        { onSuccess: fecharModalRegra },
+      );
+      return;
+    }
+
     criarRegra.mutate(
       {
         perfil_regras_id: perfilId,
         ncm,
         termos_inclusao: parseCommaSeparatedTerms(inclusao),
         termos_exclusao: parseCommaSeparatedTerms(exclusao),
-        aliquota: Number(aliquota.replace(',', '.')),
+        aliquota: valorNumerico,
+        escopo: abaAtiva,
         descricao: descricao || null,
       },
-      { onSuccess: () => { limparFormRegra(); setModalRegraAberto(false); } },
+      { onSuccess: fecharModalRegra },
     );
   };
 
@@ -84,7 +184,9 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
       },
       {
         onSuccess: () => {
-          setDescricaoExata(''); setObservacao(''); setEnquadrado('nao');
+          setDescricaoExata('');
+          setObservacao('');
+          setEnquadrado('nao');
           setRegraDaExcecao(null);
         },
       },
@@ -100,19 +202,44 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
         marker={marker}
         bodyPadding="none"
         title="Reduções por Produto"
-        subtitle="Aplicada quando o NCM e a descrição do item conferem. Vence o termo de acordo da empresa e as demais regras."
-        summary={<span>{regras.data?.length ?? 0} regra(s)</span>}
+        subtitle="Cadastre reduções de A.DST para Antecipação Parcial e produtos com redução de base (coluna Redução) na Antecipação Tributária."
+        summary={
+          <span>
+            {regrasParcial.length} parcial · {regrasTributaria.length} tributária
+          </span>
+        }
         headerAction={
           <Button
             size="sm"
-            onClick={() => { setErro(null); setModalRegraAberto(true); }}
+            onClick={abrirModalCriacao}
             leftIcon={<Plus className="w-3.5 h-3.5" />}
           >
             Nova redução
           </Button>
         }
       >
-        {regras.data && regras.data.length > 0 ? (
+        <div className="p-5 pb-0">
+          <Tabs
+            tabs={[
+              {
+                id: 'antecipacao_parcial',
+                label: `Antecipação Parcial (${regrasParcial.length})`,
+              },
+              {
+                id: 'antecipacao_tributaria',
+                label: `Antecipação Tributária (${regrasTributaria.length})`,
+              },
+            ]}
+            activeTab={abaAtiva}
+            onChange={(id) => {
+              setErro(null);
+              setAbaAtiva(id as EscopoReducao);
+            }}
+            className="mb-4"
+          />
+        </div>
+
+        {regrasVisiveis.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full divide-y divide-slate-100 text-left text-xs">
               <thead className="bg-slate-50/70 text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -120,14 +247,16 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
                   <th className="px-3 py-2.5 font-mono">NCM</th>
                   <th className="px-3 py-2.5">Termos de inclusão</th>
                   <th className="px-3 py-2.5">Termos de exclusão</th>
-                  <th className="px-3 py-2.5 text-right">Alíquota</th>
+                  <th className="px-3 py-2.5 text-right">
+                    {isTributariaTab ? 'Redução (%)' : 'Alíquota'}
+                  </th>
                   <th className="px-3 py-2.5">Descrição</th>
                   <th className="px-3 py-2.5">Exceções por descrição</th>
                   <th className="px-3 py-2.5 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100/80">
-                {regras.data.map((regra) => (
+                {regrasVisiveis.map((regra) => (
                   <tr key={regra.id} className="align-top transition-colors hover:bg-slate-50/70">
                     <td className="px-3 py-2.5">
                       <span className="rounded border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-800">
@@ -167,7 +296,7 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono font-bold tabular-nums text-blue-950">
-                      {percentual(regra.aliquota)}
+                      {formatarPercentualRegra(regra.aliquota, abaAtiva)}
                     </td>
                     <td className="px-3 py-2.5 text-slate-600">{regra.descricao || '—'}</td>
                     <td className="px-3 py-2.5">
@@ -198,7 +327,8 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
                                   regraId: regra.id,
                                   excecaoId: exc.id,
                                   descricao: exc.descricao_exata,
-                                })}
+                                })
+                              }
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -208,7 +338,10 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
                           size="sm"
                           variant="ghost"
                           className="min-h-0 px-2 py-1"
-                          onClick={() => { setErro(null); setRegraDaExcecao(regra); }}
+                          onClick={() => {
+                            setErro(null);
+                            setRegraDaExcecao(regra);
+                          }}
                           leftIcon={<Plus className="h-3 w-3" />}
                         >
                           Exceção
@@ -216,15 +349,26 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setRegraParaExcluir(regra)}
-                        className="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-700"
-                        title="Excluir redução"
-                        aria-label={`Excluir redução do NCM ${regra.ncm}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => abrirModalEdicao(regra)}
+                          className="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-700"
+                          title="Editar redução"
+                          aria-label={`Editar redução do NCM ${regra.ncm}`}
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRegraParaExcluir(regra)}
+                          className="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                          title="Excluir redução"
+                          aria-label={`Excluir redução do NCM ${regra.ncm}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -232,16 +376,24 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
             </table>
           </div>
         ) : (
-          <div className="p-5">
+          <div className="p-5 pt-1">
             <SectionEmpty
               icon={<Percent className="h-6 w-6" />}
-              title="Nenhuma redução por produto"
-              hint="Sem regra aqui, todos os produtos usam o termo de acordo da empresa ou a alíquota padrão do estado."
+              title={
+                isTributariaTab
+                  ? 'Nenhum produto cadastrado na redução da Antecipação Tributária'
+                  : 'Nenhuma redução por produto na Antecipação Parcial'
+              }
+              hint={
+                isTributariaTab
+                  ? 'Cadastre manualmente os NCMs/produtos (ex.: 72142000) que devem preencher a coluna Redução (41,463%) na planilha de Antecipação Tributária.'
+                  : 'Sem regra aqui, todos os produtos usam o termo de acordo da empresa ou a alíquota padrão do estado.'
+              }
               action={
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => { setErro(null); setModalRegraAberto(true); }}
+                  onClick={abrirModalCriacao}
                   leftIcon={<Plus className="h-3.5 w-3.5" />}
                 >
                   Cadastrar redução
@@ -254,14 +406,22 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
 
       <Modal
         isOpen={modalRegraAberto}
-        onClose={() => setModalRegraAberto(false)}
-        title="Nova redução por produto"
-        subtitle="A regra só se aplica quando o NCM e a descrição do item conferem."
+        onClose={fecharModalRegra}
+        title={
+          regraEditando
+            ? `Editar redução — ${isTributariaTab ? 'Antecipação Tributária' : 'Antecipação Parcial'}`
+            : `Nova redução — ${isTributariaTab ? 'Antecipação Tributária' : 'Antecipação Parcial'}`
+        }
+        subtitle={
+          isTributariaTab
+            ? 'Preenche a coluna Redução na planilha de Antecipação Tributária (Anexo 88), mantendo A.DST na alíquota padrão da UF.'
+            : 'Reduz a Alíquota de Destino (A.DST) na planilha de Antecipação Parcial quando NCM e descrição conferem.'
+        }
       >
         <form onSubmit={submeterRegra} className="space-y-4">
           {erro && (
             <ErrorAlert
-              title="Erro ao cadastrar redução"
+              title="Erro ao salvar redução"
               message={erro}
               onDismiss={() => setErro(null)}
             />
@@ -270,14 +430,14 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
             label="NCM ou prefixo (4 a 8 dígitos)"
             value={ncm}
             onChange={(e) => setNcm(e.target.value)}
-            placeholder="7217, 7314.31 ou 72142000"
+            placeholder="72142000, 7217 ou 7314.31"
             required
           />
           <Input
             label="Termos de inclusão (opcional)"
             value={inclusao}
             onChange={(e) => setInclusao(e.target.value)}
-            placeholder="vergalh*, verg ca (vazio = qualquer descrição)"
+            placeholder="verg*, vergalh* (vazio = todo o NCM)"
             helperText={AJUDA_TERMOS}
           />
           <Input
@@ -288,25 +448,36 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
             helperText="Se algum destes casar, a regra é descartada para o item."
           />
           <Input
-            label="Alíquota"
+            label={isTributariaTab ? 'Redução (%)' : 'Alíquota'}
             value={aliquota}
             onChange={(e) => setAliquota(e.target.value)}
-            placeholder="12,00"
-            helperText="Aceita 12 ou 0.12."
+            placeholder={isTributariaTab ? REDUCAO_TRIBUTARIA_PADRAO : '12,00'}
+            helperText={
+              isTributariaTab
+                ? 'Padrão RICMS/BA Dec. 13.780/12 (Art. 266, II): 41,463 (exibido como 41,46 na planilha).'
+                : 'Aceita 12 ou 0.12.'
+            }
             required
           />
           <Input
             label="Descrição (opcional)"
             value={descricao}
             onChange={(e) => setDescricao(e.target.value)}
-            placeholder="Vergalhões — Decreto 12.345"
+            placeholder={
+              isTributariaTab
+                ? 'Vergalhão — RICMS/BA Dec. 13.780/12, Art. 266, II'
+                : 'Vergalhões — Decreto 12.345'
+            }
           />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setModalRegraAberto(false)}>
+            <Button type="button" variant="outline" onClick={fecharModalRegra}>
               Cancelar
             </Button>
-            <Button type="submit" isLoading={criarRegra.isPending}>
-              Cadastrar
+            <Button
+              type="submit"
+              isLoading={criarRegra.isPending || atualizarRegra.isPending}
+            >
+              {regraEditando ? 'Salvar alterações' : 'Cadastrar'}
             </Button>
           </div>
         </form>
@@ -326,8 +497,8 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
               onDismiss={() => setErro(null)}
             />
           )}
-          <div className="flex items-start gap-2 text-xs text-slate-600 bg-slate-50 rounded-lg p-3">
-            <TriangleAlert className="w-4 h-4 shrink-0 text-amber-600" />
+          <div className="flex items-start gap-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+            <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600" />
             <span>
               Informe a descrição como ela aparece na nota. Acento, caixa e pontuação são
               normalizados automaticamente.
@@ -345,7 +516,7 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
             value={enquadrado}
             onChange={(e) => setEnquadrado(e.target.value)}
             options={[
-              { value: 'nao', label: 'Não — usar a alíquota normal' },
+              { value: 'nao', label: 'Não — usar a tributação normal' },
               { value: 'sim', label: 'Sim — aplicar a redução' },
             ]}
           />
