@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Trash2, TriangleAlert } from 'lucide-react';
 
 import { Button } from '../../components/ui/Button';
+import { CopiarRegrasButton } from './CopiarRegrasButton';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -112,17 +113,25 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
             Itens que casarem com estas regras terão o CFOP reescrito antes da resolução da planilha.
           </p>
         </div>
-        <Button
-          size="sm"
-          onClick={() => {
-            limparFormRegra();
-            setErro(null);
-            setModalRegraAberto(true);
-          }}
-          leftIcon={<Plus className="w-3.5 h-3.5" />}
-        >
-          Nova Reclassificação
-        </Button>
+        <div className="flex items-center gap-2">
+          <CopiarRegrasButton
+            perfilId={perfilId}
+            secao="reclassificacao"
+            label="Copiar para..."
+            descricao="Copia todas as reclassificações de CFOP deste perfil, com suas exceções."
+          />
+          <Button
+            size="sm"
+            onClick={() => {
+              limparFormRegra();
+              setErro(null);
+              setModalRegraAberto(true);
+            }}
+            leftIcon={<Plus className="w-3.5 h-3.5" />}
+          >
+            Nova Reclassificação
+          </Button>
+        </div>
       </div>
 
       {regras.data && regras.data.length > 0 ? (
@@ -209,6 +218,13 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
                     </div>
                   </td>
                   <td className="py-3 px-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                    <CopiarRegrasButton
+                      perfilId={perfilId}
+                      secao="reclassificacao"
+                      regraIds={[regra.id]}
+                      descricao="Copia esta reclassificação, com suas exceções."
+                    />
                     <Button
                       size="sm"
                       variant="ghost"
@@ -219,6 +235,7 @@ export const ReclassificacaoCfopSection: React.FC<Props> = ({ perfilId }) => {
                     >
                       Excluir
                     </Button>
+                    </div>
                   </td>
                 </tr>
               ))}

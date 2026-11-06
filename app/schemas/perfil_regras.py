@@ -1,8 +1,8 @@
-from typing import Optional, Dict, Any
+﻿from typing import Optional, Dict, Any, List
 from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
 import re
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 
 def _normalizar_lista_textos(value: Any, campo: str, *, ncm: bool = False) -> list[str]:
@@ -277,3 +277,44 @@ class PerfilRegrasDuplicar(BaseModel):
 
     class Config:
         extra = "forbid"
+
+
+class PerfilRegrasCopiarRegras(BaseModel):
+    """Copia regras em tabela de um perfil para outros perfis (só admin)."""
+
+    secao: str
+    regra_ids: Optional[List[int]] = None
+    perfil_destino_ids: List[int] = Field(default_factory=list)
+    todos_os_demais: bool = False
+
+    @validator("secao")
+    def validate_secao(cls, value):
+        if value not in {"aliquotas", "cfop", "reducao", "reclassificacao", "exclusao"}:
+            raise ValueError("Seção inválida")
+        return value
+
+    @validator("regra_ids")
+    def validate_regra_ids(cls, value):
+        if value is not None and not value:
+            raise ValueError("Informe ao menos uma regra ou omita regra_ids para copiar a seção inteira")
+        return value
+
+    @root_validator(skip_on_failure=True)
+    def validate_destinos(cls, values):
+        if not values.get("todos_os_demais") and not values.get("perfil_destino_ids"):
+            raise ValueError("Informe os perfis de destino ou marque todos_os_demais")
+        return values
+
+    class Config:
+        extra = "forbid"
+
+
+class CopiaRegrasResultadoPerfil(BaseModel):
+    perfil_id: int
+    perfil_nome: str
+    copiadas: int
+    ignoradas: int
+
+
+class CopiaRegrasResultado(BaseModel):
+    resultados: List[CopiaRegrasResultadoPerfil]

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import {
   Sliders,
   Plus,
@@ -40,6 +40,7 @@ import { ExclusaoParcialSection } from './ExclusaoParcialSection';
 import { MvaAntecipacaoSection } from './MvaAntecipacaoSection';
 import { Convenio5291Section } from './Convenio5291Section';
 import { PerfilList } from './PerfilList';
+import { CopiarRegrasButton } from './CopiarRegrasButton';
 
 type SectionKey =
   | 'limiteAori'
@@ -396,6 +397,8 @@ export const PerfisRegrasPage: React.FC = () => {
                 title="Exceções Tributárias por NCM"
                 subtitle="Sobrescreve a alíquota padrão do estado. É superada pelas reduções por produto e pelo termo de acordo da empresa."
                 headerAction={
+                  <>
+                    <CopiarRegrasButton perfilId={activePerfil.id} secao="aliquotas" regraIds={regrasExcecao.map((r) => r.id)} label="Copiar para..." descricao="Copia todas as exceções de NCM listadas." />
                   <Button
                     size="sm"
                     className="bg-purple-700 hover:bg-purple-800 focus:ring-purple-700 text-white shadow-xs shadow-purple-700/20"
@@ -404,6 +407,7 @@ export const PerfisRegrasPage: React.FC = () => {
                   >
                     Nova Exceção NCM
                   </Button>
+                  </>
                 }
               >
                 {isLoadingRegras ? (
@@ -465,6 +469,7 @@ export const PerfisRegrasPage: React.FC = () => {
                             </td>
                             <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1">
+                                <CopiarRegrasButton perfilId={activePerfil.id} secao="aliquotas" regraIds={[regra.id]} descricao="Copia esta exceção de NCM." />
                                 <button
                                   type="button"
                                   onClick={() => handleOpenEditRegra(regra)}
@@ -504,6 +509,8 @@ export const PerfisRegrasPage: React.FC = () => {
                 title="Alíquotas Padrão por Estado"
                 subtitle="Alíquota base do estado. Vale quando não há redução por produto, termo de acordo nem exceção de NCM."
                 headerAction={
+                  <>
+                    <CopiarRegrasButton perfilId={activePerfil.id} secao="aliquotas" regraIds={regrasPadrao.map((r) => r.id)} label="Copiar para..." descricao="Copia todas as alíquotas padrão listadas." />
                   <Button
                     size="sm"
                     variant="outline"
@@ -512,6 +519,7 @@ export const PerfisRegrasPage: React.FC = () => {
                   >
                     Nova Regra Estadual
                   </Button>
+                  </>
                 }
               >
                 {isLoadingRegras ? (
@@ -569,6 +577,7 @@ export const PerfisRegrasPage: React.FC = () => {
                             </td>
                             <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1">
+                                <CopiarRegrasButton perfilId={activePerfil.id} secao="aliquotas" regraIds={[regra.id]} descricao="Copia esta alíquota padrão." />
                                 <button
                                   type="button"
                                   onClick={() => handleOpenEditRegra(regra)}
@@ -758,6 +767,10 @@ export const PerfisRegrasPage: React.FC = () => {
                 title="Roteamento por CFOP"
                 subtitle="Define em qual planilha cada item da nota entra a partir do CFOP, e reclassifica produtos específicos por NCM."
                 headerAction={
+                  <>
+                    {cfopTab === 'geral' && (
+                      <CopiarRegrasButton perfilId={activePerfil.id} secao="cfop" regraIds={regrasCfopEfetivas.filter((r) => r.origem === 'perfil').map((r) => r.regra_id)} label="Copiar para..." descricao="Copia as exceções de roteamento por CFOP cadastradas neste perfil." />
+                    )}
                   cfopTab === 'geral' ? (
                     <Button
                       size="sm"
@@ -768,6 +781,7 @@ export const PerfisRegrasPage: React.FC = () => {
                       Nova Exceção de CFOP
                     </Button>
                   ) : null
+                  </>
                 }
               >
                 <div className="p-5 pb-0">
@@ -845,6 +859,9 @@ export const PerfisRegrasPage: React.FC = () => {
                               </td>
                               <td className="py-3 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1">
+                                  {regra.origem === 'perfil' && (
+                                    <CopiarRegrasButton perfilId={activePerfil.id} secao="cfop" regraIds={[regra.regra_id]} descricao="Copia esta regra de roteamento por CFOP." />
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditRegraCfop(regra)}
