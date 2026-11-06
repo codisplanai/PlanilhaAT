@@ -223,6 +223,10 @@ export function useAdminTemplatesPage() {
     if (data.col_base_calculo) columns.base_calculo = data.col_base_calculo.toUpperCase();
     if (data.col_ipi_despesas) columns.ipi_despesas = data.col_ipi_despesas.toUpperCase();
     if (data.col_mva) columns.mva = data.col_mva.toUpperCase();
+    if (data.tipo === 'antecipacao_tributaria' || data.tipo === 'antecipacao_tributaria_antecipado') {
+      columns.reducao = 'I';
+      columns.valor_pago = 'S';
+    }
 
     const headerCell = data.header_cell || 'A2';
     const mapping: TemplateMapping = {

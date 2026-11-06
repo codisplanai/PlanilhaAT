@@ -38,6 +38,12 @@ def test_wildcard_nao_casa_prefixo_mais_curto():
     assert casa_termo(normalizar("Verga de madeira"), "vergalh*") is False
 
 
+def test_termo_vergalhao_casa_abreviacao_fiscal_verg():
+    assert casa_termo(normalizar("VERG CA50 16mm RT 12m 2t NV"), "vergalhão") is True
+    assert casa_termo(normalizar("VERG CA50 16mm RT 12m 2t NV"), "vergalh*") is True
+    assert casa_termo(normalizar("Verga de madeira"), "vergalhão") is False
+
+
 def test_termo_multi_token_exige_sequencia_contigua():
     assert casa_termo(normalizar("VERG CA 50 10MM"), "verg ca") is True
     assert casa_termo(normalizar("VERG 10MM CA"), "verg ca") is False
