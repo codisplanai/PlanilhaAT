@@ -47,7 +47,10 @@ class TemplateFiller:
                     raise ValidationException(f"Célula de cabeçalho inválida: '{header_cell}'.") from exc
 
             start_row = int(mapping.get("start_row", 4))
-            columns_map = mapping.get("columns", {})
+            columns_map = dict(mapping.get("columns", {}))
+            if "mva" in columns_map and columns_map.get("a_dst") == "J":
+                columns_map.setdefault("reducao", "I")
+                columns_map.setdefault("valor_pago", "S")
             percentage_format = mapping.get("aliquota_format") or mapping.get("extra_options", {}).get(
                 "aliquota_format", "decimal"
             )

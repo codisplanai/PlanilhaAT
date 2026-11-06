@@ -563,10 +563,15 @@ export async function fillTemplateLocally(
 
   const columnsMapping: Record<string, string> = { ...template.mapeamento_campos.columns };
   if (
-    (template.tipo === 'antecipacao_tributaria' || template.tipo === 'antecipacao_tributaria_antecipado')
-    && !columnsMapping.valor_pago
+    template.tipo === 'antecipacao_tributaria'
+    || template.tipo === 'antecipacao_tributaria_antecipado'
   ) {
-    columnsMapping.valor_pago = 'S';
+    if (!columnsMapping.reducao) {
+      columnsMapping.reducao = 'I';
+    }
+    if (!columnsMapping.valor_pago) {
+      columnsMapping.valor_pago = 'S';
+    }
   }
 
   rows.forEach((source, index) => {

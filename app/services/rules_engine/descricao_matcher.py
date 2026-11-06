@@ -25,11 +25,24 @@ def normalizar(texto: Optional[str]) -> str:
     return _NAO_ALFANUM.sub(" ", sem_acento.upper()).strip()
 
 
+def _padrao_token(token: str, ultimo: bool, prefixo: bool) -> str:
+    if ultimo and prefixo:
+        if token.startswith("VERGALH"):
+            return rf"(?:{re.escape(token)}[A-Z0-9]*|VERG(?![A-Z0-9]))"
+        return rf"{re.escape(token)}[A-Z0-9]*"
+    if token in {"VERGALHAO", "VERGALHOES"}:
+        return rf"(?:{re.escape(token)}|VERG)(?![A-Z0-9])"
+    return rf"{re.escape(token)}(?![A-Z0-9])"
+
+
 def _compilar(termo_normalizado: str, prefixo: bool) -> "re.Pattern[str]":
     tokens = termo_normalizado.split()
-    corpo = r"\s+".join(re.escape(t) for t in tokens)
-    fim = "" if prefixo else r"(?![A-Z0-9])"
-    return re.compile(rf"(?<![A-Z0-9]){corpo}{fim}")
+    partes = [
+        _padrao_token(t, idx == len(tokens) - 1, prefixo)
+        for idx, t in enumerate(tokens)
+    ]
+    corpo = r"\s+".join(partes)
+    return re.compile(rf"(?<![A-Z0-9]){corpo}")
 
 
 def casa_termo(descricao_normalizada: str, termo: str) -> bool:
