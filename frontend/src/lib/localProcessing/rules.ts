@@ -156,15 +156,30 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&');
 }
 
+function tokenPattern(token: string, isLast: boolean, prefix: boolean): string {
+  if (isLast && prefix) {
+    if (token.startsWith('VERGALH')) {
+      return `(?:${escapeRegex(token)}[A-Z0-9]*|VERG(?![A-Z0-9]))`;
+    }
+    return `${escapeRegex(token)}[A-Z0-9]*`;
+  }
+  if (token === 'VERGALHAO' || token === 'VERGALHOES') {
+    return `(?:${escapeRegex(token)}|VERG)(?![A-Z0-9])`;
+  }
+  return `${escapeRegex(token)}(?![A-Z0-9])`;
+}
+
 export function termMatches(normalizedDescription: string, rawTerm: string): boolean {
   let term = String(rawTerm ?? '').trim();
   const prefix = term.endsWith('*');
   if (prefix) term = term.slice(0, -1);
   const normalized = normalizeDescription(term);
   if (!normalized || !normalizedDescription) return false;
-  const body = normalized.split(/\s+/).map(escapeRegex).join('\\s+');
-  const end = prefix ? '' : '(?![A-Z0-9])';
-  return new RegExp(`(?<![A-Z0-9])${body}${end}`).test(normalizedDescription);
+  const tokens = normalized.split(/\s+/);
+  const body = tokens
+    .map((token, idx) => tokenPattern(token, idx === tokens.length - 1, prefix))
+    .join('\\s+');
+  return new RegExp(`(?<![A-Z0-9])${body}`).test(normalizedDescription);
 }
 
 function anyTerm(desc: string, terms?: string[] | null): boolean {

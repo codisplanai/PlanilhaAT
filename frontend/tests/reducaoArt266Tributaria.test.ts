@@ -149,10 +149,8 @@ function buildContext(): LocalProcessingContext {
             base_calculo: 'F',
             ipi_despesas: 'G',
             mva: 'H',
-            reducao: 'I',
             a_dst: 'J',
             a_ori: 'K',
-            valor_pago: 'S',
           },
           extra_options: {
             header_cell: 'A2',
@@ -240,4 +238,91 @@ test('Antecipação Tributária: aplica redução de 41,463% (Art. 266, II), man
     .join('\n');
   assert.match(allSheetsXml, /<c[^>]*r="I4"[^>]*><v>41\.463<\/v><\/c>/);
   assert.match(allSheetsXml, /<c[^>]*r="J4"[^>]*><v>20\.5<\/v><\/c>/);
+});
+
+test('Antecipação Tributária: nota 51719 (VERG CA50 16mm RT 12m 2t NV, NCM 72142000) casa com termo "vergalhão" e grava Redução na coluna I', async () => {
+  const context = buildContext();
+  context.regras_reducao.push({
+    id: 12,
+    perfil_regras_id: 1,
+    ncm: '72142000',
+    termos_inclusao: ['vergalhão'],
+    termos_exclusao: [],
+    aliquota: 0.41463,
+    escopo: 'antecipacao_tributaria',
+    descricao: 'Vergalhão CA50 — Art. 266, II',
+    excecoes: [],
+    criado_em: '2026-11-06T00:00:00Z',
+    atualizado_em: '2026-11-06T00:00:00Z',
+  });
+  context.mva_anexo.push({
+    ncm: '72142000',
+    item: '8.43.1',
+    cest: ['10.043.01'],
+    mva_original: [{ caso: null, valor: 33.48 }],
+    mva_ajustada: [{ caso: null, aliquotas: { '4': 58.18, '7': 53.24, '12': 45 } }],
+  });
+
+  const xml51719 = XML_ART266_II
+    .replace('<nNF>50999</nNF>', '<nNF>51719</nNF>')
+    .replace(/<det nItem="1">[\s\S]*<\/det>/, `<det nItem="1">
+        <prod>
+          <cProd>000000000110006876</cProd>
+          <xProd>VERG CA50 16mm RT 12m 2t NV</xProd>
+          <NCM>72142000</NCM>
+          <CEST>1004301</CEST>
+          <CFOP>6403</CFOP>
+          <vProd>28425.10</vProd>
+        </prod>
+        <imposto>
+          <ICMS>
+            <ICMS00>
+              <orig>5</orig>
+              <CST>00</CST>
+              <vBC>28425.10</vBC>
+              <pICMS>12.00</pICMS>
+              <vICMS>3411.01</vICMS>
+            </ICMS00>
+          </ICMS>
+        </imposto>
+      </det>`)
+    .replace('<vNF>2000.00</vNF>', '<vNF>28425.10</vNF>')
+    .replace('<vBC>2000.00</vBC>', '<vBC>28425.10</vBC>')
+    .replace('<vICMS>240.00</vICMS>', '<vICMS>3411.01</vICMS>');
+
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const templatePath = fs.existsSync('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    ? path.resolve('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    : path.resolve('../storage/templates/modelo_padrao_antecipacao_tributaria.xlsx');
+  const templateBuf = fs.readFileSync(templatePath);
+  const templateBytes = new Map<number, ArrayBuffer>([
+    [1, templateBuf.buffer.slice(templateBuf.byteOffset, templateBuf.byteOffset + templateBuf.byteLength)],
+  ]);
+
+  const result = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-51719',
+      periodoInicio: '2026-08-01',
+      periodoFim: '2026-08-31',
+      context,
+      input: {
+        xmlFiles: [new File([xml51719], 'nota_51719.xml')],
+        spedFile: null,
+        entrySheet: null,
+      },
+    },
+    templateBytes,
+  );
+
+  assert.equal(result.notasProcessadas.length, 1);
+  assert.equal((result.notasProcessadas[0].metadados_extras as Record<string, unknown>).reducao, '0.41463');
+
+  const { readZip } = await import('../src/lib/localProcessing/zip.ts');
+  const entries = await readZip(result.artifacts[0].bytes);
+  const allSheetsXml = Array.from(entries.entries())
+    .filter(([name]) => name.startsWith('xl/worksheets/sheet'))
+    .map(([, bytes]) => new TextDecoder().decode(bytes))
+    .join('\n');
+  assert.match(allSheetsXml, /<c[^>]*r="I4"[^>]*><v>41\.463<\/v><\/c>/);
 });
