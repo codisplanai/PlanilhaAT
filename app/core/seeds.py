@@ -1,10 +1,89 @@
 import os
+from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.models.template_xlsx import TemplateXlsx
 from app.models.regra_cfop import RegraCfopDestino
+from app.models.perfil_regras import PerfilRegras
+from app.models.regra_reducao_produto import RegraReducaoProduto
 from app.services.templates_admin.template_manager import TemplateManager
 from app.core.config import settings
+
+DEFAULT_ART266_II_REDUCAO_RULES = [
+    (
+        "7217",
+        [],
+        [],
+        Decimal("0.1200"),
+        "RICMS/BA Dec. 13.780/12, Art. 266, II, 'a' — Fios de ferro ou aço não ligados",
+    ),
+    (
+        "7313",
+        [],
+        [],
+        Decimal("0.1200"),
+        "RICMS/BA Dec. 13.780/12, Art. 266, II, 'b' — Arame farpado e arames/tiras para cercas",
+    ),
+    (
+        "731431",
+        [],
+        [],
+        Decimal("0.1200"),
+        "RICMS/BA Dec. 13.780/12, Art. 266, II, 'c' — Grades e redes soldadas galvanizadas",
+    ),
+    (
+        "73144",
+        [],
+        [],
+        Decimal("0.1200"),
+        "RICMS/BA Dec. 13.780/12, Art. 266, II, 'd' — Telas metálicas, grades e redes galvanizadas/revestidas",
+    ),
+    (
+        "73262",
+        [],
+        [],
+        Decimal("0.1200"),
+        "RICMS/BA Dec. 13.780/12, Art. 266, II, 'e' — Obras de fios de ferro ou aço",
+    ),
+    (
+        "7317",
+        [],
+        ["COBRE"],
+        Decimal("0.1200"),
+        "RICMS/BA Dec. 13.780/12, Art. 266, II, 'f' — Tachas, pregos, percevejos, escápulas e grampos (exceto cobre)",
+    ),
+]
+
+
+def seed_default_art266_reducoes(db: Session) -> None:
+    """Registra as reduções padrão do Art. 266, II (RICMS/BA Dec. 13.780/12) nos perfis existentes."""
+    perfis = db.query(PerfilRegras).all()
+    if not perfis:
+        return
+    for perfil in perfis:
+        existentes = (
+            db.query(RegraReducaoProduto)
+            .filter(RegraReducaoProduto.perfil_regras_id == perfil.id)
+            .all()
+        )
+        chaves_existentes = {
+            (r.ncm, tuple(sorted(r.termos_inclusao or []))) for r in existentes
+        }
+        for ncm, inclusao, exclusao, aliquota, descricao in DEFAULT_ART266_II_REDUCAO_RULES:
+            chave = (ncm, tuple(sorted(inclusao)))
+            if chave in chaves_existentes:
+                continue
+            db.add(
+                RegraReducaoProduto(
+                    perfil_regras_id=perfil.id,
+                    ncm=ncm,
+                    termos_inclusao=list(inclusao),
+                    termos_exclusao=list(exclusao),
+                    aliquota=aliquota,
+                    descricao=descricao,
+                )
+            )
+    db.commit()
 
 DEFAULT_CFOP_RULES = [
     ("102", "antecipacao_parcial", "Compra para comercialização — produto tributado"),

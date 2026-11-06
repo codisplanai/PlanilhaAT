@@ -603,6 +603,22 @@ class ProcessingPipelineService:
                             f"NF-e {nf_data.numero_nota} (arquivo {filename}): {err.message}"
                         ) from err
                     a_dst = resolucao.aliquota
+                    reducao_item: Optional[Decimal] = None
+                    if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO) and (
+                        (resolucao.origem or "").startswith("reducao_produto:")
+                        or (resolucao.origem or "").startswith("excecao:")
+                    ):
+                        resolucao_padrao = self.resolver.resolve_a_dst_padrao(
+                            perfil_regras_id=empresa.perfil_regras_id,
+                            uf=empresa.uf,
+                            ncm=item.ncm,
+                        )
+                        reducao_calculada = self.resolver.calcular_reducao_base_tributaria(
+                            resolucao.aliquota, resolucao_padrao.aliquota
+                        )
+                        if reducao_calculada is not None:
+                            reducao_item = reducao_calculada
+                            a_dst = resolucao_padrao.aliquota
                     # A.ORI veio diretamente do XML/SPED (item.a_ori)
                     a_ori = item.a_ori
                     a_ori_destacada = bool(a_ori is not None and a_ori > Decimal("0.00"))
@@ -679,7 +695,12 @@ class ProcessingPipelineService:
                         or origem_resolucao.startswith("termo_acordo:")
                     )
                     a_ori_limitada = False
-                    if limitar_a_ori_reducoes and teve_reducao_ou_acordo and a_ori > Decimal("0.10"):
+                    if (
+                        destino_item in DESTINOS_PARCIAL
+                        and limitar_a_ori_reducoes
+                        and teve_reducao_ou_acordo
+                        and a_ori > Decimal("0.10")
+                    ):
                         a_ori = Decimal("0.10")
                         a_ori_limitada = True
 
@@ -753,6 +774,7 @@ class ProcessingPipelineService:
                         a_ori,
                         a_dst,
                         mva_item,
+                        reducao_item,
                     )
                     if key not in grupos:
                         grupos[key] = []
@@ -840,7 +862,7 @@ class ProcessingPipelineService:
                 split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
 
                 for grupo_key, itens_objs in grupos.items():
-                    destino_grupo, a_ori, a_dst, mva_grupo = grupo_key
+                    destino_grupo, a_ori, a_dst, mva_grupo, reducao_grupo = grupo_key
                     split_index = split_index_por_destino[destino_grupo]
 
                     # Se a nota inteira produziu exatamente 1 bucket/grupo (nenhum item descartado e
@@ -909,6 +931,7 @@ class ProcessingPipelineService:
                             a_dst=a_dst,
                             parametros_extras={
                                 "mva": mva_grupo,
+                                "reducao": reducao_grupo,
                                 "aliq_simples": aliq_simples,
                                 "qtd_itens_grupo": len(itens_objs),
                                 "is_simples": empresa.optante_simples_nacional,
@@ -985,6 +1008,7 @@ class ProcessingPipelineService:
                             "subitem_index": split_index,
                             "total_subitens_destino": len(itens_objs),
                             "mva": str(mva_grupo),
+                            "reducao": str(reducao_grupo) if reducao_grupo is not None else None,
                             "mva_grupo": info_mva_policy.get(grupo_key, {}).get("grupo") or None,
                             "mva_fonte": info_mva_policy.get(grupo_key, {}).get("fonte") or None,
                             "fornecedor_simples_nacional": fornecedor_simples,
@@ -1039,7 +1063,7 @@ class ProcessingPipelineService:
                         "base_calculo": v_bc_grupo,
                         "ipi_despesas": ipi_despesas_grupo,
                         "mva": mva_grupo,
-                        "reducao": None,
+                        "reducao": reducao_grupo,
                         "red": "",
                         "aliq_simples": aliq_simples,
                         "a_ori": a_ori_planilha,

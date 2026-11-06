@@ -31,6 +31,7 @@ import {
 } from './convenio5291.ts';
 import {
   acceptsRetroactiveDifal,
+  calculateTributariaBaseReduction,
   classifyRevendaMva,
   DIFAL_AWAITING_ENTRY_REASON,
   evaluatePartialMerchandiseExclusion,
@@ -49,6 +50,7 @@ import {
   resolveMvaForItem,
   resolveOriginRate,
   resolveRevendaMva,
+  resolveStandardDestinationRate,
   retroactiveDifalWarning,
   shouldExcludeEqualRates,
 } from './rules.ts';
@@ -287,6 +289,7 @@ interface Group {
   aOri: number;
   aDst: number;
   mva: number;
+  reducao: number | null;
   items: ExtractedItem[];
   rateResolutions: TaxRateResolution[];
   cfopResolutions: CfopResolution[];
@@ -313,8 +316,9 @@ export function groupKey(
   aDst: number,
   mva: number,
   convenio5291Applied: boolean,
+  reducao: number | null = null,
 ): string {
-  return JSON.stringify([destination, aOri, aDst, mva, convenio5291Applied]);
+  return JSON.stringify([destination, aOri, aDst, mva, convenio5291Applied, reducao]);
 }
 
 export async function processFiscalLocally(
@@ -692,7 +696,19 @@ export async function processFiscalLocally(
             note, item, context.empresa.uf, industrialDecisions,
           ), anexo: 'I' as const }
           : null;
-      const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
+      let itemReducao: number | null = null;
+      let effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
+      if (
+        TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+        && (rate.origem.startsWith('reducao_produto:') || rate.origem.startsWith('excecao:'))
+      ) {
+        const standardRate = resolveStandardDestinationRate(context, item);
+        const computedReduction = calculateTributariaBaseReduction(rate.aliquota, standardRate.aliquota);
+        if (computedReduction != null) {
+          itemReducao = computedReduction;
+          effectiveADst = standardRate.aliquota;
+        }
+      }
       const originalAOri = item.aOri;
       const effectiveRate = convenio?.applied
         ? {
@@ -845,12 +861,13 @@ export async function processFiscalLocally(
         }
       }
 
-      const key = groupKey(destination, aOri, effectiveADst, itemMva, Boolean(convenio?.applied));
+      const key = groupKey(destination, aOri, effectiveADst, itemMva, Boolean(convenio?.applied), itemReducao);
       const group: Group = groups.get(key) ?? {
         destination,
         aOri,
         aDst: effectiveADst,
         mva: itemMva,
+        reducao: itemReducao,
         items: [],
         rateResolutions: [],
         cfopResolutions: [],
@@ -994,6 +1011,7 @@ export async function processFiscalLocally(
         aOri: group.aOri,
         aDst: group.aDst,
         mva,
+        reducao: group.reducao,
         aliqSimples,
         isSimples: Boolean(context.empresa.optante_simples_nacional),
         valorPago,
@@ -1109,6 +1127,7 @@ export async function processFiscalLocally(
           subitem_index: splitIndex,
           total_subitens_destino: group.items.length,
           mva: String(mva),
+          reducao: group.reducao != null ? String(group.reducao) : null,
           mva_grupo: group.mvaPolicyGroup || null,
           mva_fonte: group.mvaPolicySource || null,
           fornecedor_simples_nacional: supplierIsSimples,
@@ -1155,7 +1174,7 @@ export async function processFiscalLocally(
         base_calculo: base,
         ipi_despesas: ipi,
         mva,
-        reducao: null,
+        reducao: group.reducao,
         red: '',
         aliq_simples: aliqSimples,
         a_ori: isDifalDestination(group.destination) && !group.aOriHighlighted ? null : group.aOri,

@@ -14,8 +14,8 @@ import type { RegraReducao } from '../../types/regraReducao';
 import { parseCommaSeparatedTerms } from '../../lib/terms';
 
 const AJUDA_TERMOS =
-  'Separe por vírgula. Use * no fim para casar prefixo: vergalh* pega VERGALHAO e ' +
-  'VERGALHOES. O termo casa palavras inteiras — ferro não casa FERROVIARIO.';
+  'Opcional: deixe em branco para enquadrar qualquer descrição do NCM/prefixo. ' +
+  'Ou separe por vírgula e use * no fim para casar prefixo (ex.: vergalh* pega VERGALHAO e VERGALHOES).';
 
 const percentual = (aliquota: number): string => `${(aliquota * 100).toFixed(2)}%`;
 
@@ -135,16 +135,20 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
                       </span>
                     </td>
                     <td className="px-3 py-2.5">
-                      <div className="flex flex-wrap gap-1">
-                        {regra.termos_inclusao.map((termo) => (
-                          <span
-                            key={termo}
-                            className="rounded border border-blue-200/80 bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-800"
-                          >
-                            {termo}
-                          </span>
-                        ))}
-                      </div>
+                      {regra.termos_inclusao.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {regra.termos_inclusao.map((termo) => (
+                            <span
+                              key={termo}
+                              className="rounded border border-blue-200/80 bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-800"
+                            >
+                              {termo}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] italic text-slate-400">Qualquer descrição</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5">
                       {regra.termos_exclusao.length > 0 ? (
@@ -263,19 +267,18 @@ export const ReducaoProdutoSection: React.FC<Props> = ({ perfilId, open, onOpenC
             />
           )}
           <Input
-            label="NCM"
+            label="NCM ou prefixo (4 a 8 dígitos)"
             value={ncm}
             onChange={(e) => setNcm(e.target.value)}
-            placeholder="72142000"
+            placeholder="7217, 7314.31 ou 72142000"
             required
           />
           <Input
-            label="Termos de inclusão"
+            label="Termos de inclusão (opcional)"
             value={inclusao}
             onChange={(e) => setInclusao(e.target.value)}
-            placeholder="vergalh*, verg ca"
+            placeholder="vergalh*, verg ca (vazio = qualquer descrição)"
             helperText={AJUDA_TERMOS}
-            required
           />
           <Input
             label="Termos de exclusão (opcional)"

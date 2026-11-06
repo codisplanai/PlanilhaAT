@@ -291,38 +291,72 @@ export function resolveDestinationRate(
   }
 
   const ncm = item.ncm.trim();
+  const cleanNcm = ncm.replace(/\D/g, '');
   const desc = item.descricaoConfiavel ? normalizeDescription(item.descricao) : '';
 
-  if (ncm && desc) {
-    const reductionRules = context.regras_reducao.filter((rule) => rule.ncm === ncm);
-    const exact = reductionRules.flatMap((rule) =>
-      (rule.excecoes ?? [])
-        .filter((exception) => exception.descricao_exata === desc)
-        .map((exception) => ({ rule, exception })),
+  if (cleanNcm.length >= 4 && !/^0+$/.test(cleanNcm)) {
+    let reductionRules = context.regras_reducao.filter(
+      (rule) => Boolean(rule.ncm) && cleanNcm.startsWith(rule.ncm),
     );
-    if (exact.length > 1) {
-      throw new Error(`Conflito de exceções de redução no item "${item.descricao}" (NCM ${ncm}).`);
-    }
-    if (exact.length === 1 && exact[0].exception.enquadrado) {
-      return {
-        aliquota: Number(exact[0].rule.aliquota),
-        origem: `excecao:${exact[0].exception.id}`,
-        detalhe: `Exceção cadastrada na regra #${exact[0].rule.id}`,
-      };
+    if (reductionRules.length > 0 && desc) {
+      const exact = reductionRules.flatMap((rule) =>
+        (rule.excecoes ?? [])
+          .filter((exception) => exception.descricao_exata === desc)
+          .map((exception) => ({ rule, exception })),
+      );
+      const positiveExact = exact.filter((entry) => entry.exception.enquadrado);
+      if (positiveExact.length > 1) {
+        throw new Error(`Conflito de exceções de redução no item "${item.descricao}" (NCM ${ncm}).`);
+      }
+      if (positiveExact.length === 1) {
+        return {
+          aliquota: Number(positiveExact[0].rule.aliquota),
+          origem: `excecao:${positiveExact[0].exception.id}`,
+          detalhe: `Exceção cadastrada na regra #${positiveExact[0].rule.id}`,
+        };
+      }
+      const blockedRuleIds = new Set(
+        exact.filter((entry) => !entry.exception.enquadrado).map((entry) => entry.rule.id),
+      );
+      if (blockedRuleIds.size > 0) {
+        reductionRules = reductionRules.filter((rule) => !blockedRuleIds.has(rule.id));
+      }
     }
 
-    if (exact.length === 0) {
-      const matched = reductionRules.filter(
+    const rulesWithTerms = reductionRules.filter((rule) => (rule.termos_inclusao ?? []).length > 0);
+    if (desc && rulesWithTerms.length > 0) {
+      const matched = rulesWithTerms.filter(
         (rule) => anyTerm(desc, rule.termos_inclusao) && !anyTerm(desc, rule.termos_exclusao),
       );
-      if (matched.length > 1) {
-        throw new Error(`Conflito de regras de redução no item "${item.descricao}" (NCM ${ncm}).`);
-      }
-      if (matched.length === 1) {
+      if (matched.length > 0) {
+        const maxLen = Math.max(...matched.map((rule) => rule.ncm.length));
+        const mostSpecific = matched.filter((rule) => rule.ncm.length === maxLen);
+        if (mostSpecific.length > 1) {
+          throw new Error(`Conflito de regras de redução no item "${item.descricao}" (NCM ${ncm}).`);
+        }
         return {
-          aliquota: Number(matched[0].aliquota),
-          origem: `reducao_produto:${matched[0].id}`,
-          detalhe: `Redução por produto: ${matched[0].descricao || `regra #${matched[0].id}`}`,
+          aliquota: Number(mostSpecific[0].aliquota),
+          origem: `reducao_produto:${mostSpecific[0].id}`,
+          detalhe: `Redução por produto: ${mostSpecific[0].descricao || `regra #${mostSpecific[0].id}`}`,
+        };
+      }
+    }
+
+    const genericRules = reductionRules.filter((rule) => (rule.termos_inclusao ?? []).length === 0);
+    if (genericRules.length > 0) {
+      const matchedGeneric = genericRules.filter(
+        (rule) => !(desc && anyTerm(desc, rule.termos_exclusao)),
+      );
+      if (matchedGeneric.length > 0) {
+        const maxLen = Math.max(...matchedGeneric.map((rule) => rule.ncm.length));
+        const mostSpecific = matchedGeneric.filter((rule) => rule.ncm.length === maxLen);
+        if (mostSpecific.length > 1) {
+          throw new Error(`Conflito de regras de redução no item "${item.descricao || ncm}" (NCM ${ncm}).`);
+        }
+        return {
+          aliquota: Number(mostSpecific[0].aliquota),
+          origem: `reducao_produto:${mostSpecific[0].id}`,
+          detalhe: `Redução por produto: ${mostSpecific[0].descricao || `regra #${mostSpecific[0].id}`}`,
         };
       }
     }
@@ -341,6 +375,15 @@ export function resolveDestinationRate(
     };
   }
 
+  return resolveStandardDestinationRate(context, item);
+}
+
+export function resolveStandardDestinationRate(
+  context: LocalProcessingContext,
+  item: ExtractedItem,
+): TaxRateResolution {
+  const uf = context.empresa.uf.trim().toUpperCase();
+  const ncm = item.ncm.trim();
   const ncmRule = context.regras_aliquotas.find(
     (rule) => rule.uf === uf && rule.ncm === ncm,
   );
@@ -364,6 +407,16 @@ export function resolveDestinationRate(
   }
 
   throw new Error(`Nenhuma regra de alíquota de destino encontrada para UF ${uf} e NCM ${ncm}.`);
+}
+
+export function calculateTributariaBaseReduction(
+  effectiveRate: number,
+  standardRate: number,
+): number | null {
+  if (!(standardRate > 0) || !(effectiveRate > 0) || effectiveRate >= standardRate) {
+    return null;
+  }
+  return Math.round(((1 - effectiveRate / standardRate) + Number.EPSILON) * 100000) / 100000;
 }
 
 export interface OriginRateResolution {
@@ -402,10 +455,10 @@ export function resolveOriginRate(
 
   const limitOrigin = context.perfil.configuracoes_extras.limitar_a_ori_reducoes === true;
   const reducedOrAgreement = REDUCED_RATE_ORIGINS.some((prefix) => rateOrigin.startsWith(prefix));
-  if (limitOrigin && reducedOrAgreement && aOri > 0.10) {
+  if (PARTIAL_DESTINATIONS.has(destination) && limitOrigin && reducedOrAgreement && aOri > 0.10) {
     // Na Parcial prevalece o tratamento mais benéfico: com a A.ORI do XML igual
     // à A.DST o imposto zera, e a regra de alíquotas iguais pode excluir o item.
-    if (PARTIAL_DESTINATIONS.has(destination) && sameRate(aOri, aDst)) {
+    if (sameRate(aOri, aDst)) {
       return { aOri, limited: false, fixed: false, limitWaived: true };
     }
     return { aOri: 0.10, limited: true, fixed: false, limitWaived: false };

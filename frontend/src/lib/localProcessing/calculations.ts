@@ -14,6 +14,7 @@ export function calculateTax(
     aOri: number;
     aDst: number;
     mva?: number;
+    reducao?: number | null;
     aliqSimples?: string;
     isSimples?: boolean;
     valorPago?: number;
@@ -50,9 +51,13 @@ export function calculateTax(
   ) {
     let mva = Number(input.mva ?? 0);
     if (mva > 1) mva /= 100;
-    const baseSt = mva > 0
+    let reducao = Number(input.reducao ?? 0);
+    if (!Number.isFinite(reducao) || reducao < 0) reducao = 0;
+    if (reducao > 1) reducao /= 100;
+    const baseStCheia = mva > 0
       ? (vTotal + ipiDespesas) * (1 + mva)
       : (ipiDespesas > 0 ? vTotal + ipiDespesas : vTotal);
+    const baseSt = reducao > 0 ? baseStCheia * (1 - reducao) : baseStCheia;
     const debito = roundCurrency(baseSt * aDst);
     const credito = roundCurrency(baseCalculo * aOri);
     const valorPago = roundCurrency(Number(input.valorPago ?? 0));
@@ -64,6 +69,7 @@ export function calculateTax(
       detalhes: {
         tipo: 'antecipacao_tributaria',
         mva_aplicado: mva,
+        reducao_aplicada: reducao > 0 ? reducao : null,
         base_st: roundCurrency(baseSt),
         valor_pago: valorPago,
       },

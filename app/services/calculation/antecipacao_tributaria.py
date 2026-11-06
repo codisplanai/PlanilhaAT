@@ -35,6 +35,19 @@ class AntecipacaoTributariaCalculator(BaseCalculator):
         else:
             base_st = v_total + ipi_despesas if ipi_despesas > 0 else v_total
 
+        reducao_raw = params.get("reducao")
+        reducao = Decimal("0.0")
+        if reducao_raw is not None and str(reducao_raw).strip() != "":
+            try:
+                reducao = Decimal(str(reducao_raw))
+                if reducao > 1:
+                    reducao = reducao / Decimal("100.0")
+            except Exception:
+                reducao = Decimal("0.0")
+
+        if reducao > Decimal("0.0"):
+            base_st = base_st * (Decimal("1.0") - reducao)
+
         valor_pago_str = params.get("valor_pago", "0.0")
         try:
             valor_pago = Decimal(str(valor_pago_str))
@@ -52,6 +65,7 @@ class AntecipacaoTributariaCalculator(BaseCalculator):
             detalhes={
                 "tipo": "antecipacao_tributaria",
                 "mva_aplicado": str(mva),
+                "reducao_aplicada": str(reducao) if reducao > Decimal("0.0") else None,
                 "base_st": str(round_currency(base_st)),
                 "valor_pago": str(round_currency(valor_pago)),
             }
