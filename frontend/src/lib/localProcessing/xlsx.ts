@@ -487,7 +487,7 @@ function writeCell(doc: XMLDocument, cell: Element, field: string, value: unknow
   const percentageFields = new Set(['a_dst', 'a_ori', 'mva', 'reducao']);
   let normalized = value;
   if (percentageFields.has(field) && percentageFormat === 'percent_number' && typeof normalized === 'number' && normalized <= 1) {
-    normalized *= 100;
+    normalized = Math.round((normalized * 100 + Number.EPSILON) * 10000) / 10000;
   }
 
   if ((field === 'data_emissao' || field === 'data_entrada') && typeof normalized === 'string' && normalized) {

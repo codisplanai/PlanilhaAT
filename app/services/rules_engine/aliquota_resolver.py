@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
+import re
 from typing import Dict, List, Optional
 
 from sqlalchemy import or_
@@ -42,8 +43,23 @@ class AliquotaResolver:
     def __init__(self, db: Session):
         self.db = db
         self._perfil_preload: Optional[int] = None
-        self._reducoes_por_ncm: Optional[Dict[str, List[RegraReducaoProduto]]] = None
+        self._reducoes_perfil: Optional[List[RegraReducaoProduto]] = None
         self._termos_acordo: Dict[int, Optional[RegraAliquotaEmpresa]] = {}
+
+    @staticmethod
+    def calcular_reducao_base_tributaria(
+        aliquota_efetiva: Decimal, aliquota_padrao: Decimal
+    ) -> Optional[Decimal]:
+        """Calcula o percentual de redução da Base ST (ex: 0.41463 para 41,463%)
+        quando a mercadoria possui carga efetiva reduzida (ex: 12% frente a 20,5%).
+        """
+        if aliquota_padrao <= Decimal("0") or aliquota_efetiva <= Decimal("0"):
+            return None
+        if aliquota_efetiva >= aliquota_padrao:
+            return None
+        return (Decimal("1") - (aliquota_efetiva / aliquota_padrao)).quantize(
+            Decimal("0.00001"), rounding=ROUND_HALF_UP
+        )
 
     # -- cache ---------------------------------------------------------------
 
@@ -58,10 +74,7 @@ class AliquotaResolver:
             .filter(RegraReducaoProduto.perfil_regras_id == perfil_regras_id)
             .all()
         )
-        indexadas: Dict[str, List[RegraReducaoProduto]] = {}
-        for regra in regras:
-            indexadas.setdefault(regra.ncm, []).append(regra)
-        self._reducoes_por_ncm = indexadas
+        self._reducoes_perfil = list(regras)
         self._perfil_preload = perfil_regras_id
 
         if empresa_id is not None:
@@ -72,16 +85,18 @@ class AliquotaResolver:
             )
 
     def _regras_reducao(self, perfil_regras_id: int, ncm: str) -> List[RegraReducaoProduto]:
-        if self._reducoes_por_ncm is not None and perfil_regras_id == self._perfil_preload:
-            return self._reducoes_por_ncm.get(ncm, [])
-        return (
-            self.db.query(RegraReducaoProduto)
-            .filter(
-                RegraReducaoProduto.perfil_regras_id == perfil_regras_id,
-                RegraReducaoProduto.ncm == ncm,
+        clean_ncm = re.sub(r"\D", "", ncm or "")
+        if len(clean_ncm) < 4 or set(clean_ncm) == {"0"}:
+            return []
+        if self._reducoes_perfil is not None and perfil_regras_id == self._perfil_preload:
+            todas = self._reducoes_perfil
+        else:
+            todas = (
+                self.db.query(RegraReducaoProduto)
+                .filter(RegraReducaoProduto.perfil_regras_id == perfil_regras_id)
+                .all()
             )
-            .all()
-        )
+        return [r for r in todas if r.ncm and clean_ncm.startswith(r.ncm)]
 
     def _termo_acordo(self, empresa_id: int) -> Optional[RegraAliquotaEmpresa]:
         if empresa_id not in self._termos_acordo:
@@ -121,57 +136,93 @@ class AliquotaResolver:
 
         return self._nivel_padrao(perfil_regras_id, clean_uf, clean_ncm)
 
+    def resolve_a_dst_padrao(
+        self, perfil_regras_id: int, uf: str, ncm: Optional[str] = None
+    ) -> ResolucaoAliquota:
+        """Resolve a alíquota interna padrão da UF/NCM (Nível 3), sem reduções por produto nem acordo."""
+        clean_uf = uf.strip().upper() if uf else ""
+        clean_ncm = ncm.strip() if ncm else None
+        return self._nivel_padrao(perfil_regras_id, clean_uf, clean_ncm)
+
     # -- níveis --------------------------------------------------------------
 
     def _nivel_reducao_produto(
         self, perfil_regras_id: int, ncm: Optional[str], descricao: Optional[str]
     ) -> Optional[ResolucaoAliquota]:
-        if not ncm or not descricao:
+        if not ncm:
             return None
         regras = self._regras_reducao(perfil_regras_id, ncm)
         if not regras:
             return None
-        desc = normalizar(descricao)
-        if not desc:
-            return None
+        desc = normalizar(descricao) if descricao else ""
 
-        casadas = [
-            (regra, exc)
-            for regra in regras
-            for exc in regra.excecoes
-            if exc.descricao_exata == desc
-        ]
-        if len(casadas) > 1:
-            raise RuleResolutionException(
-                self._msg_conflito(desc, ncm, [regra for regra, _ in casadas], "exceções")
-            )
-        if casadas:
-            regra, excecao = casadas[0]
-            if not excecao.enquadrado:
-                return None
-            return ResolucaoAliquota(
-                aliquota=Decimal(str(regra.aliquota)),
-                origem=f"excecao:{excecao.id}",
-                detalhe=f"Exceção cadastrada na regra {self._rotulo(regra)}",
-            )
+        if desc:
+            casadas = [
+                (regra, exc)
+                for regra in regras
+                for exc in regra.excecoes
+                if exc.descricao_exata == desc
+            ]
+            positivas = [(regra, exc) for regra, exc in casadas if exc.enquadrado]
+            if len(positivas) > 1:
+                raise RuleResolutionException(
+                    self._msg_conflito(desc, ncm, [regra for regra, _ in positivas], "exceções")
+                )
+            if positivas:
+                regra, excecao = positivas[0]
+                return ResolucaoAliquota(
+                    aliquota=Decimal(str(regra.aliquota)),
+                    origem=f"excecao:{excecao.id}",
+                    detalhe=f"Exceção cadastrada na regra {self._rotulo(regra)}",
+                )
+            bloqueadas_ids = {regra.id for regra, exc in casadas if not exc.enquadrado}
+            if bloqueadas_ids:
+                regras = [regra for regra in regras if regra.id not in bloqueadas_ids]
+                if not regras:
+                    return None
 
-        candidatas = [
-            regra
-            for regra in regras
-            if casa_algum(desc, regra.termos_inclusao)
-            and not casa_algum(desc, regra.termos_exclusao)
-        ]
-        if not candidatas:
-            return None
-        if len(candidatas) > 1:
-            raise RuleResolutionException(self._msg_conflito(desc, ncm, candidatas, "regras"))
+        regras_com_termos = [regra for regra in regras if regra.termos_inclusao]
+        if desc and regras_com_termos:
+            candidatas = [
+                regra
+                for regra in regras_com_termos
+                if casa_algum(desc, regra.termos_inclusao)
+                and not casa_algum(desc, regra.termos_exclusao)
+            ]
+            if candidatas:
+                max_len = max(len(regra.ncm) for regra in candidatas)
+                especificas = [regra for regra in candidatas if len(regra.ncm) == max_len]
+                if len(especificas) > 1:
+                    raise RuleResolutionException(self._msg_conflito(desc, ncm, especificas, "regras"))
+                regra = especificas[0]
+                return ResolucaoAliquota(
+                    aliquota=Decimal(str(regra.aliquota)),
+                    origem=f"reducao_produto:{regra.id}",
+                    detalhe=f"Redução por produto: {regra.descricao or f'regra #{regra.id}'}",
+                )
 
-        regra = candidatas[0]
-        return ResolucaoAliquota(
-            aliquota=Decimal(str(regra.aliquota)),
-            origem=f"reducao_produto:{regra.id}",
-            detalhe=f"Redução por produto: {regra.descricao or f'regra #{regra.id}'}",
-        )
+        regras_genericas = [regra for regra in regras if not regra.termos_inclusao]
+        if regras_genericas:
+            candidatas_genericas = [
+                regra
+                for regra in regras_genericas
+                if not (desc and regra.termos_exclusao and casa_algum(desc, regra.termos_exclusao))
+            ]
+            if candidatas_genericas:
+                max_len = max(len(regra.ncm) for regra in candidatas_genericas)
+                especificas = [regra for regra in candidatas_genericas if len(regra.ncm) == max_len]
+                if len(especificas) > 1:
+                    raise RuleResolutionException(
+                        self._msg_conflito(desc or ncm, ncm, especificas, "regras")
+                    )
+                regra = especificas[0]
+                return ResolucaoAliquota(
+                    aliquota=Decimal(str(regra.aliquota)),
+                    origem=f"reducao_produto:{regra.id}",
+                    detalhe=f"Redução por produto: {regra.descricao or f'regra #{regra.id}'}",
+                )
+
+        return None
 
     def _nivel_termo_acordo(self, empresa_id: Optional[int]) -> Optional[ResolucaoAliquota]:
         if empresa_id is None:

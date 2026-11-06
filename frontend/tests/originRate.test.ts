@@ -74,10 +74,10 @@ test('limita a A.ORI a 10% quando o A.DST vem de redução, exceção ou termo d
   }
 });
 
-test('o limite de 10% também vale fora da Antecipação Parcial', () => {
+test('o limite de 10% vale apenas na Antecipação Parcial (mantém crédito integral na Tributária)', () => {
   assert.deepEqual(
-    resolveOriginRate(context({ limitarAOriReducoes: true }), 'antecipacao_tributaria', 0.12, 0.18, 'termo_acordo:7'),
-    { aOri: 0.10, limited: true, fixed: false, limitWaived: false },
+    resolveOriginRate(context({ limitarAOriReducoes: true }), 'antecipacao_tributaria', 0.12, 0.205, 'reducao_produto:3'),
+    { aOri: 0.12, limited: false, fixed: false, limitWaived: false },
   );
 });
 
@@ -178,11 +178,11 @@ test('dispensa o limite de 10% na Parcial quando a A.ORI do XML é igual à A.DS
   }
 });
 
-test('mantém o limite de 10% com alíquotas iguais fora da Parcial', () => {
+test('fora da Parcial mantém sempre a A.ORI integral mesmo com opção de limite ativa', () => {
   for (const destination of ['antecipacao_tributaria', 'antecipacao_tributaria_antecipado', 'difal'] as const) {
     assert.deepEqual(
       resolveOriginRate(context({ limitarAOriReducoes: true }), destination, 0.12, 0.12, 'reducao_produto:3'),
-      { aOri: 0.10, limited: true, fixed: false, limitWaived: false },
+      { aOri: 0.12, limited: false, fixed: false, limitWaived: false },
       destination,
     );
   }

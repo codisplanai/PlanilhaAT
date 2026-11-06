@@ -182,14 +182,14 @@ def test_schema_rejeita_ncm_sentinela_do_sped():
             termos_inclusao=["vergalh*"], aliquota=Decimal("0.12"))
 
 
-def test_schema_rejeita_lista_de_termos_vazia():
-    import pytest as _pytest
+def test_schema_aceita_lista_de_termos_vazia_e_ncm_prefixo():
     from decimal import Decimal
     from app.schemas.regra_reducao_produto import RegraReducaoCreate
 
-    with _pytest.raises(ValueError):
-        RegraReducaoCreate(
-            perfil_regras_id=1, ncm="72142000", termos_inclusao=[], aliquota=Decimal("0.12"))
+    payload = RegraReducaoCreate(
+        perfil_regras_id=1, ncm="7314.31", termos_inclusao=[], aliquota=Decimal("0.12"))
+    assert payload.ncm == "731431"
+    assert payload.termos_inclusao == []
 
 
 def test_schema_normaliza_termos_e_descarta_vazios():

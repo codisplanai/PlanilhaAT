@@ -173,3 +173,82 @@ def test_manter_a_ori_menor_que_10_mesmo_com_configuracao_ativa(db_session, cena
         assert n.credito == (n.base_calculo * Decimal("0.07")).quantize(Decimal("0.01"))
 
 
+def test_antecipacao_tributaria_preenche_reducao_41_463_e_mantem_a_dst_20_5_e_a_ori_integral(
+    db_session, cenario_janeiro
+):
+    """Na Antecipação Tributária (RICMS/BA Dec. 13.780/12, Art. 266, II):
+    - A.DST permanece na alíquota interna padrão da UF (20,5%)
+    - Redução recebe 0.41463 (41,463% na planilha)
+    - A.ORI permanece integral (12%, sem limitar a 10% mesmo com flag ativa)
+    - Item de cobre em 7317 não recebe a redução e desdobra em outra linha.
+    """
+    from app.constants import ANTECIPACAO_TRIBUTARIA
+    from app.core.seeds import seed_default_art266_reducoes
+    from app.models.regra_aliquota import RegraAliquotaDestino
+
+    sol = cenario_janeiro(tipos=(ANTECIPACAO_TRIBUTARIA,))
+    empresa = db_session.query(Empresa).filter(Empresa.id == sol.empresa_id).one()
+    empresa.perfil_regras.configuracoes_extras = {"limitar_a_ori_reducoes": True}
+    # Ajustar padrão BA do cenário para 20,5%
+    regra_ba = (
+        db_session.query(RegraAliquotaDestino)
+        .filter_by(perfil_regras_id=empresa.perfil_regras_id, uf="BA", ncm=None)
+        .one()
+    )
+    regra_ba.aliquota = Decimal("0.2050")
+    db_session.commit()
+    seed_default_art266_reducoes(db_session)
+
+    xml_tributaria = f"""<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
+  <NFe>
+    <infNFe Id="NFe{CHAVE}">
+      <ide><nNF>901</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+      <emit><CNPJ>98765432000180</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+      <dest><CNPJ>12345678000195</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+      <total><ICMSTot><vNF>2000.00</vNF><vBC>2000.00</vBC></ICMSTot></total>
+      <det nItem="1">
+        <prod><NCM>73170090</NCM><CEST>1005700</CEST><CFOP>6403</CFOP><xProd>PREGO DE ACO 18X27</xProd>
+          <vProd>1000.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg>
+          <vOutro>0.00</vOutro><vDesc>0.00</vDesc></prod>
+        <imposto><ICMS><ICMS00><vBC>1000.00</vBC><pICMS>12.00</pICMS></ICMS00></ICMS></imposto>
+      </det>
+      <det nItem="2">
+        <prod><NCM>73170090</NCM><CEST>1005700</CEST><CFOP>6403</CFOP><xProd>PREGO DE COBRE ESPECIAL</xProd>
+          <vProd>1000.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg>
+          <vOutro>0.00</vOutro><vDesc>0.00</vDesc></prod>
+        <imposto><ICMS><ICMS00><vBC>1000.00</vBC><pICMS>12.00</pICMS></ICMS00></ICMS></imposto>
+      </det>
+    </infNFe>
+  </NFe>
+</nfeProc>""".encode("utf-8")
+
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id, xml_files_bytes=[("901.xml", xml_tributaria)]
+    )
+    db_session.refresh(res)
+
+    assert len(res.notas_processadas) == 2
+    por_reducao = {n.metadados_extras.get("reducao"): n for n in res.notas_processadas}
+    assert "0.41463" in por_reducao
+    assert None in por_reducao
+
+    com_reducao = por_reducao["0.41463"]
+    assert Decimal(str(com_reducao.a_dst_resolvida)) == Decimal("0.2050")
+    assert Decimal(str(com_reducao.a_ori)) == Decimal("0.1200")
+    assert not com_reducao.metadados_extras.get("a_ori_limitada")
+    # MVA de 7317 (12% origem) = 45%. Base ST cheia = 1450.00.
+    # Reduzida em 41,463% = 1450 * (1 - 0.41463) = 848.7865 -> Débito (20,5%) = 174.00
+    assert com_reducao.debito == Decimal("174.00")
+    assert com_reducao.credito == Decimal("120.00")
+    assert com_reducao.valor_devido == Decimal("54.00")
+
+    sem_reducao = por_reducao[None]
+    assert Decimal(str(sem_reducao.a_dst_resolvida)) == Decimal("0.2050")
+    # Sem redução: 1450 * 20,5% = 297.25
+    assert sem_reducao.debito == Decimal("297.25")
+    assert sem_reducao.credito == Decimal("120.00")
+    assert sem_reducao.valor_devido == Decimal("177.25")
+
+
+

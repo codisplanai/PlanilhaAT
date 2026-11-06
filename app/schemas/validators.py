@@ -34,6 +34,20 @@ def clean_ncm_obrigatorio(v: str) -> str:
     return cleaned
 
 
+def clean_ncm_prefixo_obrigatorio(v: str) -> str:
+    """NCM completo (8 dígitos) ou prefixo de posição/subposição (4 a 8 dígitos)."""
+    if v is None or str(v).strip() == "":
+        raise ValueError("NCM é obrigatório na regra de redução por produto")
+    cleaned = re.sub(r"\D", "", str(v))
+    if not (4 <= len(cleaned) <= 8):
+        raise ValueError("NCM deve conter de 4 a 8 dígitos numéricos (ex: 7217, 7314.31 ou 72142000)")
+    if set(cleaned) == {"0"}:
+        raise ValueError(
+            "NCM zerado (00000000) é o marcador de item sem NCM no SPED e não pode ter regra de redução"
+        )
+    return cleaned
+
+
 def normalizar_aliquota(v: Optional[Decimal]) -> Optional[Decimal]:
     """Aceita 0.1206 e 12.06, devolvendo sempre a forma decimal unitária."""
     if v is None:
