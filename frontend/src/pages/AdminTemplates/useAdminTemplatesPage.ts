@@ -34,6 +34,7 @@ const templateUploadSchema = z.object({
   col_base_calculo: z.string().optional(),
   col_ipi_despesas: z.string().optional(),
   col_mva: z.string().optional(),
+  col_reducao: z.string().optional(),
   col_a_dst: z.string().min(1, 'Informe a coluna').toUpperCase(),
   col_a_ori: z.string().min(1, 'Informe a coluna').toUpperCase(),
   header_cell: z.string().optional(),
@@ -49,6 +50,16 @@ const templateUploadSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['col_mva'],
       message: 'Informe a coluna do MVA para Antecipação Tributária',
+    });
+  }
+  if (
+    ['antecipacao_tributaria', 'antecipacao_tributaria_antecipado'].includes(data.tipo)
+    && !data.col_reducao?.trim()
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['col_reducao'],
+      message: 'Informe a coluna da Redução para Antecipação Tributária',
     });
   }
 });
@@ -78,6 +89,7 @@ function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
     col_base_calculo: isAntecipado || isTributaria || isParcial ? 'F' : '',
     col_ipi_despesas: isDifal ? 'F' : 'G',
     col_mva: isTributaria ? 'H' : '',
+    col_reducao: isTributaria ? 'I' : '',
     col_a_dst: isTributaria ? 'J' : isDifal ? 'I' : 'H',
     col_a_ori: isTributaria ? 'K' : isDifal ? 'J' : 'I',
     header_cell: 'A2',
@@ -107,6 +119,17 @@ export function useAdminTemplatesPage() {
     resolver: zodResolver(templateUploadSchema),
     defaultValues: getDefaultMapping('antecipacao_parcial'),
   });
+  const watchedTipo = form.watch('tipo');
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const defaults = getDefaultMapping(watchedTipo);
+    form.reset({
+      ...defaults,
+      observacoes: form.getValues('observacoes'),
+      promover_ativo: form.getValues('promover_ativo'),
+    });
+  }, [watchedTipo, modalOpen, form]);
 
   const persistedSafetyMargin = safetyConfigQuery.data?.find(
     (item) => item.tipo === selectedType,
@@ -223,8 +246,9 @@ export function useAdminTemplatesPage() {
     if (data.col_base_calculo) columns.base_calculo = data.col_base_calculo.toUpperCase();
     if (data.col_ipi_despesas) columns.ipi_despesas = data.col_ipi_despesas.toUpperCase();
     if (data.col_mva) columns.mva = data.col_mva.toUpperCase();
+    if (data.col_reducao) columns.reducao = data.col_reducao.toUpperCase();
     if (data.tipo === 'antecipacao_tributaria' || data.tipo === 'antecipacao_tributaria_antecipado') {
-      columns.reducao = 'I';
+      if (!columns.reducao) columns.reducao = 'I';
       columns.valor_pago = 'S';
     }
 

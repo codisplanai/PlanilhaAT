@@ -129,6 +129,7 @@ class LocalRegraReducaoOut(BaseModel):
     termos_inclusao: List[str] = Field(default_factory=list)
     termos_exclusao: List[str] = Field(default_factory=list)
     aliquota: float
+    escopo: str = "antecipacao_parcial"
     descricao: Optional[str] = None
     excecoes: List[LocalExcecaoReducaoOut] = Field(default_factory=list)
 
