@@ -138,6 +138,11 @@ async function xmlSources(files: File[]): Promise<Array<{ filename: string; text
   return result;
 }
 
+export function resolveSpedFiles(input: LocalFiscalInput): File[] {
+  if (input.spedFiles && input.spedFiles.length > 0) return input.spedFiles;
+  return input.spedFile ? [input.spedFile] : [];
+}
+
 export async function loadLocalFiscalSources(
   input: LocalFiscalInput,
   periodoInicio: string,
@@ -147,33 +152,49 @@ export async function loadLocalFiscalSources(
     ? await parseEntrySheet(await input.entrySheet.arrayBuffer())
     : [];
 
-  let spedNotes: ExtractedNote[] = [];
+  const spedNotes: ExtractedNote[] = [];
+  const spedByKey = new Map<string, ExtractedNote>();
   let spedCompanyInfo: ParsedFiscalSources['spedCompanyInfo'] = {};
-  let spedText: string | null = null;
-  if (input.spedFile) {
-    spedText = decodeText(await input.spedFile.arrayBuffer());
+  const spedCompanyInfos: NonNullable<ParsedFiscalSources['spedCompanyInfos']> = [];
+
+  const decodedSpeds: Array<{ name: string; text: string }> = [];
+  for (const spedFile of resolveSpedFiles(input)) {
+    const spedText = decodeText(await spedFile.arrayBuffer());
     const period = parseSpedPeriod(spedText);
     if (period.start && period.end && (period.end < periodoInicio || period.start > periodoFim)) {
       throw new Error(
-        `O SPED refere-se ao período ${period.start} a ${period.end}, fora da solicitação ${periodoInicio} a ${periodoFim}.`,
+        `O SPED refere-se ao período ${period.start} a ${period.end}, fora da solicitação ${periodoInicio} a ${periodoFim} (${spedFile.name}).`,
       );
     }
-    const parsed = parseSped(spedText, input.spedFile.name);
-    spedNotes = parsed.notes.map(cloneNote);
-    spedCompanyInfo = {
+    decodedSpeds.push({ name: spedFile.name, text: spedText });
+  }
+
+  for (const spedFile of decodedSpeds) {
+    const parsed = parseSped(spedFile.text, spedFile.name);
+    const info = {
       cnpj: parsed.companyInfo.cnpj,
       uf: parsed.companyInfo.uf,
       ie: parsed.companyInfo.ie,
       nome: parsed.companyInfo.nome,
     };
+    spedCompanyInfos.push(info);
+    spedCompanyInfo = {
+      cnpj: spedCompanyInfo.cnpj || info.cnpj,
+      uf: spedCompanyInfo.uf || info.uf,
+      ie: spedCompanyInfo.ie || info.ie,
+      nome: spedCompanyInfo.nome || info.nome,
+    };
+    for (const rawNote of parsed.notes) {
+      const note = cloneNote(rawNote);
+      const keys = crossingKeys(note);
+      if (keys.some((key) => spedByKey.has(key))) continue;
+      spedNotes.push(note);
+      for (const key of keys) spedByKey.set(key, note);
+    }
   }
 
   const notes: ExtractedNote[] = [...spedNotes];
   const ignoredNotes: NotaIgnorada[] = [];
-  const spedByKey = new Map<string, ExtractedNote>();
-  for (const note of spedNotes) {
-    for (const key of crossingKeys(note)) spedByKey.set(key, note);
-  }
 
   for (const source of await xmlSources(input.xmlFiles)) {
     let xmlNote: ExtractedNote;
@@ -216,6 +237,7 @@ export async function loadLocalFiscalSources(
     notes: unique,
     entryRecords,
     spedCompanyInfo,
+    spedCompanyInfos,
     ignoredNotes,
   };
 }

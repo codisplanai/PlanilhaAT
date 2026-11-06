@@ -114,6 +114,7 @@ class ProcessingPipelineService:
         xml_files_bytes: Optional[List[Tuple[str, bytes]]] = None,
         sped_file_bytes: Optional[bytes] = None,
         sped_filename: Optional[str] = "sped_fiscal.txt",
+        sped_files_bytes: Optional[List[Tuple[str, bytes]]] = None,
         planilha_entradas_bytes: Optional[bytes] = None,
         planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx",
     ) -> Dict[str, Any]:
@@ -126,6 +127,7 @@ class ProcessingPipelineService:
             xml_files=xml_files_bytes,
             sped_content=sped_file_bytes,
             sped_filename=sped_filename,
+            sped_files=sped_files_bytes,
             entry_sheet_content=planilha_entradas_bytes,
             entry_sheet_filename=planilha_entradas_filename,
         )
@@ -138,6 +140,7 @@ class ProcessingPipelineService:
         xml_files_bytes: Optional[List[Tuple[str, bytes]]] = None, # [(filename, bytes), ...]
         sped_file_bytes: Optional[bytes] = None,
         sped_filename: Optional[str] = "sped_fiscal.txt",
+        sped_files_bytes: Optional[List[Tuple[str, bytes]]] = None,
         planilha_entradas_bytes: Optional[bytes] = None,
         planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx",
         decisoes_bonificacao: Optional[Dict[str, bool]] = None,
@@ -163,7 +166,8 @@ class ProcessingPipelineService:
                 template_legado = TemplateManager.get_active_template(self.db, solicitacao.tipo_planilha)
                 solicitacao.template_id = template_legado.id
 
-        if not xml_files_bytes and not sped_file_bytes:
+        has_sped = bool(sped_files_bytes) or (sped_file_bytes is not None)
+        if not xml_files_bytes and not has_sped:
             raise ValidationException("Nenhum arquivo XML de NF-e ou SPED Fiscal foi enviado para processamento.")
 
         sources = self.source_loader.load(
@@ -172,6 +176,7 @@ class ProcessingPipelineService:
             xml_files=xml_files_bytes,
             sped_content=sped_file_bytes,
             sped_filename=sped_filename,
+            sped_files=sped_files_bytes,
             entry_sheet_content=planilha_entradas_bytes,
             entry_sheet_filename=planilha_entradas_filename,
         )
@@ -322,7 +327,7 @@ class ProcessingPipelineService:
                 # entende-se que a mercadoria ainda não deu entrada física. A antecipação parcial é paga
                 # adiantada e apurada na planilha 'Parcial Pago Antecipadamente'.
                 # Se NENHUMA fonte de entradas foi enviada (apenas XMLs puros), nada é considerado antecipado.
-                tem_fonte_entradas = (sped_file_bytes is not None) or bool(planilha_records)
+                tem_fonte_entradas = has_sped or bool(planilha_records)
                 teve_entrada_comprovada = (nf_data.origem_extracao == "sped") or (data_entrada_resolvida is not None)
                 pago_antecipadamente = (
                     tem_fonte_entradas
@@ -333,7 +338,7 @@ class ProcessingPipelineService:
                 # 6. Roteamento por CFOP: cada item é classificado em qual planilha (destino) se aplica.
                 # Na falta do SPED, verifica se a Planilha Auxiliar definiu CFOP 2556, 2407 ou 2551 para esta nota
                 cfop_auxiliar = None
-                if planilha_records and (sped_file_bytes is None or nf_data.origem_extracao != "sped"):
+                if planilha_records and (not has_sped or nf_data.origem_extracao != "sped"):
                     cfop_auxiliar = DataEntradaMatcher.match_cfop(
                         nf_chave=nf_data.chave_acesso,
                         nf_cnpj_emitente=nf_data.cnpj_emitente,

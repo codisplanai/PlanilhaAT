@@ -223,7 +223,7 @@ export function useNovaSolicitacaoPage() {
         context,
         input: {
           xmlFiles: files.xmlFiles,
-          spedFile: files.spedFile,
+          spedFiles: files.spedFiles,
           entrySheet: files.planilhaEntradaFile,
         },
         bonusDecisions,
@@ -386,8 +386,8 @@ export function useNovaSolicitacaoPage() {
     if (processingGuardRef.current) return;
     if (!selectedEmpresa) return;
     if (!validatePeriod()) return;
-    if (files.xmlFiles.length === 0 && !files.spedFile) {
-      setErrorMessage('Selecione os XMLs de NF-e, o arquivo SPED Fiscal, ou ambos.');
+    if (files.xmlFiles.length === 0 && files.spedFiles.length === 0) {
+      setErrorMessage('Selecione os XMLs de NF-e, o(s) arquivo(s) SPED Fiscal, ou ambos.');
       return;
     }
 
@@ -397,7 +397,7 @@ export function useNovaSolicitacaoPage() {
     setIsProcessing(true);
     const diagnostic = createDiagnosticRecorder(
       diagnosticSessionRef.current,
-      [...files.xmlFiles, ...(files.spedFile ? [files.spedFile] : []), ...(files.planilhaEntradaFile ? [files.planilhaEntradaFile] : [])],
+      [...files.xmlFiles, ...files.spedFiles, ...(files.planilhaEntradaFile ? [files.planilhaEntradaFile] : [])],
       refreshDiagnostic,
     );
     activeDiagnosticRef.current = diagnostic;
