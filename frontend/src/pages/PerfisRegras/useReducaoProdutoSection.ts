@@ -3,7 +3,11 @@ import { useState } from 'react';
 
 import { regrasReducaoApi } from '../../api/regrasReducao';
 import { queryKeys } from '../../api/queryKeys';
-import type { ExcecaoReducaoCreate, RegraReducaoCreate } from '../../types/regraReducao';
+import type {
+  ExcecaoReducaoCreate,
+  RegraReducaoCreate,
+  RegraReducaoUpdate,
+} from '../../types/regraReducao';
 
 export function useReducaoProdutoSection(perfilId?: number) {
   const queryClient = useQueryClient();
@@ -30,6 +34,13 @@ export function useReducaoProdutoSection(perfilId?: number) {
     onError: extrairErro,
   });
 
+  const atualizarRegra = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: RegraReducaoUpdate }) =>
+      regrasReducaoApi.atualizar(id, payload),
+    onSuccess: () => { setErro(null); invalidar(); },
+    onError: extrairErro,
+  });
+
   const deletarRegra = useMutation({
     mutationFn: (id: number) => regrasReducaoApi.deletar(id),
     onSuccess: () => { setErro(null); invalidar(); },
@@ -50,5 +61,14 @@ export function useReducaoProdutoSection(perfilId?: number) {
     onError: extrairErro,
   });
 
-  return { regras, criarRegra, deletarRegra, criarExcecao, deletarExcecao, erro, setErro };
+  return {
+    regras,
+    criarRegra,
+    atualizarRegra,
+    deletarRegra,
+    criarExcecao,
+    deletarExcecao,
+    erro,
+    setErro,
+  };
 }
