@@ -27,6 +27,16 @@ def test_st_no_item_tambem_exclui():
     assert should_exclude_st_from_tributaria("Armazém Comércio", nf)
 
 
+def test_sped_enriquecido_mantem_evidencia_st_do_xml():
+    from app.services.pipeline_helpers import enrich_sped_with_xml
+
+    xml_note = NFeXMLExtractor().extract_from_xml(_xml(st_total="5.00"))
+    sped_note = NFeXMLExtractor().extract_from_xml(_xml())
+    sped_note.origem_extracao = "sped"
+    enrich_sped_with_xml(sped_note, xml_note)
+    assert should_exclude_st_from_tributaria("Baia Ferro Salvador", sped_note)
+
+
 def test_sem_st_nao_exclui():
     nf = NFeXMLExtractor().extract_from_xml(_xml())
     assert not should_exclude_st_from_tributaria("Armazém Comércio", nf)
