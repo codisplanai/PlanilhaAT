@@ -64,6 +64,7 @@ import {
 import { selectTemplateForRows } from './templateSelection.ts';
 import { fillTemplateLocally } from './xlsx.ts';
 import { buildSpreadsheetFilename } from './filename.ts';
+import { shouldExcludeStFromTributaria, ST_TRIBUTARIA_EXCLUSION_REASON } from './stTributariaExclusion.ts';
 
 const BONUS_SUFFIXES = new Set(['910', '911', '949']);
 const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
@@ -486,6 +487,7 @@ export async function processFiscalLocally(
     const paidEarly = hasEntrySource && !confirmedEntry;
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, sources.entryRecords) : null;
 
+    const excludeStTributariaNote = shouldExcludeStFromTributaria(context.empresa.razao_social, note);
     const supplierIsSimples = isSimplesSupplier(note);
     // Coluna da MVA no fluxo geral da Tributária: decidida pelo CRT, e não por
     // supplierIsSimples (o CRT 2 conta como Simples para A.ORI e DIFAL, mas usa a
@@ -585,6 +587,36 @@ export async function processFiscalLocally(
       // Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
       if (retroactive && destination !== 'difal') {
         skipRetroactiveItem(item.itemNumero);
+        continue;
+      }
+
+      // ST positiva em qualquer item/total do XML retira a NF-e inteira da
+      // Tributária destas empresas, ainda que reste imposto a recolher.
+      // DIFAL e Parcial não são afetadas.
+      if (excludeStTributariaNote && TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
+        excluded.push({
+          chave_acesso: note.chaveAcesso,
+          numero_nota: note.numeroNota,
+          serie: note.serie,
+          item_numero: item.itemNumero,
+          arquivo: note.filename,
+          destino: destination,
+          ncm: item.ncm,
+          descricao: item.descricao,
+          descricao_confiavel: item.descricaoConfiavel,
+          motivo: ST_TRIBUTARIA_EXCLUSION_REASON,
+          tipo_exclusao: 'mercadoria',
+          regras_aplicadas: [],
+          v_total: item.vTotal,
+          base_calculo: item.baseCalculo,
+          ipi_despesas: item.ipiDespesas,
+          a_ori: item.aOri,
+        });
+        diagnostic?.event('info', 'calculo', ST_TRIBUTARIA_EXCLUSION_REASON, {
+          numeroNota: note.numeroNota,
+          itemNumero: item.itemNumero,
+          chaveAcesso: note.chaveAcesso,
+        });
         continue;
       }
 
