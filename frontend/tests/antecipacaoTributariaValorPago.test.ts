@@ -243,6 +243,31 @@ test('processFiscalLocally: preenche valor_pago na linha quando ha diferenca pos
   assert.equal(nota.valor_devido, 167.0); // (287 - 70) - 50 = 167.00
 });
 
+test('processFiscalLocally: Armazém Comércio exclui ST mesmo abaixo do imposto devido', async () => {
+  const context = buildContext();
+  context.empresa.razao_social = 'Armazém Comércio LTDA';
+  const result = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-st-armazem-comercio',
+      periodoInicio: '2026-08-01',
+      periodoFim: '2026-08-31',
+      context,
+      input: {
+        xmlFiles: [new File([SAMPLE_XML_WITH_ST], 'nota_st.xml')],
+        spedFile: null,
+        entrySheet: null,
+      },
+    },
+    new Map<number, ArrayBuffer>(),
+  );
+
+  assert.equal(result.notasProcessadas.length, 0);
+  assert.equal(result.artifacts.length, 0);
+  assert.equal(result.itensExcluidos.length, 1);
+  assert.equal(result.itensExcluidos[0].destino, 'antecipacao_tributaria');
+  assert.match(result.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
+});
+
 test('processFiscalLocally: exclui da planilha quando ICMS ST cobre ou supera o imposto apurado', async () => {
   const context = buildContext();
   const fs = await import('node:fs');
