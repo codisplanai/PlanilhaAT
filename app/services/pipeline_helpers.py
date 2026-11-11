@@ -83,6 +83,9 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
     if not nf_sped.chave_acesso and nf_xml.chave_acesso:
         nf_sped.chave_acesso = nf_xml.chave_acesso
 
+    if "icms_st_xml" in nf_xml.raw_metadata:
+        nf_sped.raw_metadata["icms_st_xml"] = nf_xml.raw_metadata["icms_st_xml"]
+
     if "crt" in nf_xml.raw_metadata:
         nf_sped.raw_metadata["crt"] = nf_xml.raw_metadata["crt"]
 

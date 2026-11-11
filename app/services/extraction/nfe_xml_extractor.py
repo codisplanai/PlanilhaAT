@@ -136,6 +136,8 @@ class NFeXMLExtractor(BaseNFEExtractor):
         v_bc_nota = self._get_decimal(icms_tot, "vBC")
         v_icms_nota = self._get_decimal(icms_tot, "vICMS")
         v_desc_nota = self._get_decimal(icms_tot, "vDesc")
+        v_st_nota = self._get_decimal(icms_tot, "vST")
+        v_icms_st_itens = Decimal("0.00")
 
         # Informações Complementares (<infAdic>/<infCpl>): pode autorizar crédito de ICMS
         inf_adic = self._find_elem(inf_nfe, "infAdic")
@@ -212,6 +214,9 @@ class NFeXMLExtractor(BaseNFEExtractor):
                     p_icms_item = self._get_decimal(icms_group, "pICMS")
                     p_cred_sn_item = self._get_decimal(icms_group, "pCredSN")
 
+                    v_icms_st_itens += max(
+                        Decimal("0.00"), self._get_decimal(icms_group, "vICMSST")
+                    )
                     v_icms_val = self._get_decimal(icms_group, "vICMS")
                     if v_icms_val > 0:
                         v_icms_item = v_icms_val
@@ -290,6 +295,8 @@ class NFeXMLExtractor(BaseNFEExtractor):
             itens=itens,
             raw_metadata={
                 "qtd_itens": len(itens),
+                # Apenas evidência extraída do XML. Não infere ST de valores do SPED.
+                "icms_st_xml": float(max(Decimal("0.00"), v_st_nota, v_icms_st_itens)),
                 "crt": crt_emitente,
                 "emit_nome": x_nome_emit,
                 "fornecedor_simples_nacional": fornecedor_simples,
