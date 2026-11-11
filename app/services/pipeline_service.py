@@ -21,6 +21,10 @@ from app.services.rules_engine.cfop_resolver import CfopResolver, ResolucaoCfop
 from app.services.rules_engine.interstate_rate_resolver import InterstateRateResolver
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.rules_engine.revenda_antecipacao_policy import RevendaAntecipacaoTributariaPolicy
+from app.services.rules_engine.st_tributaria_exclusion import (
+    should_exclude_st_from_tributaria,
+    ST_TRIBUTARIA_EXCLUSION_REASON,
+)
 from app.services.rules_engine.parcial_decision import (
     DESTINOS_PARCIAL,
     DecisaoExclusaoItem,
@@ -374,6 +378,9 @@ class ProcessingPipelineService:
                 itens_bonificacao_desconsiderados: List[Any] = []
                 itens_retroativos_pulados: List[int] = []
                 itens_aguardando_entrada: List[int] = []
+                exclude_st_tributaria_note = should_exclude_st_from_tributaria(
+                    empresa.razao_social, nf_data
+                )
 
                 for item in nf_data.itens:
                     bonificacao_uso_consumo = False
@@ -495,6 +502,32 @@ class ProcessingPipelineService:
                     # Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
                     if retroativa and destino_item != DIFAL:
                         itens_retroativos_pulados.append(item.item_numero)
+                        continue
+
+                    # Para as três empresas selecionadas, ST positiva no XML
+                    # elimina a NF-e inteira APENAS dos destinos Tributária.
+                    # DIFAL e Parcial continuam independentes.
+                    if exclude_st_tributaria_note and destino_item in (
+                        ANTECIPACAO_TRIBUTARIA,
+                        ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+                    ):
+                        itens_excluidos.append(
+                            serialize_excluded_item(
+                                nf_data,
+                                item,
+                                filename,
+                                destino_item,
+                                DecisaoExclusaoItem(
+                                    excluido=True,
+                                    tipo_exclusao="mercadoria",
+                                    motivo=ST_TRIBUTARIA_EXCLUSION_REASON,
+                                    v_total=item.v_total,
+                                    base_calculo=item.base_calculo,
+                                    ipi_despesas=item.ipi_despesas,
+                                    a_ori=item.a_ori,
+                                ),
+                            )
+                        )
                         continue
 
                     if modo_legado:
