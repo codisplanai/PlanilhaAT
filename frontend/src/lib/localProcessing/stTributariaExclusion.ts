@@ -1,11 +1,13 @@
 import type { ExtractedNote } from './domain.ts';
 
-// Somente estas três empresas dispensam a Antecipação Tributária quando a
+// Somente estas cinco empresas dispensam a Antecipação Tributária quando a
 // própria NF-e já apresenta ICMS ST destacado. Demais empresas: regra geral.
 const COMPANIES = [
   'ARMAZEM COMERCIO',
   'ARMAZEM RECONCAVO',
   'BAIA FERRO SALVADOR',
+  'CASA VIP',
+  'BAIA FERRO FSA',
 ];
 
 function normalizeCompanyName(name: string): string {
