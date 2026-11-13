@@ -268,6 +268,32 @@ test('processFiscalLocally: Armazém Comércio exclui ST mesmo abaixo do imposto
   assert.match(result.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
 });
 
+for (const company of ['Casa VIP LTDA', 'Baia Ferro FSA LTDA']) {
+  test(`processFiscalLocally: ${company} exclui NF-e com ST mesmo com imposto ainda devido`, async () => {
+    const context = buildContext();
+    context.empresa.razao_social = company;
+    const result = await processFiscalLocally(
+      {
+        solicitacaoId: 'teste-st-novas-empresas',
+        periodoInicio: '2026-08-01',
+        periodoFim: '2026-08-31',
+        context,
+        input: {
+          xmlFiles: [new File([SAMPLE_XML_WITH_ST], 'nota_st.xml')],
+          spedFile: null,
+          entrySheet: null,
+        },
+      },
+      new Map<number, ArrayBuffer>(),
+    );
+    assert.equal(result.notasProcessadas.length, 0);
+    assert.equal(result.artifacts.length, 0);
+    assert.equal(result.itensExcluidos.length, 1);
+    assert.equal(result.itensExcluidos[0].destino, 'antecipacao_tributaria');
+    assert.match(result.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
+  });
+}
+
 test('processFiscalLocally: exclui da planilha quando ICMS ST cobre ou supera o imposto apurado', async () => {
   const context = buildContext();
   const fs = await import('node:fs');
