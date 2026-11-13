@@ -22,9 +22,21 @@ def test_st_total_exclui_tres_empresas_independentemente_do_valor():
         assert should_exclude_st_from_tributaria(name, nf)
 
 
+def test_st_total_exclui_casa_vip_e_baia_ferro_fsa():
+    nf = NFeXMLExtractor().extract_from_xml(_xml(st_total="0.01"))
+    for name in ("Casa VIP", "CASA VIP COMERCIO LTDA", "Baía Ferro FSA", "BAIA FERRO FSA LTDA"):
+        assert should_exclude_st_from_tributaria(name, nf)
+
+
 def test_st_no_item_tambem_exclui():
     nf = NFeXMLExtractor().extract_from_xml(_xml(st_item="0.02"))
     assert should_exclude_st_from_tributaria("Armazém Comércio", nf)
+
+
+def test_st_no_item_exclui_novas_empresas():
+    nf = NFeXMLExtractor().extract_from_xml(_xml(st_item="0.02"))
+    for name in ("Casa VIP", "Baia Ferro FSA"):
+        assert should_exclude_st_from_tributaria(name, nf)
 
 
 def test_sped_enriquecido_mantem_evidencia_st_do_xml():
@@ -39,10 +51,11 @@ def test_sped_enriquecido_mantem_evidencia_st_do_xml():
 
 def test_sem_st_nao_exclui():
     nf = NFeXMLExtractor().extract_from_xml(_xml())
-    assert not should_exclude_st_from_tributaria("Armazém Comércio", nf)
+    for name in ("Armazém Comércio", "Casa VIP", "Baia Ferro FSA"):
+        assert not should_exclude_st_from_tributaria(name, nf)
 
 
 def test_outras_empresas_nao_sao_afetadas():
     nf = NFeXMLExtractor().extract_from_xml(_xml(st_total="90.00"))
-    for name in ("COMAPEL", "Armazém Outros", "Baia Ferro Feira"):
+    for name in ("COMAPEL", "Armazém Outros", "Baia Ferro Feira", "Casa Vipera", "Baia Ferro FS"):
         assert not should_exclude_st_from_tributaria(name, nf)
