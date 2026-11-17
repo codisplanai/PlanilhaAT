@@ -3,7 +3,7 @@ import { decodeUtf8OrWindows1252 } from './domain.ts';
 import type { LocalOutputRow, LocalTemplateDescriptor } from '../../types/localProcessing';
 import { readZip, writeZip } from './zip.ts';
 
-const XML_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+export const XML_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
 function decode(bytes: Uint8Array): string {
@@ -14,13 +14,13 @@ function encode(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }
 
-function parseXml(bytes: Uint8Array, label: string): XMLDocument {
+export function parseXml(bytes: Uint8Array, label: string): XMLDocument {
   const doc = new DOMParser().parseFromString(decode(bytes), 'application/xml');
   if (doc.querySelector('parsererror')) throw new Error(`XLSX inválido: ${label} não pôde ser lido.`);
   return doc;
 }
 
-function serializeXml(doc: XMLDocument): Uint8Array {
+export function serializeXml(doc: XMLDocument): Uint8Array {
   return encode(new XMLSerializer().serializeToString(doc));
 }
 
@@ -47,7 +47,7 @@ function normalizeCfop(value: unknown): string {
   return digits(value).slice(-4);
 }
 
-function parseDateString(value: string): string | null {
+export function parseDateString(value: string): string | null {
   const raw = value.trim();
   if (!raw) return null;
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -60,34 +60,34 @@ function parseDateString(value: string): string | null {
   return null;
 }
 
-function excelSerialToIso(value: number): string | null {
+export function excelSerialToIso(value: number): string | null {
   if (!Number.isFinite(value) || value <= 0) return null;
   const epoch = Date.UTC(1899, 11, 30);
   const date = new Date(epoch + Math.round(value) * 86400000);
   return date.toISOString().slice(0, 10);
 }
 
-function isoToExcelSerial(value: string): number {
+export function isoToExcelSerial(value: string): number {
   const datePart = value.slice(0, 10);
   const time = Date.parse(`${datePart}T00:00:00Z`);
   return (time - Date.UTC(1899, 11, 30)) / 86400000;
 }
 
-function columnLetters(ref: string): string {
+export function columnLetters(ref: string): string {
   return (ref.match(/^[A-Z]+/i)?.[0] ?? '').toUpperCase();
 }
 
-function columnNumber(letters: string): number {
+export function columnNumber(letters: string): number {
   let result = 0;
   for (const char of letters.toUpperCase()) result = result * 26 + char.charCodeAt(0) - 64;
   return result;
 }
 
-function cellRef(column: string, row: number): string {
+export function cellRef(column: string, row: number): string {
   return `${column.toUpperCase()}${row}`;
 }
 
-function getSharedStrings(entries: Map<string, Uint8Array>): string[] {
+export function getSharedStrings(entries: Map<string, Uint8Array>): string[] {
   const raw = entries.get('xl/sharedStrings.xml');
   if (!raw) return [];
   const doc = parseXml(raw, 'sharedStrings.xml');
@@ -96,7 +96,7 @@ function getSharedStrings(entries: Map<string, Uint8Array>): string[] {
   );
 }
 
-function getCellValue(cell: Element, sharedStrings: string[]): string {
+export function getCellValue(cell: Element, sharedStrings: string[]): string {
   const type = cell.getAttribute('t');
   if (type === 'inlineStr') {
     return Array.from(cell.getElementsByTagNameNS(XML_NS, 't'))
@@ -223,17 +223,11 @@ function findHeader(
 
 function parseDelimitedEntrySheet(text: string): EntrySheetRecord[] {
   const lines = text.split(/\r?\n/);
+  const sample = lines.slice(0, 16);
   let delimiter = '\t';
-  for (const line of lines.slice(0, 16)) {
-    if (line.includes('\t')) {
-      delimiter = '\t';
-      break;
-    }
-    if (line.includes(';')) {
-      delimiter = ';';
-      break;
-    }
-  }
+  if (sample.some((line) => line.includes('\t'))) delimiter = '\t';
+  else if (sample.some((line) => line.includes(';'))) delimiter = ';';
+  else if (sample.some((line) => line.includes(','))) delimiter = ',';
 
   const rows = new Map<number, Map<string, string>>();
   lines.slice(0, 16).forEach((line, index) => {
@@ -429,16 +423,16 @@ function keepOnlyPeriodSheetVisible(
   entries.set('xl/workbook.xml', serializeXml(workbook));
 }
 
-function createElement(doc: XMLDocument, name: string): Element {
+export function createSpreadsheetElement(doc: XMLDocument, name: string): Element {
   return doc.createElementNS(XML_NS, name);
 }
 
-function ensureRow(doc: XMLDocument, sheetData: Element, rowIndex: number): Element {
+export function ensureRow(doc: XMLDocument, sheetData: Element, rowIndex: number): Element {
   const existing = Array.from(sheetData.getElementsByTagNameNS(XML_NS, 'row'))
     .find((row) => Number(row.getAttribute('r')) === rowIndex);
   if (existing) return existing;
 
-  const row = createElement(doc, 'row');
+  const row = createSpreadsheetElement(doc, 'row');
   row.setAttribute('r', String(rowIndex));
   const next = Array.from(sheetData.children).find((candidate) => Number(candidate.getAttribute('r')) > rowIndex);
   if (next) sheetData.insertBefore(row, next);
@@ -446,11 +440,11 @@ function ensureRow(doc: XMLDocument, sheetData: Element, rowIndex: number): Elem
   return row;
 }
 
-function ensureCell(doc: XMLDocument, row: Element, ref: string): Element {
+export function ensureCell(doc: XMLDocument, row: Element, ref: string): Element {
   const existing = Array.from(row.getElementsByTagNameNS(XML_NS, 'c')).find((cell) => cell.getAttribute('r') === ref);
   if (existing) return existing;
 
-  const cell = createElement(doc, 'c');
+  const cell = createSpreadsheetElement(doc, 'c');
   cell.setAttribute('r', ref);
   const targetColumn = columnNumber(columnLetters(ref));
   const next = Array.from(row.getElementsByTagNameNS(XML_NS, 'c')).find(
@@ -461,10 +455,25 @@ function ensureCell(doc: XMLDocument, row: Element, ref: string): Element {
   return cell;
 }
 
-function clearCellValue(cell: Element): void {
+export function clearCellValue(cell: Element): void {
   for (const childNode of Array.from(cell.children)) {
     if (['v', 'is', 'f'].includes(childNode.localName)) cell.removeChild(childNode);
   }
+}
+
+export function enableWorkbookAutoRecalc(entries: Map<string, Uint8Array>): void {
+  const calcRaw = entries.get('xl/workbook.xml');
+  if (!calcRaw) return;
+  const workbook = parseXml(calcRaw, 'workbook.xml');
+  let calcPr = workbook.getElementsByTagNameNS(XML_NS, 'calcPr')[0];
+  if (!calcPr) {
+    calcPr = createSpreadsheetElement(workbook, 'calcPr');
+    workbook.documentElement.appendChild(calcPr);
+  }
+  calcPr.setAttribute('fullCalcOnLoad', '1');
+  calcPr.setAttribute('forceFullCalc', '1');
+  calcPr.setAttribute('calcMode', 'auto');
+  entries.set('xl/workbook.xml', serializeXml(workbook));
 }
 
 function writeCell(doc: XMLDocument, cell: Element, field: string, value: unknown, percentageFormat: string): void {
@@ -485,7 +494,7 @@ function writeCell(doc: XMLDocument, cell: Element, field: string, value: unknow
 
   if ((field === 'data_emissao' || field === 'data_entrada') && typeof normalized === 'string' && normalized) {
     cell.setAttribute('t', 'n');
-    const v = createElement(doc, 'v');
+    const v = createSpreadsheetElement(doc, 'v');
     v.textContent = String(isoToExcelSerial(normalized));
     cell.appendChild(v);
     return;
@@ -493,15 +502,15 @@ function writeCell(doc: XMLDocument, cell: Element, field: string, value: unknow
 
   if (typeof normalized === 'number') {
     cell.setAttribute('t', 'n');
-    const v = createElement(doc, 'v');
+    const v = createSpreadsheetElement(doc, 'v');
     v.textContent = Number.isFinite(normalized) ? String(normalized) : '0';
     cell.appendChild(v);
     return;
   }
 
   cell.setAttribute('t', 'inlineStr');
-  const is = createElement(doc, 'is');
-  const t = createElement(doc, 't');
+  const is = createSpreadsheetElement(doc, 'is');
+  const t = createSpreadsheetElement(doc, 't');
   t.setAttribute('xml:space', 'preserve');
   const raw = String(normalized);
   t.textContent = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
@@ -584,19 +593,7 @@ export async function fillTemplateLocally(
     keepOnlyPeriodSheetVisible(entries, selected);
   }
 
-  const calcRaw = entries.get('xl/workbook.xml');
-  if (calcRaw) {
-    const workbook = parseXml(calcRaw, 'workbook.xml');
-    let calcPr = workbook.getElementsByTagNameNS(XML_NS, 'calcPr')[0];
-    if (!calcPr) {
-      calcPr = createElement(workbook, 'calcPr');
-      workbook.documentElement.appendChild(calcPr);
-    }
-    calcPr.setAttribute('fullCalcOnLoad', '1');
-    calcPr.setAttribute('forceFullCalc', '1');
-    calcPr.setAttribute('calcMode', 'auto');
-    entries.set('xl/workbook.xml', serializeXml(workbook));
-  }
+  enableWorkbookAutoRecalc(entries);
 
   return writeZip(entries);
 }
