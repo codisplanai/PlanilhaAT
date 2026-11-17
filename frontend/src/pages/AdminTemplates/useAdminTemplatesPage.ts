@@ -9,7 +9,7 @@ import { getErrorMessage } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { templatesApi } from '../../api/templates';
 import { TIPOS_PLANILHA_OPTIONS } from '../../constants/domain';
-import { useTemplatesQuery } from '../../hooks/useApiQueries';
+import { useEmpresasQuery, useTemplatesQuery } from '../../hooks/useApiQueries';
 import type { TemplateMapping, TemplateXlsx } from '../../types/template';
 import type { TipoPlanilha } from '../../types/solicitacao';
 
@@ -107,12 +107,25 @@ function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
 
 export function useAdminTemplatesPage() {
   const queryClient = useQueryClient();
+  const [selectedEmpresaId, setSelectedEmpresaIdState] = useState<number | null>(null);
   const [selectedType, setSelectedType] = useState<TipoPlanilha>('antecipacao_parcial');
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const templatesQuery = useTemplatesQuery();
+  const empresasQuery = useEmpresasQuery();
   const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
+  const empresas = useMemo(
+    () =>
+      (empresasQuery.data ?? [])
+        .slice()
+        .sort((a, b) => a.razao_social.localeCompare(b.razao_social, 'pt-BR')),
+    [empresasQuery.data],
+  );
+  const selectedEmpresa = useMemo(
+    () => empresas.find((empresa) => empresa.id === selectedEmpresaId) ?? null,
+    [empresas, selectedEmpresaId],
+  );
   const safetyConfigQuery = useQuery({
     queryKey: queryKeys.templateSelectionConfigs,
     queryFn: templatesApi.listarConfiguracoesSelecao,
@@ -187,6 +200,14 @@ export function useAdminTemplatesPage() {
 
   const [promotingId, setPromotingId] = useState<number | null>(null);
   const [promoteError, setPromoteError] = useState<string | null>(null);
+  const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
+  const [deactivateError, setDeactivateError] = useState<string | null>(null);
+
+  const setSelectedEmpresaId = (empresaId: number | null) => {
+    setSelectedEmpresaIdState(empresaId);
+    setPromoteError(null);
+    setDeactivateError(null);
+  };
 
   const promoteMutation = useMutation({
     mutationFn: (id: number) => {
@@ -194,17 +215,39 @@ export function useAdminTemplatesPage() {
       return templatesApi.promover(id);
     },
     onSettled: () => setPromotingId(null),
-    onSuccess: () => {
+    onSuccess: async () => {
       setPromoteError(null);
-      return queryClient.invalidateQueries({ queryKey: queryKeys.templates });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.templates }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.templatesAtivos }),
+      ]);
     },
     onError: (error) => setPromoteError(getErrorMessage(error)),
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: (id: number) => {
+      setDeactivatingId(id);
+      return templatesApi.desativar(id);
+    },
+    onSettled: () => setDeactivatingId(null),
+    onSuccess: async () => {
+      setDeactivateError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.templates }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.templatesAtivos }),
+      ]);
+    },
+    onError: (error) => setDeactivateError(getErrorMessage(error)),
   });
 
   const uploadMutation = useMutation({
     mutationFn: (data: FormData) => templatesApi.upload(data),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.templates });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.templates }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.templatesAtivos }),
+      ]);
       setModalOpen(false);
       setSelectedFile(null);
     },
@@ -271,6 +314,9 @@ export function useAdminTemplatesPage() {
     const payload = new FormData();
     payload.append('tipo', data.tipo);
     payload.append('capacidade_linhas', String(data.capacidade_linhas));
+    if (selectedEmpresaId !== null) {
+      payload.append('empresa_id', String(selectedEmpresaId));
+    }
     payload.append('file', selectedFile);
     payload.append('mapeamento_json', JSON.stringify(mapping));
     if (data.observacoes) payload.append('observacoes', data.observacoes);
@@ -284,9 +330,19 @@ export function useAdminTemplatesPage() {
     }
   });
 
+  const templatesByScope = useMemo(
+    () =>
+      templates.filter((template) =>
+        selectedEmpresaId === null
+          ? template.empresa_id == null
+          : template.empresa_id === selectedEmpresaId,
+      ),
+    [templates, selectedEmpresaId],
+  );
+
   const filteredTemplates = useMemo(
-    () => templates.filter((template) => template.tipo === selectedType),
-    [templates, selectedType],
+    () => templatesByScope.filter((template) => template.tipo === selectedType),
+    [templatesByScope, selectedType],
   );
 
   // O motor escolhe o menor modelo cuja capacidade cobre (linhas reais + margem).
@@ -318,7 +374,13 @@ export function useAdminTemplatesPage() {
 
   return {
     templatesQuery,
+    empresasQuery,
+    empresas,
+    selectedEmpresaId,
+    setSelectedEmpresaId,
+    selectedEmpresa,
     templates,
+    templatesByScope,
     filteredTemplates,
     faixas,
     tiposPlanilha: TIPOS_PLANILHA_OPTIONS,
@@ -347,6 +409,11 @@ export function useAdminTemplatesPage() {
     isPromoting: promotingId !== null,
     promoteError,
     setPromoteError,
+    deactivateTemplate: deactivateMutation.mutate,
+    deactivatingId,
+    isDeactivating: deactivatingId !== null,
+    deactivateError,
+    setDeactivateError,
     uploadTemplate,
     register: form.register,
     watch: form.watch,

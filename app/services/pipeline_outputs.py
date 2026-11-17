@@ -207,6 +207,7 @@ class PipelineOutputService:
                         self.db,
                         destination,
                         required_rows=len(rows),
+                        empresa_id=empresa.id,
                     )
                 except NotFoundException:
                     if legacy_template is None:
@@ -230,6 +231,7 @@ class PipelineOutputService:
                             self.db,
                             destination,
                             required_rows=len(rows),
+                            empresa_id=empresa.id,
                         )
                     except NotFoundException as exc:
                         self._add_output_record(

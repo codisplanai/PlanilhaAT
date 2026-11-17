@@ -589,6 +589,7 @@ async function generateOutputArtifacts(params: {
       destination,
       rows.length,
       context.margens_seguranca_templates[destination] ?? 0,
+      context.empresa.id,
     );
     if (!template) continue;
     let bytes = templateBytes.get(template.id);

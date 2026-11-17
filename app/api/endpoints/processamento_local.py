@@ -226,6 +226,7 @@ def _build_context_payload(
         "templates_ativos": [
             {
                 "id": template.id,
+                "empresa_id": template.empresa_id,
                 "tipo": template.tipo,
                 "versao": template.versao,
                 "capacidade_linhas": template.capacidade_linhas,
@@ -295,7 +296,10 @@ def obter_contexto_processamento_local(
     )
     templates = (
         db.query(TemplateXlsx)
-        .filter(TemplateXlsx.ativo.is_(True))
+        .filter(
+            TemplateXlsx.ativo.is_(True),
+            (TemplateXlsx.empresa_id == empresa.id) | (TemplateXlsx.empresa_id.is_(None)),
+        )
         .order_by(*TemplateManager.DEFAULT_ORDER)
         .all()
     )
