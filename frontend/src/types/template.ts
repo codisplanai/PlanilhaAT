@@ -21,3 +21,17 @@ export interface TemplateXlsx {
   observacoes?: string | null;
   criado_em: string;
 }
+
+export interface TemplateSelectionConfig {
+  tipo: string;
+  margem_seguranca_linhas: number;
+}
+
+export interface TemplateAtivoResumo {
+  id: number;
+  tipo: string;
+  versao: number;
+  capacidade_linhas: number | null;
+  criado_em: string | null;
+  observacoes: string | null;
+}

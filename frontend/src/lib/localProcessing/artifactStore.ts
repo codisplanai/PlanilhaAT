@@ -1,5 +1,6 @@
 import type { LocalGeneratedArtifact } from '../../types/localProcessing';
 import type { TipoPlanilha } from '../../types/solicitacao';
+import { triggerBlobDownload } from '../downloadBlob.ts';
 import { buildZipFilenameFromArtifacts } from './filename';
 import { writeZip } from './zip';
 
@@ -306,19 +307,6 @@ export async function deleteMultipleLocalArtifacts(requestIds: string[]): Promis
   );
 }
 
-function triggerDownload(bytes: ArrayBuffer, filename: string, mimeType: string): void {
-  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.rel = 'noopener';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  // Firefox e WebKit abortam o download quando a URL é revogada no mesmo tick.
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
 export async function downloadLocalArtifacts(
   requestId: string,
   tipo?: TipoPlanilha,
@@ -332,7 +320,10 @@ export async function downloadLocalArtifacts(
   }
 
   if (selected.length === 1) {
-    triggerDownload(selected[0].bytes, selected[0].filename, selected[0].mimeType);
+    triggerBlobDownload(
+      new Blob([selected[0].bytes], { type: selected[0].mimeType }),
+      selected[0].filename,
+    );
     return;
   }
 
@@ -341,5 +332,5 @@ export async function downloadLocalArtifacts(
   );
   const zip = writeZip(entries);
   const zipFilename = buildZipFilenameFromArtifacts(selected, requestId);
-  triggerDownload(zip, zipFilename, 'application/zip');
+  triggerBlobDownload(new Blob([zip], { type: 'application/zip' }), zipFilename);
 }

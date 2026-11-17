@@ -102,42 +102,29 @@ export function useFiscalInputFiles() {
     setSpedFiles((currentFiles) => currentFiles.filter((_, itemIndex) => itemIndex !== index));
   };
 
-  const handlePlanilhaEntradaInput = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const validateAndSetPlanilha = (file: File | undefined) => {
     if (!file) return;
-
     const filename = file.name.toLowerCase();
     if (!filename.endsWith('.xlsx') && !filename.endsWith('.xls')) {
       setFileError('Selecione uma planilha no formato .xlsx ou .xls.');
-      event.target.value = '';
       return;
     }
     if (file.size === 0 || file.size > MAX_FILE_BYTES) {
       setFileError('A planilha de entrada deve ser não vazia e ter no máximo 20 MB.');
-      event.target.value = '';
       return;
     }
     setPlanilhaEntradaFile(file);
     setFileError(null);
+  };
+
+  const handlePlanilhaEntradaInput = (event: ChangeEvent<HTMLInputElement>) => {
+    validateAndSetPlanilha(event.target.files?.[0]);
     event.target.value = '';
   };
 
   const handlePlanilhaEntradaDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const file = event.dataTransfer.files[0];
-    if (!file) return;
-
-    const filename = file.name.toLowerCase();
-    if (!filename.endsWith('.xlsx') && !filename.endsWith('.xls')) {
-      setFileError('Selecione uma planilha no formato .xlsx ou .xls.');
-      return;
-    }
-    if (file.size === 0 || file.size > MAX_FILE_BYTES) {
-      setFileError('A planilha de entrada deve ser não vazia e ter no máximo 20 MB.');
-      return;
-    }
-    setPlanilhaEntradaFile(file);
-    setFileError(null);
+    validateAndSetPlanilha(event.dataTransfer.files[0]);
   };
 
   const resetFiles = () => {

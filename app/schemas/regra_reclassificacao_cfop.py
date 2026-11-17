@@ -103,7 +103,7 @@ class RegraReclassificacaoUpdate(BaseModel):
 class RegraReclassificacaoOut(RegraReclassificacaoBase):
     id: int
     perfil_regras_id: int
-    excecoes: List[ExcecaoReclassificacaoOut] = []
+    excecoes: List[ExcecaoReclassificacaoOut] = Field(default_factory=list)
     criado_em: datetime
     atualizado_em: datetime
 

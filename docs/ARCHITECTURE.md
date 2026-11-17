@@ -14,11 +14,10 @@ e testes pode existir autenticação local explicitamente habilitada.
 app/
 ├── api/
 │   ├── endpoints/       # Transporte HTTP e validação da requisição
-│   ├── persistence.py   # Operações CRUD transacionais compartilhadas
-│   └── upload_utils.py  # Leitura e validação de uploads
-├── core/                # Configuração, banco, exceções e dados iniciais
+│   └── persistence.py   # Operações CRUD transacionais e consulta de recursos
+├── core/                # Configuração, banco, exceções, segurança e seeds
 ├── models/              # Entidades SQLAlchemy
-├── schemas/             # Contratos Pydantic da API
+├── schemas/             # Contratos e validadores Pydantic da API
 ├── services/
 │   ├── calculation/     # Estratégias de cálculo por tipo de planilha
 │   ├── excel/           # Preenchimento, formatação e proteção de fórmulas
@@ -26,7 +25,9 @@ app/
 │   ├── rules_engine/    # Resolução das regras fiscais
 │   ├── templates_admin/ # Versionamento dos templates
 │   ├── validation/      # Validações de domínio
-│   ├── local_files.py    # Escrita atômica e resolução segura de artefatos
+│   ├── copia_regras.py  # Clonagem e cópia de perfis e regras entre perfis
+│   ├── local_files.py   # Escrita atômica e resolução segura de artefatos
+│   ├── meu_danfe.py     # Geração e consulta de DANFE em PDF
 │   ├── pipeline_helpers.py
 │   ├── pipeline_analysis.py # Pré-análise e decisões de destinação
 │   ├── pipeline_lifecycle.py # Transações e estados da solicitação
@@ -56,9 +57,9 @@ frontend/src/
 │   ├── layout/          # Estrutura visual compartilhada
 │   └── ui/              # Primitivos visuais reutilizáveis
 ├── constants/           # Rótulos, estados e opções do domínio
-├── hooks/               # Sessão, queries e lógica reutilizável
-├── lib/                 # Funções puras de apresentação
-├── pages/               # Composição de rota e hooks privados de cada feature
+├── hooks/               # Sessão, queries, timers e lógica reutilizável
+├── lib/                 # Funções puras (formatação, DANFE, download, filtros) e motor fiscal local (`localProcessing/`)
+├── pages/               # Composição de rota, modais/seções e hooks privados de cada feature
 └── types/               # Contratos TypeScript da API
 ```
 

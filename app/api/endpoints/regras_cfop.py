@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -7,6 +7,7 @@ from app.core.security import get_current_user
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.perfil_regras import PerfilRegras
 from app.schemas.regra_cfop import RegraCfopCreate, RegraCfopUpdate, RegraCfopOut, RegraCfopEfetivaOut
+from app.services.rules_engine.cfop_resolver import CfopResolver
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 
 router = APIRouter(
@@ -18,9 +19,7 @@ router = APIRouter(
 @router.post("", response_model=RegraCfopOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_cfop(payload: RegraCfopCreate, db: Session = Depends(get_db)):
     if payload.perfil_regras_id is not None:
-        perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-        if not perfil:
-            raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
+        get_by_id_or_404(db, PerfilRegras, payload.perfil_regras_id, "Perfil de regras não encontrado.")
 
     existente = (
         db.query(RegraCfopDestino)
@@ -65,21 +64,7 @@ def listar_regras_cfop_efetivas(perfil_id: int, db: Session = Depends(get_db)):
     Visão efetiva de roteamento: padrões globais sobrepostos pelas exceções cadastradas
     no perfil informado. Mostra a origem ('global' ou 'perfil') de cada regra vigente.
     """
-    globais = db.query(RegraCfopDestino).filter(RegraCfopDestino.perfil_regras_id == None).all()
-    do_perfil = db.query(RegraCfopDestino).filter(RegraCfopDestino.perfil_regras_id == perfil_id).all()
-
-    efetivas: Dict[str, RegraCfopEfetivaOut] = {
-        r.cfop_sufixo: RegraCfopEfetivaOut(
-            cfop_sufixo=r.cfop_sufixo, destino=r.destino, descricao=r.descricao, origem="global", regra_id=r.id
-        )
-        for r in globais
-    }
-    for r in do_perfil:
-        efetivas[r.cfop_sufixo] = RegraCfopEfetivaOut(
-            cfop_sufixo=r.cfop_sufixo, destino=r.destino, descricao=r.descricao, origem="perfil", regra_id=r.id
-        )
-
-    return sorted(efetivas.values(), key=lambda r: r.cfop_sufixo)
+    return CfopResolver.listar_regras_efetivas(db, perfil_id)
 
 @router.get("/{id}", response_model=RegraCfopOut)
 def obter_regra_cfop(id: int, db: Session = Depends(get_db)):

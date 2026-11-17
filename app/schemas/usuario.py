@@ -4,6 +4,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, validator
 
 from app.constants import CARGO_POR_ROLE, ROLE_OPERADOR
+from app.schemas.validators import clean_email
 
 
 class UsuarioCreate(BaseModel):
@@ -14,10 +15,7 @@ class UsuarioCreate(BaseModel):
 
     @validator("email")
     def validar_email(cls, value: str) -> str:
-        clean = value.strip().lower()
-        if clean.count("@") != 1 or clean.startswith("@") or clean.endswith("@"):
-            raise ValueError("E-mail inválido")
-        return clean
+        return clean_email(value)
 
     @validator("nome")
     def validar_nome(cls, value: str) -> str:

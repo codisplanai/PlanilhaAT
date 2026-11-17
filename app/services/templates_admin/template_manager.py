@@ -12,25 +12,62 @@ from app.models.template_xlsx import TemplateXlsx
 from app.schemas.template_xlsx import TemplateMapping
 from app.core.config import settings
 from app.core.exceptions import ValidationException, NotFoundException
-from app.constants import TIPOS_PLANILHA
+from app.constants import (
+    ANTECIPACAO_TRIBUTARIA,
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+    DIFAL,
+    DIFAL_ANTECIPADO,
+    TIPOS_PLANILHA,
+)
 from app.services.supabase_storage import SupabaseStorageService
 from app.services.local_files import atomic_write, remove_file_if_exists
 
 logger = logging.getLogger(__name__)
 
 STRICT_OFFICIAL_TEMPLATE_TYPES = {
-    "antecipacao_tributaria",
-    "antecipacao_tributaria_antecipado",
-    "difal",
-    "difal_antecipado",
+    ANTECIPACAO_TRIBUTARIA,
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+    DIFAL,
+    DIFAL_ANTECIPADO,
 }
 SAFETY_MARGIN_KEY = "margem_seguranca_linhas"
 MAX_SAFETY_MARGIN_LINES = 100_000
+
 
 class TemplateManager:
     """
     Camada 9: Gestão, upload, validação de mapeamento obrigatório e versionamento rastreável de templates Excel.
     """
+
+    DEFAULT_ORDER = (
+        TemplateXlsx.tipo,
+        TemplateXlsx.capacidade_linhas.is_(None),
+        TemplateXlsx.capacidade_linhas,
+        TemplateXlsx.versao.desc(),
+    )
+
+    @staticmethod
+    def _family_filter(tipo: str, capacidade_linhas: Optional[int]):
+        return [
+            TemplateXlsx.tipo == tipo,
+            (
+                TemplateXlsx.capacidade_linhas == capacidade_linhas
+                if capacidade_linhas is not None
+                else TemplateXlsx.capacidade_linhas.is_(None)
+            ),
+        ]
+
+    @classmethod
+    def _assert_hash_matches(
+        cls,
+        file_bytes: bytes,
+        template: TemplateXlsx,
+        *,
+        error_message: str,
+    ) -> None:
+        expected_hash = (template.arquivo_hash or "").strip().lower()
+        if expected_hash and cls.calculate_file_hash(file_bytes).lower() != expected_hash:
+            raise ValidationException(error_message)
 
     @classmethod
     def calculate_file_hash(cls, file_bytes: bytes) -> str:
@@ -123,14 +160,7 @@ class TemplateManager:
 
         # Cada capacidade possui sua própria versão oficial. Modelos legados
         # (capacidade nula) permanecem isolados para compatibilidade.
-        family_filter = [
-            TemplateXlsx.tipo == clean_tipo,
-            (
-                TemplateXlsx.capacidade_linhas == capacidade_linhas
-                if capacidade_linhas is not None
-                else TemplateXlsx.capacidade_linhas.is_(None)
-            ),
-        ]
+        family_filter = cls._family_filter(clean_tipo, capacidade_linhas)
         template_ativo_existente = (
             db.query(TemplateXlsx)
             .filter(*family_filter, TemplateXlsx.ativo == True)
@@ -208,14 +238,7 @@ class TemplateManager:
             cls.resolve_template_path(target)
 
         # Desativa somente versões concorrentes da mesma família (tipo + capacidade).
-        family_filter = [
-            TemplateXlsx.tipo == target.tipo,
-            (
-                TemplateXlsx.capacidade_linhas == target.capacidade_linhas
-                if target.capacidade_linhas is not None
-                else TemplateXlsx.capacidade_linhas.is_(None)
-            ),
-        ]
+        family_filter = cls._family_filter(target.tipo, target.capacidade_linhas)
         db.query(TemplateXlsx).filter(*family_filter).update(
             {"ativo": False},
             synchronize_session=False,
@@ -424,13 +447,14 @@ class TemplateManager:
         persisted_blob = getattr(template, "arquivo_blob", None)
         if persisted_blob:
             file_bytes = bytes(persisted_blob)
-            expected_hash = (template.arquivo_hash or "").strip().lower()
-            persisted_hash = cls.calculate_file_hash(file_bytes).lower()
-            if expected_hash and persisted_hash != expected_hash:
-                raise ValidationException(
+            cls._assert_hash_matches(
+                file_bytes,
+                template,
+                error_message=(
                     f"O arquivo persistido da versão {template.tipo} v{template.versao} "
                     "não corresponde ao hash registrado. O processamento foi bloqueado."
-                )
+                ),
+            )
             atomic_write(runtime_path, file_bytes, prefix="template_db_")
             return runtime_path
 
@@ -440,14 +464,15 @@ class TemplateManager:
         )
         if file_bytes:
             if strict_official:
-                downloaded_hash = cls.calculate_file_hash(file_bytes).lower()
-                expected_hash = (template.arquivo_hash or "").strip().lower()
-                if expected_hash and downloaded_hash != expected_hash:
-                    raise ValidationException(
+                cls._assert_hash_matches(
+                    file_bytes,
+                    template,
+                    error_message=(
                         f"O arquivo persistido da versão oficial {template.tipo} v{template.versao} "
                         "não corresponde ao hash registrado. O processamento foi bloqueado para "
                         "evitar o uso de um modelo incorreto."
-                    )
+                    ),
+                )
             atomic_write(runtime_path, file_bytes, prefix="template_download_")
             return runtime_path
 

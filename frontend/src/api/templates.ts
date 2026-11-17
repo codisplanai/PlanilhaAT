@@ -1,19 +1,11 @@
 import { apiClient } from './client';
-import type { TemplateXlsx } from '../types/template';
+import type {
+  TemplateAtivoResumo,
+  TemplateSelectionConfig,
+  TemplateXlsx,
+} from '../types/template';
 
-export interface TemplateSelectionConfig {
-  tipo: string;
-  margem_seguranca_linhas: number;
-}
-
-export interface TemplateAtivoResumo {
-  id: number;
-  tipo: string;
-  versao: number;
-  capacidade_linhas: number | null;
-  criado_em: string | null;
-  observacoes: string | null;
-}
+export type { TemplateAtivoResumo, TemplateSelectionConfig } from '../types/template';
 
 export const templatesApi = {
   listar: async (params?: { tipo?: string; ativo?: boolean }): Promise<TemplateXlsx[]> => {

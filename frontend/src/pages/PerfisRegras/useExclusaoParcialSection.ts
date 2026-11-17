@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { getErrorMessage } from '../../api/client';
 import { regrasExclusaoParcialApi } from '../../api/regrasExclusaoParcial';
 import { queryKeys } from '../../api/queryKeys';
 import type {
@@ -24,8 +25,7 @@ export function useExclusaoParcialSection(perfilId?: number) {
   };
 
   const extrairErro = (e: unknown) => {
-    const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-    setErro(typeof detail === 'string' ? detail : 'Não foi possível concluir a operação.');
+    setErro(getErrorMessage(e));
   };
 
   const regras = useQuery({

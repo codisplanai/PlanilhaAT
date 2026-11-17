@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
@@ -7,6 +8,7 @@ import { z } from 'zod';
 import { getErrorMessage } from '../../api/client';
 import { empresasApi } from '../../api/empresas';
 import { queryKeys } from '../../api/queryKeys';
+import { matchesEmpresaSearch } from '../../lib/empresaFilter';
 import { formatCNPJ, formatPercentInput, parsePercentInput } from '../../lib/formatters';
 import type { Empresa, EmpresaCreate } from '../../types/empresa';
 import { useEmpresasQuery, usePerfisQuery } from '../../hooks/useApiQueries';
@@ -59,6 +61,10 @@ export function useEmpresasPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [termoParaRemover, setTermoParaRemover] = useState<Empresa | null>(null);
   const [removerTermoError, setRemoverTermoError] = useState<string | null>(null);
+  const [empresaTermo, setEmpresaTermo] = useState<Empresa | null>(null);
+  const [aliquotaTermo, setAliquotaTermo] = useState('');
+  const [descricaoTermo, setDescricaoTermo] = useState('');
+  const [erroTermo, setErroTermo] = useState<string | null>(null);
 
   const empresasQuery = useEmpresasQuery();
   const perfisQuery = usePerfisQuery();
@@ -209,15 +215,50 @@ export function useEmpresasPage() {
     setRemoverTermoError(null);
   };
 
-  const filteredEmpresas = empresas.filter((empresa) => {
-    const search = searchTerm.toLowerCase();
-    const digits = search.replace(/\D/g, '');
-    const matchesSearch =
-      empresa.razao_social.toLowerCase().includes(search)
-      || (digits.length > 0 && empresa.cnpj.includes(digits))
-      || empresa.uf.toLowerCase().includes(search);
-    return matchesSearch && (!ufFilter || empresa.uf === ufFilter);
-  });
+  const openTermoModal = (empresa: Empresa) => {
+    setEmpresaTermo(empresa);
+    setErroTermo(null);
+    if (empresa.termo_acordo) {
+      setAliquotaTermo((Number(empresa.termo_acordo.aliquota) * 100).toFixed(2));
+      setDescricaoTermo(empresa.termo_acordo.descricao || '');
+    } else {
+      setAliquotaTermo('');
+      setDescricaoTermo('');
+    }
+  };
+
+  const closeTermoModal = () => {
+    setEmpresaTermo(null);
+  };
+
+  const saveTermo = (event: FormEvent) => {
+    event.preventDefault();
+    if (!empresaTermo) return;
+    const aliqNum = Number(aliquotaTermo.replace(',', '.'));
+    if (isNaN(aliqNum) || aliqNum <= 0) {
+      setErroTermo('Informe uma alíquota válida.');
+      return;
+    }
+    definirTermoAcordo.mutate(
+      {
+        empresaId: empresaTermo.id,
+        aliquota: aliqNum,
+        descricao: descricaoTermo.trim() || null,
+      },
+      {
+        onSuccess: () => {
+          setEmpresaTermo(null);
+        },
+        onError: (err) => {
+          setErroTermo(getErrorMessage(err));
+        },
+      },
+    );
+  };
+
+  const filteredEmpresas = empresas.filter(
+    (empresa) => matchesEmpresaSearch(empresa, searchTerm) && (!ufFilter || empresa.uf === ufFilter),
+  );
 
   const getPerfilNome = (id: number) =>
     perfis.find((perfil) => perfil.id === id)?.nome || `Perfil #${id}`;
@@ -242,6 +283,17 @@ export function useEmpresasPage() {
     termoParaRemover,
     removerTermoError,
     setRemoverTermoError,
+    empresaTermo,
+    aliquotaTermo,
+    setAliquotaTermo,
+    descricaoTermo,
+    setDescricaoTermo,
+    erroTermo,
+    setErroTermo,
+    openTermoModal,
+    closeTermoModal,
+    saveTermo,
+    isSavingTermo: definirTermoAcordo.isPending,
     requestDeleteEmpresa,
     confirmDeleteEmpresa,
     cancelDeleteEmpresa,

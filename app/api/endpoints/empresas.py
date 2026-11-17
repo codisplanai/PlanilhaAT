@@ -27,9 +27,12 @@ def criar_empresa(payload: EmpresaCreate, db: Session = Depends(get_db)):
     if existente:
         raise HTTPException(status_code=400, detail=f"Já existe uma empresa cadastrada com o CNPJ '{payload.cnpj}'.")
 
-    perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-    if not perfil:
-        raise HTTPException(status_code=404, detail=f"Perfil de regras com ID {payload.perfil_regras_id} não encontrado.")
+    get_by_id_or_404(
+        db,
+        PerfilRegras,
+        payload.perfil_regras_id,
+        f"Perfil de regras com ID {payload.perfil_regras_id} não encontrado.",
+    )
 
     empresa = Empresa(
         razao_social=payload.razao_social,
@@ -83,9 +86,7 @@ def atualizar_empresa(id: int, payload: EmpresaUpdate, db: Session = Depends(get
     if payload.uf is not None:
         empresa.uf = payload.uf
     if payload.perfil_regras_id is not None:
-        perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-        if not perfil:
-            raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
+        get_by_id_or_404(db, PerfilRegras, payload.perfil_regras_id, "Perfil de regras não encontrado.")
         empresa.perfil_regras_id = payload.perfil_regras_id
     if payload.optante_simples_nacional is not None:
         empresa.optante_simples_nacional = payload.optante_simples_nacional

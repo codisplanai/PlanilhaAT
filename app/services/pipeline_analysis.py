@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple
 from app.models.empresa import Empresa
 from app.models.solicitacao import Solicitacao
 from app.services.extraction.base import ExtractedNFData
-from app.services.pipeline_helpers import aceita_difal_retroativa
+from app.services.pipeline_helpers import aceita_difal_retroativa, is_emissao_propria
 from app.services.validation.sanity_checker import SanityChecker
 
 
@@ -35,18 +35,11 @@ class PipelinePreAnalyzer:
         empresa: Empresa,
         solicitacao: Solicitacao,
     ) -> List[Tuple[str, ExtractedNFData]]:
-        company_state = (empresa.uf or "").strip().upper()
-        clean_empresa = re.sub(r"\D", "", empresa.cnpj or "")
         return [
             (filename, note)
             for filename, note in notes
-            if (
-                not (
-                    (clean_empresa and re.sub(r"\D", "", note.cnpj_emitente or "") == clean_empresa)
-                    or (note.raw_metadata or {}).get("ind_emit") == "0"
-                )
-            )
-            and (not note.uf_emitente or note.uf_emitente.strip().upper() != company_state)
+            if not is_emissao_propria(note, empresa.cnpj)
+            and SanityChecker.is_interestadual(note.uf_emitente, empresa.uf)
             and (
                 SanityChecker.is_within_period(
                     note.data_emissao,

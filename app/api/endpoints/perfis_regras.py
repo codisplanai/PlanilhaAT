@@ -1,8 +1,11 @@
-﻿from copy import deepcopy
+from copy import deepcopy
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
 from app.models.perfil_regras import PerfilRegras
@@ -10,9 +13,7 @@ from app.schemas.perfil_regras import (
     PerfilRegrasCreate, PerfilRegrasUpdate, PerfilRegrasOut, PerfilRegrasDuplicar,
     PerfilRegrasCopiarRegras, CopiaRegrasResultado,
 )
-from app.services.copia_regras import SECOES, copiar_regras
-from sqlalchemy.exc import SQLAlchemyError
-from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
+from app.services.copia_regras import SECOES, clonar_regras_perfil, copiar_regras
 
 router = APIRouter(
     prefix="/perfis-regras",
@@ -77,24 +78,7 @@ def duplicar_perfil(id: int, payload: PerfilRegrasDuplicar, db: Session = Depend
         descricao=origem.descricao,
         configuracoes_extras=deepcopy(origem.configuracoes_extras),
     )
-    # Copiar apenas dados das regras: identidades, vínculos e datas são novos.
-    def copiar_registro(registro):
-        return type(registro)(**{
-            coluna.key: deepcopy(getattr(registro, coluna.key))
-            for coluna in registro.__table__.columns
-            if not coluna.primary_key and not coluna.foreign_keys
-            and coluna.key not in {"criado_em", "atualizado_em"}
-        })
-
-    for relacao in (
-        "regras_aliquotas", "regras_cfop", "regras_reducao_produto",
-        "regras_reclassificacao_cfop", "regras_exclusao_parcial",
-    ):
-        for regra in getattr(origem, relacao):
-            nova_regra = copiar_registro(regra)
-            if relacao in {"regras_reducao_produto", "regras_reclassificacao_cfop"}:
-                nova_regra.excecoes = [copiar_registro(excecao) for excecao in regra.excecoes]
-            getattr(copia, relacao).append(nova_regra)
+    clonar_regras_perfil(origem, copia)
 
     # Uma única transação evita deixar um perfil parcialmente duplicado.
     db.add(copia)

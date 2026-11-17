@@ -13,6 +13,7 @@ from app.constants import (
     ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     CONTROLE_IMPOSTO_PAGO_ENTRADA,
+    DESTINOS_ANTECIPADOS,
     DIFAL,
     DIFAL_ANTECIPADO,
 )
@@ -61,12 +62,7 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
     metadata = note.metadados_extras or {}
     issue_date = note.data_emissao
     if (
-        note.destino_planilha in (
-            ANTECIPACAO_PARCIAL_ANTECIPADO,
-            ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
-            ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
-            DIFAL_ANTECIPADO,
-        )
+        note.destino_planilha in DESTINOS_ANTECIPADOS
         and note.origem_data_entrada != "manual"
     ):
         entry_date = None

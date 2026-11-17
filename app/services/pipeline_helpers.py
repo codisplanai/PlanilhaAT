@@ -7,6 +7,15 @@ from decimal import Decimal
 from typing import Any, Mapping, Optional, Protocol, Union
 
 from app.constants import (
+    ANTECIPACAO_PARCIAL,
+    ANTECIPACAO_PARCIAL_ANTECIPADO,
+    ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
+    ANTECIPACAO_PARCIAL_SIMPLES,
+    ANTECIPACAO_TRIBUTARIA,
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
+    CONTROLE_IMPOSTO_PAGO_ENTRADA,
+    DIFAL,
+    DIFAL_ANTECIPADO,
     MOTIVO_IMPOSTO_PAGO_ENTRADA,
     TIPO_EXCLUSAO_INDUSTRIA,
     TIPO_EXCLUSAO_MVA_PENDENTE,
@@ -146,6 +155,58 @@ def enrich_sped_with_xml(nf_sped: ExtractedNFData, nf_xml: ExtractedNFData) -> N
         if nf_xml.v_desc_nota > Decimal("0.00"):
             nf_sped.v_desc_nota = nf_xml.v_desc_nota
         return
+
+
+def is_emissao_propria(nf: ExtractedNFData, empresa_cnpj: Optional[str]) -> bool:
+    """Identifica se o emitente da nota fiscal é a própria empresa analisada."""
+    clean_emitente = re.sub(r"\D", "", nf.cnpj_emitente or "")
+    clean_empresa = re.sub(r"\D", "", empresa_cnpj or "")
+    return bool(
+        (clean_emitente and clean_empresa and clean_emitente == clean_empresa)
+        or (nf.raw_metadata or {}).get("ind_emit") == "0"
+    )
+
+
+def resolve_inscricao_estadual(
+    empresa: Empresa,
+    sped_empresa_info: Optional[Mapping[str, Any]],
+) -> str:
+    """Retorna a inscrição estadual da empresa ou fallback extraído do SPED."""
+    return (
+        (empresa.inscricao_estadual or "").strip()
+        or (sped_empresa_info.get("ie") if sped_empresa_info else "")
+        or ""
+    )
+
+
+def excluir_item_industria_serialized(
+    nf: ExtractedNFData,
+    item: Any,
+    filename: str,
+    destino: str,
+    motivo: str,
+) -> dict[str, Any]:
+    """Serializa a exclusão padrão de item para empresas industriais."""
+    return serialize_excluded_item(
+        nf,
+        item,
+        filename,
+        destino,
+        type(
+            "_DecisaoIndustria",
+            (),
+            {
+                "excluido": True,
+                "tipo_exclusao": TIPO_EXCLUSAO_INDUSTRIA,
+                "motivo": motivo,
+                "regras_aplicadas": [],
+                "v_total": item.v_total,
+                "base_calculo": item.base_calculo,
+                "ipi_despesas": item.ipi_despesas,
+                "a_ori": item.a_ori,
+            },
+        )(),
+    )
 
 
 def ignored_note(
@@ -353,27 +414,27 @@ def build_header_info(empresa: Empresa, periodo_inicio: date, ie: str) -> dict[s
 
 
 MODELO_OFICIAL_POR_TIPO = {
-    "antecipacao_parcial": "RP-153",
-    "antecipacao_parcial_antecipado": "RP-155",
-    "antecipacao_parcial_simples": "RP-154",
-    "antecipacao_parcial_antecipado_simples": "RP-156",
-    "antecipacao_tributaria": "RP-151",
-    "antecipacao_tributaria_antecipado": "RP-151",
-    "difal": "RP-158",
-    "difal_antecipado": "RP-158",
-    "controle_imposto_pago_entrada": "Controle",
+    ANTECIPACAO_PARCIAL: "RP-153",
+    ANTECIPACAO_PARCIAL_ANTECIPADO: "RP-155",
+    ANTECIPACAO_PARCIAL_SIMPLES: "RP-154",
+    ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES: "RP-156",
+    ANTECIPACAO_TRIBUTARIA: "RP-151",
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO: "RP-151",
+    DIFAL: "RP-158",
+    DIFAL_ANTECIPADO: "RP-158",
+    CONTROLE_IMPOSTO_PAGO_ENTRADA: "Controle",
 }
 
 TIPO_PLANILHA_CURTO = {
-    "antecipacao_parcial": "Parcial",
-    "antecipacao_parcial_antecipado": "Parcial-Antecipado",
-    "antecipacao_parcial_simples": "Parcial-Simples",
-    "antecipacao_parcial_antecipado_simples": "Parcial-Ant-Simples",
-    "antecipacao_tributaria": "AT",
-    "antecipacao_tributaria_antecipado": "AT-Antecipado",
-    "difal": "DIFAL",
-    "difal_antecipado": "DIFAL-Antecipado",
-    "controle_imposto_pago_entrada": "Imposto-Pago-Entrada",
+    ANTECIPACAO_PARCIAL: "Parcial",
+    ANTECIPACAO_PARCIAL_ANTECIPADO: "Parcial-Antecipado",
+    ANTECIPACAO_PARCIAL_SIMPLES: "Parcial-Simples",
+    ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES: "Parcial-Ant-Simples",
+    ANTECIPACAO_TRIBUTARIA: "AT",
+    ANTECIPACAO_TRIBUTARIA_ANTECIPADO: "AT-Antecipado",
+    DIFAL: "DIFAL",
+    DIFAL_ANTECIPADO: "DIFAL-Antecipado",
+    CONTROLE_IMPOSTO_PAGO_ENTRADA: "Imposto-Pago-Entrada",
 }
 
 CORPORATE_SUFFIXES = {

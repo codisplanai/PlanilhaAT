@@ -18,6 +18,7 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { useManagedTimeout } from '../../hooks/useManagedTimeout';
+import { formatCNPJ } from '../../lib/formatters';
 import type {
   MvaAntecipacaoTributariaConfig,
   MvaGrupoConfig,
@@ -43,12 +44,6 @@ const cloneConfig = (
     demais: { ...config.mvas.demais },
   },
 });
-
-const formatCnpj = (value: string) => {
-  const digits = String(value || '').replace(/\D/g, '');
-  if (digits.length !== 14) return value || 'Não informado';
-  return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-};
 
 const parsePercent = (value: string): number | null => {
   const parsed = Number(String(value).replace(',', '.'));
@@ -318,7 +313,7 @@ export const MvaAntecipacaoSection: React.FC<Props> = ({ perfil, open, onOpenCha
                 </p>
                 <div className="mt-3 text-xs text-slate-600">
                   <span className="font-semibold text-slate-800">CNPJ autorizado:</span>{' '}
-                  <span className="font-mono">{formatCnpj(draft.empresa_cnpj)}</span>
+                  <span className="font-mono">{draft.empresa_cnpj ? formatCNPJ(draft.empresa_cnpj) : 'Não informado'}</span>
                 </div>
               </div>
               <button

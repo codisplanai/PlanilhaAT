@@ -16,23 +16,31 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
+def _conflita(
+    db: Session,
+    perfil_id: int,
+    uf: str,
+    ncm: Optional[str],
+    ignorar_id: Optional[int] = None,
+) -> bool:
+    query = db.query(RegraAliquotaDestino).filter(
+        RegraAliquotaDestino.perfil_regras_id == perfil_id,
+        RegraAliquotaDestino.uf == uf,
+    )
+    if ignorar_id is not None:
+        query = query.filter(RegraAliquotaDestino.id != ignorar_id)
+    if ncm:
+        query = query.filter(RegraAliquotaDestino.ncm == ncm)
+    else:
+        query = query.filter(or_(RegraAliquotaDestino.ncm.is_(None), RegraAliquotaDestino.ncm == ""))
+    return query.first() is not None
+
+
 @router.post("", response_model=RegraAliquotaOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_aliquota(payload: RegraAliquotaCreate, db: Session = Depends(get_db)):
-    perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-    if not perfil:
-        raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
+    get_by_id_or_404(db, PerfilRegras, payload.perfil_regras_id, "Perfil de regras não encontrado.")
 
-    # Verificar se já existe regra para o mesmo perfil, uf e ncm
-    query = db.query(RegraAliquotaDestino).filter(
-        RegraAliquotaDestino.perfil_regras_id == payload.perfil_regras_id,
-        RegraAliquotaDestino.uf == payload.uf
-    )
-    if payload.ncm:
-        query = query.filter(RegraAliquotaDestino.ncm == payload.ncm)
-    else:
-        query = query.filter(or_(RegraAliquotaDestino.ncm == None, RegraAliquotaDestino.ncm == ""))
-
-    if query.first():
+    if _conflita(db, payload.perfil_regras_id, payload.uf, payload.ncm):
         ncm_txt = f" e NCM '{payload.ncm}'" if payload.ncm else " padrão"
         raise HTTPException(
             status_code=400,
@@ -89,16 +97,7 @@ def atualizar_regra_aliquota(id: int, payload: RegraAliquotaUpdate, db: Session 
     if payload.parametros_extras is not None:
         regra.parametros_extras = payload.parametros_extras
 
-    duplicate_query = db.query(RegraAliquotaDestino).filter(
-        RegraAliquotaDestino.id != id,
-        RegraAliquotaDestino.perfil_regras_id == regra.perfil_regras_id,
-        RegraAliquotaDestino.uf == regra.uf,
-    )
-    if regra.ncm:
-        duplicate_query = duplicate_query.filter(RegraAliquotaDestino.ncm == regra.ncm)
-    else:
-        duplicate_query = duplicate_query.filter(or_(RegraAliquotaDestino.ncm.is_(None), RegraAliquotaDestino.ncm == ""))
-    if duplicate_query.first():
+    if _conflita(db, regra.perfil_regras_id, regra.uf, regra.ncm, ignorar_id=id):
         raise HTTPException(status_code=409, detail="Já existe uma regra para este perfil, UF e NCM.")
     return commit_and_refresh(db, regra)
 

@@ -1,6 +1,7 @@
 import type { LocalFiscalInput } from '../../types/localProcessing';
 import type { NotaIgnorada } from '../../types/solicitacao';
 import type { EntrySheetRecord, ExtractedNote, ParsedFiscalSources } from './domain';
+import { decodeUtf8OrWindows1252 } from './domain.ts';
 import { parseNfeXml } from './xml.ts';
 import { parseSped } from './sped.ts';
 import { parseEntrySheet } from './xlsx.ts';
@@ -98,15 +99,6 @@ export function enrichSpedWithXml(sped: ExtractedNote, xml: ExtractedNote): void
   if (xml.aliqCreditoIcmsInfCompl != null) sped.aliqCreditoIcmsInfCompl = xml.aliqCreditoIcmsInfCompl;
 }
 
-function decodeText(bytes: ArrayBuffer | Uint8Array): string {
-  const raw = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(raw);
-  } catch {
-    return new TextDecoder('windows-1252').decode(raw);
-  }
-}
-
 function parseSpedPeriod(text: string): { start: string | null; end: string | null } {
   const parse = (raw: string): string | null => {
     const clean = raw.replace(/\D/g, '');
@@ -129,10 +121,12 @@ async function xmlSources(files: File[]): Promise<Array<{ filename: string; text
     if (file.name.toLowerCase().endsWith('.zip')) {
       const entries = await readZip(await file.arrayBuffer());
       for (const [name, bytes] of entries) {
-        if (name.toLowerCase().endsWith('.xml')) result.push({ filename: name, text: decodeText(bytes) });
+        if (name.toLowerCase().endsWith('.xml')) {
+          result.push({ filename: name, text: decodeUtf8OrWindows1252(bytes) });
+        }
       }
     } else if (file.name.toLowerCase().endsWith('.xml')) {
-      result.push({ filename: file.name, text: decodeText(await file.arrayBuffer()) });
+      result.push({ filename: file.name, text: decodeUtf8OrWindows1252(await file.arrayBuffer()) });
     }
   }
   return result;
@@ -159,7 +153,7 @@ export async function loadLocalFiscalSources(
 
   const decodedSpeds: Array<{ name: string; text: string }> = [];
   for (const spedFile of resolveSpedFiles(input)) {
-    const spedText = decodeText(await spedFile.arrayBuffer());
+    const spedText = decodeUtf8OrWindows1252(await spedFile.arrayBuffer());
     const period = parseSpedPeriod(spedText);
     if (period.start && period.end && (period.end < periodoInicio || period.start > periodoFim)) {
       throw new Error(

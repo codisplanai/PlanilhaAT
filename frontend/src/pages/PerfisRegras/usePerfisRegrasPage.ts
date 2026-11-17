@@ -252,30 +252,46 @@ export function usePerfisRegrasPage() {
     }
   });
 
-  const toggleLimitarAliquotaOrigem = async (perfil: PerfilRegras) => {
-    const current = Boolean(perfil.configuracoes_extras?.limitar_a_ori_reducoes);
-    setAOriFeedback('saving');
-    setAOriError(null);
+  const savePerfilConfigToggle = async (
+    perfil: PerfilRegras,
+    configuracoesExtras: PerfilRegras['configuracoes_extras'],
+    setFeedback: React.Dispatch<React.SetStateAction<'idle' | 'saving' | 'saved' | 'error'>>,
+    setFeedbackError: (msg: string | null) => void,
+    timeout: ReturnType<typeof useManagedTimeout>,
+  ) => {
+    setFeedback('saving');
+    setFeedbackError(null);
     try {
       await updatePerfilMutation.mutateAsync({
         id: perfil.id,
         payload: {
           nome: perfil.nome,
           descricao: perfil.descricao,
-          configuracoes_extras: {
-            ...(perfil.configuracoes_extras || {}),
-            limitar_a_ori_reducoes: !current,
-          },
+          configuracoes_extras: configuracoesExtras,
         },
       });
-      setAOriFeedback('saved');
-      aOriFeedbackTimeout.schedule(() => {
-        setAOriFeedback((prev) => (prev === 'saved' ? 'idle' : prev));
+      setFeedback('saved');
+      timeout.schedule(() => {
+        setFeedback((prev) => (prev === 'saved' ? 'idle' : prev));
       }, 3000);
     } catch (err) {
-      setAOriFeedback('error');
-      setAOriError(getErrorMessage(err));
+      setFeedback('error');
+      setFeedbackError(getErrorMessage(err));
     }
+  };
+
+  const toggleLimitarAliquotaOrigem = async (perfil: PerfilRegras) => {
+    const current = Boolean(perfil.configuracoes_extras?.limitar_a_ori_reducoes);
+    await savePerfilConfigToggle(
+      perfil,
+      {
+        ...(perfil.configuracoes_extras || {}),
+        limitar_a_ori_reducoes: !current,
+      },
+      setAOriFeedback,
+      setAOriError,
+      aOriFeedbackTimeout,
+    );
   };
 
   const togglePoliticaAliquotasIguais = async (perfil: PerfilRegras, uf: string = 'BA') => {
@@ -288,31 +304,19 @@ export function usePerfisRegrasPage() {
     const currentVal = Boolean(
       currentDict[uf] ?? (extras.politica_aliquotas_iguais_parcial === true)
     );
-    setAliqIguaisFeedback('saving');
-    setAliqIguaisError(null);
-    try {
-      await updatePerfilMutation.mutateAsync({
-        id: perfil.id,
-        payload: {
-          nome: perfil.nome,
-          descricao: perfil.descricao,
-          configuracoes_extras: {
-            ...extras,
-            politica_aliquotas_iguais_parcial: {
-              ...currentDict,
-              [uf]: !currentVal,
-            },
-          },
+    await savePerfilConfigToggle(
+      perfil,
+      {
+        ...extras,
+        politica_aliquotas_iguais_parcial: {
+          ...currentDict,
+          [uf]: !currentVal,
         },
-      });
-      setAliqIguaisFeedback('saved');
-      aliqIguaisFeedbackTimeout.schedule(() => {
-        setAliqIguaisFeedback((prev) => (prev === 'saved' ? 'idle' : prev));
-      }, 3000);
-    } catch (err) {
-      setAliqIguaisFeedback('error');
-      setAliqIguaisError(getErrorMessage(err));
-    }
+      },
+      setAliqIguaisFeedback,
+      setAliqIguaisError,
+      aliqIguaisFeedbackTimeout,
+    );
   };
 
   const confirmDeletePerfil = () => {

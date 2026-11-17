@@ -83,6 +83,11 @@ class MvaResolver:
             return "12"
 
     @classmethod
+    def get_anexo_entries(cls) -> List[Dict[str, Any]]:
+        """Retorna as entradas carregadas do Anexo I."""
+        return cls._load_anexo_entries()
+
+    @classmethod
     def _load_anexo_entries(cls) -> List[Dict[str, Any]]:
         if cls._cache_entries is not None:
             return cls._cache_entries
