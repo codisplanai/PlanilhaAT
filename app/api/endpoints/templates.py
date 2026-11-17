@@ -30,6 +30,10 @@ async def upload_template(
         ge=1,
         description="Capacidade máxima de linhas de dados do modelo. Obrigatório nos novos cadastros feitos pela interface.",
     ),
+    empresa_id: Optional[int] = Form(
+        None,
+        description="ID da empresa dona do modelo personalizado; omitir para modelo padrão global.",
+    ),
     observacoes: Optional[str] = Form(None),
     promover_ativo: bool = Form(False),
     file: UploadFile = File(..., description="Arquivo .xlsx modelo"),
@@ -59,7 +63,8 @@ async def upload_template(
             mapeamento=mapeamento,
             capacidade_linhas=capacidade_linhas,
             observacoes=observacoes,
-            promover_ativo=promover_ativo
+            promover_ativo=promover_ativo,
+            empresa_id=empresa_id,
         )
         return novo_template
     except PlanilhaATException as exc:
@@ -80,6 +85,7 @@ def listar_templates_ativos_resumo(
     return [
         {
             "id": t.id,
+            "empresa_id": t.empresa_id,
             "tipo": t.tipo,
             "versao": t.versao,
             "capacidade_linhas": t.capacidade_linhas,
@@ -93,6 +99,8 @@ def listar_templates_ativos_resumo(
 def listar_templates(
     tipo: Optional[str] = None,
     ativo: Optional[bool] = None,
+    empresa_id: Optional[int] = None,
+    apenas_global: bool = False,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user)
 ):
@@ -101,6 +109,10 @@ def listar_templates(
         query = query.filter(TemplateXlsx.tipo == tipo.strip().lower())
     if ativo is not None:
         query = query.filter(TemplateXlsx.ativo == ativo)
+    if apenas_global:
+        query = query.filter(TemplateXlsx.empresa_id.is_(None))
+    elif empresa_id is not None:
+        query = query.filter(TemplateXlsx.empresa_id == empresa_id)
     return query.order_by(*TemplateManager.DEFAULT_ORDER).all()
 
 @router.get(
@@ -190,5 +202,17 @@ def promover_template(
 ):
     try:
         return TemplateManager.promote_version(db, id)
+    except PlanilhaATException as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+
+@router.post("/{id}/desativar", response_model=TemplateXlsxOut)
+def desativar_template(
+    id: int,
+    admin_user: Profile = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return TemplateManager.deactivate_version(db, id)
     except PlanilhaATException as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)

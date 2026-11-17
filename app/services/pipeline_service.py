@@ -175,7 +175,11 @@ class ProcessingPipelineService:
         if modo_legado:
             template_legado = self.db.query(TemplateXlsx).filter(TemplateXlsx.id == solicitacao.template_id).first()
             if not template_legado:
-                template_legado = TemplateManager.get_active_template(self.db, solicitacao.tipo_planilha)
+                template_legado = TemplateManager.get_active_template(
+                    self.db,
+                    solicitacao.tipo_planilha,
+                    empresa_id=empresa.id,
+                )
                 solicitacao.template_id = template_legado.id
 
         has_sped = bool(sped_files_bytes) or (sped_file_bytes is not None)

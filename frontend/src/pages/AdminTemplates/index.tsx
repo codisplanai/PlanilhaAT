@@ -1,6 +1,9 @@
 import React from 'react';
 import {
+  Building2,
   FileCode2,
+  Globe,
+  PowerOff,
   Upload,
   ShieldAlert,
   RotateCcw,
@@ -22,7 +25,7 @@ import { LoadingSpinner } from '../../components/feedback/LoadingSpinner';
 import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { formatDate } from '../../lib/formatters';
+import { formatCNPJ, formatDate } from '../../lib/formatters';
 import type { TemplateMapping } from '../../types/template';
 import { useAdminTemplatesPage } from './useAdminTemplatesPage';
 
@@ -71,7 +74,12 @@ const MapeamentoChips: React.FC<{ mapping: TemplateMapping }> = ({ mapping }) =>
 export const AdminTemplatesPage: React.FC = () => {
   const {
     templatesQuery: { isLoading, error },
-    templates,
+    empresasQuery,
+    empresas,
+    selectedEmpresaId,
+    setSelectedEmpresaId,
+    selectedEmpresa,
+    templatesByScope,
     faixas,
     tiposPlanilha,
     selectedType,
@@ -95,6 +103,11 @@ export const AdminTemplatesPage: React.FC = () => {
     isPromoting,
     promoteError,
     setPromoteError,
+    deactivateTemplate,
+    deactivatingId,
+    isDeactivating,
+    deactivateError,
+    setDeactivateError,
     uploadTemplate,
     register,
     watch,
@@ -110,7 +123,7 @@ export const AdminTemplatesPage: React.FC = () => {
       <PageHeader
         icon={<ShieldAlert className="w-5 h-5 text-amber-600" />}
         title="Modelos de Planilha"
-        description="Arquivos .xlsx por tipo e capacidade. A cada processamento o sistema escolhe o menor modelo que comporta as linhas da apuração."
+        description="Arquivos .xlsx por tipo e capacidade. A cada processamento o sistema prioriza os modelos personalizados da empresa (se houver) e cai automaticamente para o padrão global."
         badge={<Badge variant="warning" size="sm">Área Restrita</Badge>}
         action={
           <Button
@@ -118,7 +131,7 @@ export const AdminTemplatesPage: React.FC = () => {
             className="bg-amber-600 hover:bg-amber-700 focus:ring-amber-600 text-white shadow-xs shadow-amber-600/20"
             leftIcon={<Upload className="w-4 h-4" />}
           >
-            Subir novo modelo
+            {selectedEmpresa ? 'Subir modelo da empresa' : 'Subir novo modelo'}
           </Button>
         }
       />
@@ -131,11 +144,71 @@ export const AdminTemplatesPage: React.FC = () => {
         />
       )}
 
+      {deactivateError && (
+        <ErrorAlert
+          title="Erro ao desativar modelo"
+          message={deactivateError}
+          onDismiss={() => setDeactivateError(null)}
+        />
+      )}
+
+      <Card
+        title="Escopo dos modelos"
+        subtitle={
+          selectedEmpresa
+            ? 'Modelos ativos desta empresa têm prioridade automática sobre o padrão global. Tipos ou capacidades sem modelo próprio continuam usando o padrão global.'
+            : 'Modelos padrão globais usados por todas as empresas que não possuem modelo personalizado para o tipo ou capacidade.'
+        }
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <Select
+              label="Aplicar modelos para"
+              value={selectedEmpresaId === null ? '' : String(selectedEmpresaId)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedEmpresaId(value ? Number(value) : null);
+              }}
+              options={[
+                { value: '', label: 'Padrão Global (todas as empresas)' },
+                ...empresas.map((empresa) => ({
+                  value: String(empresa.id),
+                  label: `${empresa.razao_social} — ${formatCNPJ(empresa.cnpj)}`,
+                })),
+              ]}
+              disabled={empresasQuery.isLoading}
+            />
+          </div>
+          <div className="flex items-center gap-2 pb-1">
+            {selectedEmpresa ? (
+              <Badge variant="info" size="sm" dot>
+                <span className="inline-flex items-center gap-1">
+                  <Building2 className="h-3 w-3" />
+                  Personalizado: {selectedEmpresa.razao_social}
+                </span>
+              </Badge>
+            ) : (
+              <Badge variant="neutral" size="sm" dot>
+                <span className="inline-flex items-center gap-1">
+                  <Globe className="h-3 w-3" />
+                  Padrão Global
+                </span>
+              </Badge>
+            )}
+          </div>
+        </div>
+        {empresasQuery.error && (
+          <div className="mt-3">
+            <ErrorAlert message={getErrorMessage(empresasQuery.error)} />
+          </div>
+        )}
+      </Card>
+
       <Tabs
         tabs={tiposPlanilha.map((tipo) => ({
           id: tipo.id,
           label: tipo.nome,
-          count: templates.filter((t) => t.tipo === tipo.id).length,
+          count: templatesByScope.filter((t) => t.tipo === tipo.id).length,
         }))}
         activeTab={selectedType}
         onChange={(id) => setSelectedType(id)}
@@ -216,9 +289,21 @@ export const AdminTemplatesPage: React.FC = () => {
       ) : faixas.length === 0 ? (
         <EmptyState
           icon={<FileCode2 className="w-7 h-7 text-amber-600" />}
-          title={`Nenhum modelo cadastrado para ${nomeTipoAtual}`}
-          description="Faça o upload do primeiro arquivo .xlsx modelo e declare o mapeamento obrigatório de colunas para habilitar a geração de planilhas."
-          actionLabel="Subir Primeiro Modelo"
+          title={
+            selectedEmpresa
+              ? `Esta empresa usa o modelo padrão global para ${nomeTipoAtual}`
+              : `Nenhum modelo cadastrado para ${nomeTipoAtual}`
+          }
+          description={
+            selectedEmpresa
+              ? `Nenhum modelo personalizado foi cadastrado para ${selectedEmpresa.razao_social} neste tipo. Você pode enviar um arquivo .xlsx exclusivo ou manter o padrão global.`
+              : 'Faça o upload do primeiro arquivo .xlsx modelo e declare o mapeamento obrigatório de colunas para habilitar a geração de planilhas.'
+          }
+          actionLabel={
+            selectedEmpresa
+              ? 'Subir modelo personalizado para esta empresa'
+              : 'Subir Primeiro Modelo'
+          }
           onAction={() => handleOpenUploadModal(selectedType)}
         />
       ) : (
@@ -276,6 +361,18 @@ export const AdminTemplatesPage: React.FC = () => {
                           </p>
                         </div>
                       </div>
+                      {selectedEmpresa && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => deactivateTemplate(faixa.oficial!.id)}
+                          isLoading={deactivatingId === faixa.oficial.id}
+                          disabled={isDeactivating || isPromoting}
+                          leftIcon={<PowerOff className="w-3.5 h-3.5" />}
+                        >
+                          Desativar (usar padrão global)
+                        </Button>
+                      )}
                     </div>
 
                     {faixa.oficial.observacoes && (
@@ -296,8 +393,9 @@ export const AdminTemplatesPage: React.FC = () => {
                     <div className="flex items-start gap-2.5 text-xs text-amber-900">
                       <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                       <p className="leading-relaxed">
-                        Nenhuma versão está em uso nesta capacidade. Ative uma das versões abaixo para
-                        que apurações desse tamanho voltem a ser geradas.
+                        {selectedEmpresa
+                          ? 'Nenhuma versão personalizada está em uso nesta capacidade. Enquanto estiver desativada, esta empresa utiliza o padrão global.'
+                          : 'Nenhuma versão está em uso nesta capacidade. Ative uma das versões abaixo para que apurações desse tamanho voltem a ser geradas.'}
                       </p>
                     </div>
                   </Card>
@@ -349,7 +447,7 @@ export const AdminTemplatesPage: React.FC = () => {
                                   variant="outline"
                                   onClick={() => promoteTemplate(template.id)}
                                   isLoading={promotingId === template.id}
-                                  disabled={isPromoting}
+                                  disabled={isPromoting || isDeactivating}
                                   leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                                 >
                                   Colocar em uso
@@ -371,10 +469,38 @@ export const AdminTemplatesPage: React.FC = () => {
       <Modal
         isOpen={modalOpen}
         onClose={closeModal}
-        title="Cadastrar modelo por capacidade"
+        title={
+          selectedEmpresa
+            ? 'Cadastrar modelo personalizado da empresa'
+            : 'Cadastrar modelo por capacidade'
+        }
         subtitle="Informe quantas linhas de dados o arquivo comporta. O sistema escolherá automaticamente o menor modelo suficiente para cada processamento."
         maxWidth="2xl"
       >
+        <div
+          className={`mb-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+            selectedEmpresa
+              ? 'border-blue-200 bg-blue-50/70 text-blue-900'
+              : 'border-slate-200 bg-slate-50 text-slate-700'
+          }`}
+        >
+          {selectedEmpresa ? (
+            <>
+              <Building2 className="h-4 w-4 shrink-0 text-blue-700" />
+              <span>
+                Escopo: <strong>{selectedEmpresa.razao_social}</strong> ({formatCNPJ(selectedEmpresa.cnpj)})
+              </span>
+            </>
+          ) : (
+            <>
+              <Globe className="h-4 w-4 shrink-0 text-slate-500" />
+              <span>
+                Escopo: <strong>Padrão Global</strong> (todas as empresas sem modelo próprio)
+              </span>
+            </>
+          )}
+        </div>
+
         {errorMessage && (
           <ErrorAlert
             title="Erro no envio do template"
@@ -487,21 +613,21 @@ export const AdminTemplatesPage: React.FC = () => {
                 tipoUpload === 'antecipacao_tributaria'
                 || tipoUpload === 'antecipacao_tributaria_antecipado'
               ) && (
-                <>
-                  <Input
-                    label="MVA"
-                    placeholder="Ex: H"
-                    {...register('col_mva')}
-                    error={errors.col_mva?.message}
-                  />
-                  <Input
-                    label="Redução"
-                    placeholder="Ex: I"
-                    {...register('col_reducao')}
-                    error={errors.col_reducao?.message}
-                  />
-                </>
-              )}
+                  <>
+                    <Input
+                      label="MVA"
+                      placeholder="Ex: H"
+                      {...register('col_mva')}
+                      error={errors.col_mva?.message}
+                    />
+                    <Input
+                      label="Redução"
+                      placeholder="Ex: I"
+                      {...register('col_reducao')}
+                      error={errors.col_reducao?.message}
+                    />
+                  </>
+                )}
               <Input
                 label="A.DST (destino)"
                 placeholder="Ex: H"

@@ -11,6 +11,7 @@ export interface TemplateMapping {
 
 export interface TemplateXlsx {
   id: number;
+  empresa_id?: number | null;
   tipo: TipoPlanilha;
   versao: number;
   capacidade_linhas?: number | null;
@@ -29,6 +30,7 @@ export interface TemplateSelectionConfig {
 
 export interface TemplateAtivoResumo {
   id: number;
+  empresa_id?: number | null;
   tipo: string;
   versao: number;
   capacidade_linhas: number | null;

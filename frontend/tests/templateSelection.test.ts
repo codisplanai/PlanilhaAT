@@ -8,9 +8,11 @@ function template(
   id: number,
   capacidade: number | null,
   versao = 1,
+  empresaId: number | null = null,
 ): LocalTemplateDescriptor {
   return {
     id,
+    empresa_id: empresaId,
     tipo: 'difal',
     versao,
     capacidade_linhas: capacidade,
@@ -84,6 +86,37 @@ test('informa linhas reais, margem e capacidade necessária quando não cabe', (
       5,
     ),
     /296 linhas \+ 5 linhas de segurança = 301.*suporta 300 linhas/,
+  );
+});
+
+test('prioriza modelo da empresa e faz fallback para o global quando excede capacidade ou falta modelo', () => {
+  const global100 = template(1, 100, 1, null);
+  const global300 = template(2, 300, 2, null);
+  const empresa100 = template(3, 100, 1, 42);
+  const outraEmpresa = template(4, 50, 1, 99);
+
+  // Empresa 42 usa o modelo proprio quando comporta
+  assert.equal(
+    selectTemplateForRows([global100, global300, empresa100, outraEmpresa], 'difal', 80, 0, 42)?.id,
+    empresa100.id,
+  );
+
+  // Empresa 42 cai para o global 300 quando excede a capacidade propria de 100
+  assert.equal(
+    selectTemplateForRows([global100, global300, empresa100, outraEmpresa], 'difal', 101, 0, 42)?.id,
+    global300.id,
+  );
+
+  // Empresa 77 sem modelo proprio usa o global 100 (ignora empresa 42 e 99)
+  assert.equal(
+    selectTemplateForRows([global100, global300, empresa100, outraEmpresa], 'difal', 80, 0, 77)?.id,
+    global100.id,
+  );
+
+  // Quando nem empresa nem global comportam, informa a maior capacidade disponivel
+  assert.throws(
+    () => selectTemplateForRows([global100, global300, empresa100], 'difal', 301, 0, 42),
+    /necessita de 301 linhas.*suporta 300 linhas/,
   );
 });
 

@@ -8,7 +8,12 @@ import type {
 export type { TemplateAtivoResumo, TemplateSelectionConfig } from '../types/template';
 
 export const templatesApi = {
-  listar: async (params?: { tipo?: string; ativo?: boolean }): Promise<TemplateXlsx[]> => {
+  listar: async (params?: {
+    tipo?: string;
+    ativo?: boolean;
+    empresa_id?: number;
+    apenas_global?: boolean;
+  }): Promise<TemplateXlsx[]> => {
     const { data } = await apiClient.get<TemplateXlsx[]>('/templates', { params });
     return data;
   },
@@ -36,6 +41,10 @@ export const templatesApi = {
   },
   promover: async (id: number): Promise<TemplateXlsx> => {
     const { data } = await apiClient.post<TemplateXlsx>(`/templates/${id}/promover`);
+    return data;
+  },
+  desativar: async (id: number): Promise<TemplateXlsx> => {
+    const { data } = await apiClient.post<TemplateXlsx>(`/templates/${id}/desativar`);
     return data;
   },
   upload: async (formData: FormData): Promise<TemplateXlsx> => {

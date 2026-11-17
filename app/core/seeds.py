@@ -166,7 +166,11 @@ def _seed_template_if_needed(
     if not os.path.exists(path):
         return
 
-    query = db.query(TemplateXlsx).filter(TemplateXlsx.tipo == tipo, TemplateXlsx.ativo == True)
+    query = db.query(TemplateXlsx).filter(
+        TemplateXlsx.tipo == tipo,
+        TemplateXlsx.ativo == True,
+        TemplateXlsx.empresa_id.is_(None),
+    )
     if capacidade_linhas is not None:
         query = query.filter(TemplateXlsx.capacidade_linhas == capacidade_linhas)
     ativo = query.first()
