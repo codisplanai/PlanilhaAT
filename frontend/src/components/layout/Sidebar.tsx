@@ -15,6 +15,7 @@ import {
   KeyRound,
   X,
   Sparkles,
+  CalendarCheck2,
 } from 'lucide-react';
 import { PlanAutLogo } from '../ui/PlanAutLogo';
 import { CodisplanLogo } from '../ui/CodisplanLogo';
@@ -32,6 +33,7 @@ interface SidebarProps {
 const MAIN_NAV_ITEMS = [
   { to: '/', label: 'Visão Geral', icon: LayoutDashboard, end: true },
   { to: '/solicitacoes', label: 'Histórico de Planilhas', icon: History },
+  { to: '/datas-entrada', label: 'Preencher Datas de Entrada', icon: CalendarCheck2 },
   { to: '/empresas', label: 'Empresas Clientes', icon: Building2 },
   { to: '/perfis-regras', label: 'Perfis e Alíquotas', icon: Sliders },
 ];

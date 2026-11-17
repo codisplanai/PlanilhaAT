@@ -32,6 +32,9 @@ const AdminTemplatesPage = lazy(() =>
 const UsuariosPage = lazy(() =>
   import('./pages/Usuarios').then(({ UsuariosPage: page }) => ({ default: page }))
 );
+const PreencherDatasEntradaPage = lazy(() =>
+  import('./pages/PreencherDatasEntrada').then(({ PreencherDatasEntradaPage: page }) => ({ default: page }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -99,6 +102,7 @@ export function App() {
                 <Route path="/empresas" element={<EmpresasPage />} />
                 <Route path="/perfis-regras" element={<PerfisRegrasPage />} />
                 <Route path="/nova-solicitacao" element={<NovaSolicitacaoPage />} />
+                <Route path="/datas-entrada" element={<PreencherDatasEntradaPage />} />
                 <Route path="/solicitacoes" element={<HistoricoPage />} />
                 <Route
                   path="/templates"
