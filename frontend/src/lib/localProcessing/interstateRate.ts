@@ -1,15 +1,13 @@
 import type { ExtractedItem, ExtractedNote } from './domain';
+import { UFS_BRASIL } from '../../constants/domain.ts';
+import { SUL_SUDESTE_EXCETO_ES } from './domain.ts';
 
 /**
  * Alíquota interestadual de referência (não é crédito fiscal destacado).
  * Mesma tabela utilizada no backend: Res. Senado 22/1989 e 13/2012.
  * Não aplica exceções específicas de mercadorias não representadas no XML/SPED.
  */
-const UFS = new Set([
-  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
-  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
-]);
-const SUL_SUDESTE_ORIGEM_7 = new Set(['SP', 'RJ', 'MG', 'PR', 'SC', 'RS']);
+const UFS = new Set<string>(UFS_BRASIL);
 const IMPORTADOS_4 = new Set(['1', '2', '3', '8']);
 const CSOSN = new Set(['101', '102', '103', '201', '202', '203', '300', '400', '500', '900']);
 
@@ -25,7 +23,7 @@ export function resolveInterstateRate(
   }
   const sourceCode = String(origemMercadoria ?? '').trim();
   if (IMPORTADOS_4.has(sourceCode)) return 0.04;
-  return SUL_SUDESTE_ORIGEM_7.has(from) && !SUL_SUDESTE_ORIGEM_7.has(to) ? 0.07 : 0.12;
+  return SUL_SUDESTE_EXCETO_ES.has(from) && !SUL_SUDESTE_EXCETO_ES.has(to) ? 0.07 : 0.12;
 }
 
 /** SPED: 1102 = origem 1 + CSOSN 102; 102 = CSOSN sem origem conhecida. */

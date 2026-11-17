@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
   FileCode2,
   Upload,
@@ -23,7 +23,7 @@ import { EmptyState } from '../../components/feedback/EmptyState';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { formatDate } from '../../lib/formatters';
-import type { TemplateMapping, TemplateXlsx } from '../../types/template';
+import type { TemplateMapping } from '../../types/template';
 import { useAdminTemplatesPage } from './useAdminTemplatesPage';
 
 /** Nomes dos campos do mapeamento como o administrador os conhece. */
@@ -43,12 +43,6 @@ const CAMPO_LABELS: Record<string, string> = {
 
 const plural = (n: number, singular: string, plural_: string): string =>
   `${n} ${n === 1 ? singular : plural_}`;
-
-interface Faixa {
-  capacidade: number | null;
-  oficial: TemplateXlsx | null;
-  substituidas: TemplateXlsx[];
-}
 
 const MapeamentoChips: React.FC<{ mapping: TemplateMapping }> = ({ mapping }) => (
   <div className="flex flex-wrap gap-1.5">
@@ -78,7 +72,7 @@ export const AdminTemplatesPage: React.FC = () => {
   const {
     templatesQuery: { isLoading, error },
     templates,
-    filteredTemplates,
+    faixas,
     tiposPlanilha,
     selectedType,
     setSelectedType,
@@ -110,33 +104,6 @@ export const AdminTemplatesPage: React.FC = () => {
   const tipoUpload = watch('tipo');
   const nomeTipoAtual = tiposPlanilha.find((t) => t.id === selectedType)?.nome ?? '';
   const margemAtual = Number.parseInt(safetyMarginInput, 10) || 0;
-
-  // O motor escolhe o menor modelo cuja capacidade cobre (linhas reais + margem).
-  // A página só é legível se as capacidades aparecerem como uma escada.
-  const faixas = useMemo<Faixa[]>(() => {
-    const porCapacidade = new Map<number | null, TemplateXlsx[]>();
-    for (const template of filteredTemplates) {
-      const chave = template.capacidade_linhas ?? null;
-      const atual = porCapacidade.get(chave);
-      if (atual) atual.push(template);
-      else porCapacidade.set(chave, [template]);
-    }
-    return [...porCapacidade.entries()]
-      .map(([capacidade, versoes]) => {
-        const ordenadas = [...versoes].sort((a, b) => b.versao - a.versao);
-        return {
-          capacidade,
-          oficial: ordenadas.find((t) => t.ativo) ?? null,
-          substituidas: ordenadas.filter((t) => !t.ativo),
-        };
-      })
-      .sort((a, b) => {
-        // Modelos legados (sem capacidade declarada) ficam no fim da escada.
-        if (a.capacidade === null) return 1;
-        if (b.capacidade === null) return -1;
-        return a.capacidade - b.capacidade;
-      });
-  }, [filteredTemplates]);
 
   return (
     <div className="space-y-6">

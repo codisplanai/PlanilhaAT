@@ -41,9 +41,7 @@ def _conflita(
 
 @router.post("", response_model=RegraReclassificacaoOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_reclassificacao(payload: RegraReclassificacaoCreate, db: Session = Depends(get_db)):
-    perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-    if not perfil:
-        raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
+    get_by_id_or_404(db, PerfilRegras, payload.perfil_regras_id, "Perfil de regras não encontrado.")
 
     if _conflita(
         db, payload.perfil_regras_id, payload.ncm, payload.cfop_origem_sufixo, payload.termos_inclusao

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, validator
 
 from app.constants import ATIVIDADE_COMERCIO, ATIVIDADES_EMPRESA, UFS_BRASIL
 from app.schemas.regra_aliquota_empresa import TermoAcordoOut
-from app.schemas.validators import normalizar_aliquota
+from app.schemas.validators import clean_uf, normalizar_aliquota
 
 # Compatibilidade pública para integrações que importam este nome.
 VALID_UFS = UFS_BRASIL
@@ -50,10 +50,7 @@ class EmpresaBase(BaseModel):
 
     @validator("uf")
     def validate_uf(cls, v):
-        clean = v.strip().upper()
-        if clean not in VALID_UFS:
-            raise ValueError("UF inválida")
-        return clean
+        return clean_uf(v)
 
     @validator("razao_social")
     def validate_name(cls, value):
@@ -95,12 +92,7 @@ class EmpresaUpdate(BaseModel):
 
     @validator("uf")
     def validate_uf(cls, v):
-        if v is not None:
-            clean = v.strip().upper()
-            if clean not in VALID_UFS:
-                raise ValueError("UF inválida")
-            return clean
-        return v
+        return clean_uf(v)
 
     @validator("razao_social")
     def validate_optional_name(cls, value):

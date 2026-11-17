@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session, joinedload
 
+from app.constants import IGNORAR, NCM_SENTINELA
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop
 from app.services.rules_engine.descricao_matcher import casa_algum, normalizar
 
 EXTERIOR_PREFIXES = {"3", "7"}
-NCM_SENTINELA = "00000000"
 
 
 @dataclass(frozen=True)
@@ -90,7 +90,7 @@ class CfopResolver:
             .first()
         )
         if regra_perfil is not None:
-            return None if regra_perfil.destino == "ignorar" else regra_perfil.destino
+            return None if regra_perfil.destino == IGNORAR else regra_perfil.destino
 
         # 2. Regra padrão global (perfil_regras_id IS NULL)
         regra_global = (
@@ -102,9 +102,35 @@ class CfopResolver:
             .first()
         )
         if regra_global is not None:
-            return None if regra_global.destino == "ignorar" else regra_global.destino
+            return None if regra_global.destino == IGNORAR else regra_global.destino
 
         return None
+
+    @staticmethod
+    def listar_regras_efetivas(db: Session, perfil_id: int) -> List[Dict[str, Any]]:
+        """Retorna padrões globais sobrepostos pelas exceções do perfil informado."""
+        globais = db.query(RegraCfopDestino).filter(RegraCfopDestino.perfil_regras_id == None).all()
+        do_perfil = db.query(RegraCfopDestino).filter(RegraCfopDestino.perfil_regras_id == perfil_id).all()
+
+        efetivas: Dict[str, Dict[str, Any]] = {}
+        for origem, regras in (("global", globais), ("perfil", do_perfil)):
+            for r in regras:
+                efetivas[r.cfop_sufixo] = {
+                    "cfop_sufixo": r.cfop_sufixo,
+                    "destino": r.destino,
+                    "descricao": r.descricao,
+                    "origem": origem,
+                    "regra_id": r.id,
+                }
+        return [efetivas[sufixo] for sufixo in sorted(efetivas)]
+
+    @staticmethod
+    def _regra_bloqueada(regra: RegraReclassificacaoCfop, desc_norm: str) -> bool:
+        if not desc_norm:
+            return False
+        if any(exc.descricao_exata == desc_norm and not exc.aplicar for exc in regra.excecoes):
+            return True
+        return bool(regra.termos_exclusao and casa_algum(desc_norm, regra.termos_exclusao))
 
     def reclassificar_cfop(
         self,
@@ -170,30 +196,17 @@ class CfopResolver:
         if desc_norm:
             for regra in candidatas:
                 for exc in regra.excecoes:
-                    if exc.descricao_exata == desc_norm:
-                        if not exc.aplicar:
-                            # Exceção negativa: proíbe a reclassificação desta regra
-                            pass
-                        else:
-                            # Exceção positiva: aplica a reclassificação desta regra
-                            return self._aplicar_reclassificacao(
-                                perfil_regras_id, prefixo_operacao, regra,
-                                motivo=f"Exceção exata na regra NCM {regra.ncm}",
-                            )
+                    if exc.descricao_exata == desc_norm and exc.aplicar:
+                        return self._aplicar_reclassificacao(
+                            perfil_regras_id, prefixo_operacao, regra,
+                            motivo=f"Exceção exata na regra NCM {regra.ncm}",
+                        )
 
         # 2º Nível: Regras com termos de descrição
         if desc_norm and regras_com_termos:
             for regra in regras_com_termos:
-                # Se houver exceção com aplicar=False para essa descrição nesta regra, pula
-                tem_bloqueio = any(
-                    exc.descricao_exata == desc_norm and not exc.aplicar for exc in regra.excecoes
-                )
-                if tem_bloqueio:
+                if self._regra_bloqueada(regra, desc_norm):
                     continue
-
-                if regra.termos_exclusao and casa_algum(desc_norm, regra.termos_exclusao):
-                    continue
-
                 if casa_algum(desc_norm, regra.termos_inclusao):
                     motivo = regra.descricao or f"Regra NCM {regra.ncm} + Termos"
                     return self._aplicar_reclassificacao(
@@ -203,15 +216,8 @@ class CfopResolver:
         # 3º Nível: Regras genéricas por NCM puro (sem termos de inclusão)
         if regras_genericas:
             for regra in regras_genericas:
-                if desc_norm:
-                    tem_bloqueio = any(
-                        exc.descricao_exata == desc_norm and not exc.aplicar for exc in regra.excecoes
-                    )
-                    if tem_bloqueio:
-                        continue
-                    if regra.termos_exclusao and casa_algum(desc_norm, regra.termos_exclusao):
-                        continue
-
+                if self._regra_bloqueada(regra, desc_norm):
+                    continue
                 motivo = regra.descricao or f"Regra genérica NCM {regra.ncm}"
                 return self._aplicar_reclassificacao(
                     perfil_regras_id, prefixo_operacao, regra, motivo=motivo

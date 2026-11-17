@@ -1,5 +1,8 @@
 import type { Convenio5291Config, Convenio5291Adjustment } from '../../types/perfil';
 import type { ExtractedItem, ExtractedNote } from './domain';
+import { normalizeDescription, SUL_SUDESTE_EXCETO_ES } from './domain.ts';
+
+export { normalizeDescription as normalizeConvenioDescription };
 
 export const CONVENIO_52_91_SOURCE_URL =
   'https://www.confaz.fazenda.gov.br/legislacao/convenios/1991/CV052_91';
@@ -144,20 +147,11 @@ const NON_MATCH_RULES: Array<{ ncm: string; termos: string[]; motivo: string }> 
   { ncm: '84388090', termos: ['EXTRATOR DE SUCOS', 'SUCO'], motivo: 'O item 28.9 é restrito à preparação de peixes, moluscos e crustáceos.' },
 ];
 
-export function normalizeConvenioDescription(value?: string | null): string {
-  return String(value ?? '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, ' ')
-    .trim();
-}
-
 function includesAny(description: string, terms: string[]): boolean {
-  return terms.some((term) => description.includes(normalizeConvenioDescription(term)));
+  return terms.some((term) => description.includes(normalizeDescription(term)));
 }
 
-function activeAdjustment(
+export function matchesConvenioAdjustment(
   adjustment: Convenio5291Adjustment,
   ncm: string,
   description: string,
@@ -195,7 +189,7 @@ export function classifyConvenio5291(
   ufDestino: string,
 ): Convenio5291Classification {
   const ncm = String(item.ncm ?? '').replace(/\D/g, '');
-  const description = normalizeConvenioDescription(item.descricao);
+  const description = normalizeDescription(item.descricao);
   const cst = fullIcmsCode(item);
   const cst20 = cst.endsWith('20');
   const reducaoDestacada = Number(item.pRedBC ?? 0) > 0;
@@ -221,7 +215,7 @@ export function classifyConvenio5291(
     };
   }
   const adjustment = (config.ajustes ?? []).find((entry) =>
-    activeAdjustment(entry, ncm, description, emissionDate),
+    matchesConvenioAdjustment(entry, ncm, description, emissionDate),
   );
   if (adjustment) {
     if (adjustment.acao === 'nao_aplicar') {
@@ -309,8 +303,7 @@ export function convenioAliquotaOrigem(ufOrigem: string, aliquotaXml: number): {
   if (Math.abs(aliquotaXml - 0.04) < 0.0005) {
     return { aliquota: aliquotaXml, origem: 'aliquota_4_preservada_xml' };
   }
-  const sulSudesteExcetoEs = new Set(['SP', 'RJ', 'MG', 'PR', 'SC', 'RS']);
-  if (sulSudesteExcetoEs.has(ufOrigem.toUpperCase())) {
+  if (SUL_SUDESTE_EXCETO_ES.has(ufOrigem.toUpperCase())) {
     return { aliquota: 0.0514, origem: 'carga_efetiva_5_14' };
   }
   return { aliquota: 0.088, origem: 'carga_efetiva_8_80' };

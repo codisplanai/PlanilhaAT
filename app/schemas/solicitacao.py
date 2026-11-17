@@ -1,10 +1,12 @@
-from typing import Optional, List, Dict, Any
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field, validator
-from app.schemas.nota_fiscal import NotaFiscalProcessadaOut
+
 from app.constants import TIPOS_PLANILHA_LEGADO
-import os
+from app.schemas.nota_fiscal import NotaFiscalProcessadaOut
+from app.schemas.validators import ensure_str_uuid, hide_internal_path
 
 class NotaIgnoradaOut(BaseModel):
     numero_nota: str
@@ -94,12 +96,12 @@ class SolicitacaoSaidaOut(BaseModel):
     criado_em: datetime
 
     @validator("id", "solicitacao_id", pre=True)
-    def ensure_str_uuid(cls, v):
-        return str(v) if v is not None else v
+    def _ensure_str_uuid(cls, v):
+        return ensure_str_uuid(v)
 
     @validator("arquivo_path", pre=True)
-    def hide_internal_path(cls, value):
-        return os.path.basename(str(value).replace("\\", "/")) if value else value
+    def _hide_internal_path(cls, value):
+        return hide_internal_path(value)
 
     class Config:
         orm_mode = True
@@ -128,12 +130,12 @@ class SolicitacaoOut(BaseModel):
     saidas: Optional[List[SolicitacaoSaidaOut]] = Field(default_factory=list)
 
     @validator("id", "usuario_id", pre=True)
-    def ensure_str_uuid(cls, v):
-        return str(v) if v is not None else v
+    def _ensure_str_uuid(cls, v):
+        return ensure_str_uuid(v)
 
     @validator("arquivo_saida_path", pre=True)
-    def hide_internal_path(cls, value):
-        return os.path.basename(str(value).replace("\\", "/")) if value else value
+    def _hide_internal_path(cls, value):
+        return hide_internal_path(value)
 
     class Config:
         orm_mode = True
@@ -156,8 +158,8 @@ class SolicitacaoListOut(BaseModel):
     atualizado_em: datetime
 
     @validator("id", "usuario_id", pre=True)
-    def ensure_str_uuid(cls, value):
-        return str(value) if value is not None else value
+    def _ensure_str_uuid(cls, value):
+        return ensure_str_uuid(value)
 
     class Config:
         orm_mode = True

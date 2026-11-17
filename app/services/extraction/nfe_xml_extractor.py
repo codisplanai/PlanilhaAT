@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Optional
 import re
 
 from app.core.exceptions import ValidationException

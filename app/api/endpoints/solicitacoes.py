@@ -9,9 +9,9 @@ from app.api.persistence import (
     get_by_id_or_404,
     save_changes,
 )
-from app.constants import STATUS_PENDENTE
+from app.constants import MULTI, STATUS_PENDENTE
 from app.core.database import get_db
-from app.core.security import get_current_user, is_admin_or_senior
+from app.core.security import authorize_solicitacao_access, get_current_user, is_admin_or_senior
 from app.models.empresa import Empresa
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.profile import Profile
@@ -31,11 +31,6 @@ from app.services.templates_admin.template_manager import TemplateManager
 router = APIRouter(prefix="/solicitacoes", tags=["Solicitações de Processamento"])
 
 
-def _authorize_solicitacao(solicitacao: Solicitacao, current_user: Profile) -> None:
-    if not is_admin_or_senior(current_user) and str(solicitacao.usuario_id or "") != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")
-
-
 @router.post("", response_model=SolicitacaoOut, status_code=status.HTTP_201_CREATED)
 def criar_solicitacao(
     payload: SolicitacaoCreate,
@@ -47,9 +42,7 @@ def criar_solicitacao(
     Arquivos fiscais nunca são recebidos por esta API. XML, ZIP, SPED e planilhas
     auxiliares são processados exclusivamente no navegador.
     """
-    empresa = db.query(Empresa).filter(Empresa.id == payload.empresa_id).first()
-    if not empresa:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada.")
+    empresa = get_by_id_or_404(db, Empresa, payload.empresa_id, "Empresa não encontrada.")
     if not empresa.ativo:
         raise HTTPException(status_code=409, detail="A empresa está inativa e não pode receber novas solicitações.")
 
@@ -60,9 +53,7 @@ def criar_solicitacao(
         template = TemplateManager.get_active_template(db, payload.tipo_planilha)
         template_id = template.id
     elif payload.tipo_planilha and template_id:
-        template = db.query(TemplateXlsx).filter(TemplateXlsx.id == template_id).first()
-        if not template:
-            raise HTTPException(status_code=404, detail="Template informado não encontrado.")
+        template = get_by_id_or_404(db, TemplateXlsx, template_id, "Template informado não encontrado.")
         if template.tipo != payload.tipo_planilha:
             raise HTTPException(status_code=422, detail="O template não pertence ao tipo de planilha informado.")
 
@@ -71,7 +62,7 @@ def criar_solicitacao(
         usuario_id=current_user.id,
         periodo_inicio=payload.periodo_inicio,
         periodo_fim=payload.periodo_fim,
-        tipo_planilha=payload.tipo_planilha or "multi",
+        tipo_planilha=payload.tipo_planilha or MULTI,
         template_id=template_id,
         status=STATUS_PENDENTE,
     )
@@ -93,7 +84,7 @@ def atualizar_data_entrada_nota(
     deve invalidar qualquer artefato local já gerado para evitar download obsoleto.
     """
     solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
-    _authorize_solicitacao(solicitacao, current_user)
+    authorize_solicitacao_access(solicitacao, current_user)
     nota = (
         db.query(NotaFiscalProcessada)
         .filter(NotaFiscalProcessada.id == nota_id, NotaFiscalProcessada.solicitacao_id == id)
@@ -138,7 +129,7 @@ def obter_solicitacao(
     current_user: Profile = Depends(get_current_user),
 ):
     solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
-    _authorize_solicitacao(solicitacao, current_user)
+    authorize_solicitacao_access(solicitacao, current_user)
     return solicitacao
 
 
@@ -154,7 +145,7 @@ def excluir_solicitacao(
     cliente. Arquivos fiscais originais nunca são persistidos pelo servidor.
     """
     solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
-    _authorize_solicitacao(solicitacao, current_user)
+    authorize_solicitacao_access(solicitacao, current_user)
     delete_and_commit(db, solicitacao)
     return None
 
@@ -179,7 +170,7 @@ def excluir_solicitacoes_em_lote(
 
     # Validar autorização para cada solicitação encontrada
     for sol in solicitacoes:
-        _authorize_solicitacao(sol, current_user)
+        authorize_solicitacao_access(sol, current_user)
 
     deleted_ids = [str(sol.id) for sol in solicitacoes]
     for sol in solicitacoes:

@@ -1,6 +1,5 @@
 import os
 import re
-import tempfile
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +13,7 @@ except ImportError:
 from app.core.exceptions import PlanilhaATException, ValidationException
 from app.services.excel.formula_guard import FormulaGuard
 from app.services.excel.template_utils import build_header_text, format_excel_value, select_worksheet
+from app.services.local_files import atomic_write
 
 
 class TemplateFiller:
@@ -32,7 +32,6 @@ class TemplateFiller:
             raise ValidationException(f"Arquivo de template não encontrado: '{os.path.basename(template_path)}'.")
 
         workbook = None
-        temporary_path: Optional[str] = None
         try:
             workbook = openpyxl.load_workbook(template_path, data_only=False)
             original_formula_map = FormulaGuard.extract_formula_map(workbook)
@@ -121,16 +120,11 @@ class TemplateFiller:
                 workbook.calculation.forceFullCalc = True
                 workbook.calculation.calcMode = "auto"
 
-            output_directory = os.path.dirname(os.path.abspath(output_path))
-            os.makedirs(output_directory, exist_ok=True)
-            descriptor, temporary_path = tempfile.mkstemp(prefix="planilha_", suffix=".xlsx", dir=output_directory)
-            os.close(descriptor)
-            workbook.save(temporary_path)
+            output_buffer = BytesIO()
+            workbook.save(output_buffer)
             workbook.close()
             workbook = None
-            os.replace(temporary_path, output_path)
-            temporary_path = None
-            return output_path
+            return atomic_write(output_path, output_buffer.getvalue(), prefix="planilha_")
         except PlanilhaATException:
             raise
         except Exception as exc:
@@ -138,5 +132,3 @@ class TemplateFiller:
         finally:
             if workbook is not None:
                 workbook.close()
-            if temporary_path and os.path.exists(temporary_path):
-                os.remove(temporary_path)

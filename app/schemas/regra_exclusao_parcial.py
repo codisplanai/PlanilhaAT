@@ -3,10 +3,11 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, validator
 
+from app.constants import MOTIVO_IMPOSTO_PAGO_ENTRADA
 from app.schemas.validators import clean_ncm_obrigatorio
 from app.services.rules_engine.descricao_matcher import normalizar
 
-MOTIVOS_VALIDOS = {"isencao", "imposto_pago_entrada"}
+MOTIVOS_VALIDOS = {"isencao", MOTIVO_IMPOSTO_PAGO_ENTRADA}
 
 
 def normalizar_termos_exclusao(termos: Optional[List[str]]) -> List[str]:
@@ -123,6 +124,10 @@ class RegraExclusaoParcialOut(RegraExclusaoParcialBase):
 
     class Config:
         orm_mode = True
+
+
+class CargaPadraoBAPayload(BaseModel):
+    perfil_regras_id: int = Field(..., example=1)
 
 
 class CargaPadraoBAResponse(BaseModel):

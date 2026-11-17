@@ -24,6 +24,7 @@ import {
   saveLocalArtifacts,
 } from '../../lib/localProcessing/artifactStore';
 import { processFiscalLocally } from '../../lib/localProcessing/processor';
+import { matchesEmpresaSearch } from '../../lib/empresaFilter';
 import { getMonthPeriod } from '../../lib/periods';
 import { runtimeConfig } from '../../lib/runtimeConfig';
 import {
@@ -163,15 +164,9 @@ export function useNovaSolicitacaoPage() {
     setDiagnosticSession(cloneDiagnosticSession(diagnosticSessionRef.current));
   };
 
-  const filteredEmpresas = (empresasQuery.data ?? []).filter((empresa) => {
-    const term = empresaSearch.toLowerCase();
-    const digits = term.replace(/\D/g, '');
-    return empresa.ativo && (
-      empresa.razao_social.toLowerCase().includes(term)
-      || (digits.length > 0 && empresa.cnpj.includes(digits))
-      || empresa.uf.toLowerCase().includes(term)
-    );
-  });
+  const filteredEmpresas = (empresasQuery.data ?? []).filter(
+    (empresa) => empresa.ativo && matchesEmpresaSearch(empresa, empresaSearch),
+  );
 
   const validatePeriod = (): boolean => {
     if (!periodoInicio || !periodoFim) {
@@ -382,6 +377,27 @@ export function useNovaSolicitacaoPage() {
     return request.id;
   };
 
+  const runGuardedProcessing = async (
+    diagnostic: DiagnosticRecorder | null,
+    failureMessage: string,
+    action: () => Promise<void>,
+  ) => {
+    if (processingGuardRef.current) return;
+    processingGuardRef.current = true;
+    setIsProcessing(true);
+    setErrorMessage(null);
+    try {
+      await action();
+    } catch (error) {
+      diagnostic?.error(diagnostic.attempt.currentStage, error, failureMessage);
+      diagnostic?.finish('falhou', 'Tentativa encerrada com falha.');
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      processingGuardRef.current = false;
+      setIsProcessing(false);
+    }
+  };
+
   const generateSpreadsheet = async () => {
     if (processingGuardRef.current) return;
     if (!selectedEmpresa) return;
@@ -391,119 +407,95 @@ export function useNovaSolicitacaoPage() {
       return;
     }
 
-    processingGuardRef.current = true;
-    setErrorMessage(null);
     setDownloadError(null);
-    setIsProcessing(true);
     const diagnostic = createDiagnosticRecorder(
       diagnosticSessionRef.current,
       [...files.xmlFiles, ...files.spedFiles, ...(files.planilhaEntradaFile ? [files.planilhaEntradaFile] : [])],
       refreshDiagnostic,
     );
     activeDiagnosticRef.current = diagnostic;
-    try {
+    await runGuardedProcessing(diagnostic, 'O processamento não pôde ser concluído.', async () => {
       diagnostic.stage('solicitacao', 'Criação da solicitação iniciada.');
       const requestId = await ensureRequestId(selectedEmpresa.id);
       diagnostic.attempt.requestId = requestId;
       diagnostic.event('info', 'solicitacao', 'Solicitação criada.', { solicitacaoId: requestId });
       bonusDecisionsRef.current = undefined;
       await executeLocalProcessing(requestId, undefined, undefined, diagnostic);
-    } catch (error) {
-      diagnostic.error(diagnostic.attempt.currentStage, error, 'O processamento não pôde ser concluído.');
-      diagnostic.finish('falhou', 'Tentativa encerrada com falha.');
-      setErrorMessage(getErrorMessage(error));
-    } finally {
-      processingGuardRef.current = false;
-      setIsProcessing(false);
-    }
+    });
   };
 
   const confirmarBonificacoesEProcessar = async (decisoes: Record<string, boolean>) => {
-    if (processingGuardRef.current) return;
     if (!solicitacaoIdAtiva) return;
-    processingGuardRef.current = true;
-    setIsProcessing(true);
-    setErrorMessage(null);
-    try {
-      const diagnostic = activeDiagnosticRef.current;
-      bonusDecisionsRef.current = decisoes;
-      diagnostic?.event('info', 'validacao', 'Decisões de bonificação recebidas; processamento retomado.', {
-        quantidadeDecisoes: Object.keys(decisoes).length,
-      });
-      setShowModalBonificacao(false);
-      await executeLocalProcessing(solicitacaoIdAtiva, decisoes, undefined, diagnostic);
-    } catch (error) {
-      activeDiagnosticRef.current?.error(
-        activeDiagnosticRef.current.attempt.currentStage,
-        error,
-        'O processamento não pôde ser concluído após a confirmação.',
-      );
-      activeDiagnosticRef.current?.finish('falhou', 'Tentativa encerrada com falha.');
-      setErrorMessage(getErrorMessage(error));
-    } finally {
-      processingGuardRef.current = false;
-      setIsProcessing(false);
-    }
+    const diagnostic = activeDiagnosticRef.current;
+    await runGuardedProcessing(
+      diagnostic,
+      'O processamento não pôde ser concluído após a confirmação.',
+      async () => {
+        bonusDecisionsRef.current = decisoes;
+        diagnostic?.event('info', 'validacao', 'Decisões de bonificação recebidas; processamento retomado.', {
+          quantidadeDecisoes: Object.keys(decisoes).length,
+        });
+        setShowModalBonificacao(false);
+        await executeLocalProcessing(solicitacaoIdAtiva, decisoes, undefined, diagnostic);
+      },
+    );
   };
 
   const confirmarConvenio5291EProcessar = async (decisoes: Record<string, Convenio5291Decision>) => {
-    if (processingGuardRef.current) return;
     if (!solicitacaoIdAtiva) return;
-    processingGuardRef.current = true;
-    setIsProcessing(true);
-    setErrorMessage(null);
-    try {
-      const diagnostic = activeDiagnosticRef.current;
-      diagnostic?.event('info', 'validacao', 'Decisões do Convênio ICMS 52/91 recebidas; processamento retomado.', {
-        quantidadeDecisoes: Object.keys(decisoes).length,
-      });
-      setShowModalConvenio5291(false);
-      await executeLocalProcessing(
-        solicitacaoIdAtiva,
-        bonusDecisionsRef.current,
-        decisoes,
-        diagnostic,
-      );
-    } catch (error) {
-      activeDiagnosticRef.current?.error(
-        activeDiagnosticRef.current.attempt.currentStage,
-        error,
-        'O processamento não pôde ser concluído após a confirmação do Convênio ICMS 52/91.',
-      );
-      activeDiagnosticRef.current?.finish('falhou', 'Tentativa encerrada com falha.');
-      setErrorMessage(getErrorMessage(error));
-    } finally {
-      processingGuardRef.current = false;
-      setIsProcessing(false);
-    }
+    const diagnostic = activeDiagnosticRef.current;
+    await runGuardedProcessing(
+      diagnostic,
+      'O processamento não pôde ser concluído após a confirmação do Convênio ICMS 52/91.',
+      async () => {
+        diagnostic?.event('info', 'validacao', 'Decisões do Convênio ICMS 52/91 recebidas; processamento retomado.', {
+          quantidadeDecisoes: Object.keys(decisoes).length,
+        });
+        setShowModalConvenio5291(false);
+        await executeLocalProcessing(
+          solicitacaoIdAtiva,
+          bonusDecisionsRef.current,
+          decisoes,
+          diagnostic,
+        );
+      },
+    );
   };
 
-  const cancelarModalConvenio5291 = () => {
-    if (processingGuardRef.current) return;
-    activeDiagnosticRef.current?.finish('cancelado', 'Processamento cancelado durante a confirmação do Convênio ICMS 52/91.');
-    setShowModalConvenio5291(false);
-    setPendenciasConvenio5291([]);
-    bonusDecisionsRef.current = undefined;
-    setIsProcessing(false);
-    setSolicitacaoIdAtiva(null);
-    void discardPendingRequest();
-  };
-
-  const cancelarModalBonificacao = () => {
+  const cancelDecisionModal = (diagnosticMessage: string, clearModalState: () => void) => {
     // O botão "Cancelar" já fica desabilitado durante o processamento, mas o
     // mesmo ``onClose`` também chega por Esc e pelo clique no fundo do modal:
     // descartar a solicitação no meio da apuração faria o registro do
     // resultado falhar com 404.
     if (processingGuardRef.current) return;
-    activeDiagnosticRef.current?.finish('cancelado', 'Processamento cancelado durante a confirmação de bonificações.');
-    setShowModalBonificacao(false);
-    setPendenciasBonificacao([]);
+    activeDiagnosticRef.current?.finish('cancelado', diagnosticMessage);
+    clearModalState();
     bonusDecisionsRef.current = undefined;
     setIsProcessing(false);
     setSolicitacaoIdAtiva(null);
     // Nada foi apurado: manter o registro deixaria o histórico com uma
     // solicitação eternamente pendente para cada cancelamento.
     void discardPendingRequest();
+  };
+
+  const cancelarModalConvenio5291 = () => {
+    cancelDecisionModal(
+      'Processamento cancelado durante a confirmação do Convênio ICMS 52/91.',
+      () => {
+        setShowModalConvenio5291(false);
+        setPendenciasConvenio5291([]);
+      },
+    );
+  };
+
+  const cancelarModalBonificacao = () => {
+    cancelDecisionModal(
+      'Processamento cancelado durante a confirmação de bonificações.',
+      () => {
+        setShowModalBonificacao(false);
+        setPendenciasBonificacao([]);
+      },
+    );
   };
 
   const downloadSpreadsheet = async (tipo?: TipoPlanilha) => {

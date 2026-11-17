@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from app.core.exceptions import ValidationException
 from app.services.extraction.base import ExtractedNFData, ExtractedItemNF, IBGE_UF_MAP
-from app.constants import CSOSNS_SIMPLES
+from app.constants import CSOSNS_SIMPLES, NCM_SENTINELA
 
 class SpedFiscalExtractor:
     """
@@ -70,6 +70,17 @@ class SpedFiscalExtractor:
         return None, None
 
     @staticmethod
+    def _parse_reg_0000(fields: List[str]) -> Dict[str, str]:
+        cnpj_raw = fields[7] if len(fields) > 7 and fields[7] else (fields[8] if len(fields) > 8 else "")
+        uf_raw = fields[9].strip().upper() if len(fields) > 9 else ""
+        return {
+            "razao_social": fields[6].strip() if len(fields) > 6 else "",
+            "cnpj": re.sub(r"\D", "", cnpj_raw),
+            "uf": IBGE_UF_MAP.get(uf_raw, uf_raw),
+            "ie": fields[10].strip() if len(fields) > 10 else "",
+        }
+
+    @staticmethod
     def extract_empresa_info(sped_content: bytes) -> Dict[str, str]:
         """
         Extrai os dados cadastrais da empresa declarante a partir do Registro 0000 do SPED Fiscal:
@@ -79,21 +90,14 @@ class SpedFiscalExtractor:
         - ie (Campo 10: IE)
         """
         text = SpedFiscalExtractor._decode_content(sped_content)
-        info = {"razao_social": "", "cnpj": "", "uf": "", "ie": ""}
         for line in text.splitlines():
             line_str = line.strip()
             if not line_str.startswith("|"):
                 continue
             fields = line_str.split("|")
             if len(fields) > 5 and fields[1].strip().upper() == "0000":
-                info["razao_social"] = fields[6].strip() if len(fields) > 6 else ""
-                cnpj_raw = fields[7] if len(fields) > 7 and fields[7] else (fields[8] if len(fields) > 8 else "")
-                info["cnpj"] = re.sub(r"\D", "", cnpj_raw)
-                uf_raw = fields[9].strip().upper() if len(fields) > 9 else ""
-                info["uf"] = IBGE_UF_MAP.get(uf_raw, uf_raw)
-                info["ie"] = fields[10].strip() if len(fields) > 10 else ""
-                return info
-        return info
+                return SpedFiscalExtractor._parse_reg_0000(fields)
+        return {"razao_social": "", "cnpj": "", "uf": "", "ie": ""}
 
     def extract_from_sped(self, sped_content: bytes) -> List[ExtractedNFData]:
         text = self._decode_content(sped_content)
@@ -127,7 +131,7 @@ class SpedFiscalExtractor:
                     a_ori = a_ori_raw / Decimal("100.0") if a_ori_raw > 1 else a_ori_raw
                     current_itens.append(ExtractedItemNF(
                         item_numero=idx,
-                        ncm=c190.get("ncm", "00000000"),
+                        ncm=c190.get("ncm", NCM_SENTINELA),
                         cfop=c190.get("cfop", ""),
                         descricao=f"Item Analítico C190 #{idx} (CFOP {c190.get('cfop', '')})",
                         descricao_confiavel=False,
@@ -148,7 +152,7 @@ class SpedFiscalExtractor:
                     base_c100 = max(Decimal("0.00"), min(base_c100 - v_desc_c100, max_base_c100))
                 current_itens.append(ExtractedItemNF(
                     item_numero=1,
-                    ncm="00000000",
+                    ncm=NCM_SENTINELA,
                     cfop="",
                     descricao=f"NF-e {current_c100['numero_nota']} (Consolidado SPED)",
                     descricao_confiavel=False,
@@ -236,13 +240,11 @@ class SpedFiscalExtractor:
 
             # 1. Registro 0000: Dados da Empresa Destinatária (Declarante)
             if reg == "0000":
-                dest_nome = fields[6].strip() if len(fields) > 6 else ""
-                # Campo 7: CNPJ, Campo 8: CPF, Campo 9: UF, Campo 10: IE
-                cnpj_raw = fields[7] if len(fields) > 7 and fields[7] else (fields[8] if len(fields) > 8 else "")
-                dest_cnpj = re.sub(r"\D", "", cnpj_raw)
-                uf_raw = fields[9].strip().upper() if len(fields) > 9 else ""
-                dest_uf = IBGE_UF_MAP.get(uf_raw, uf_raw)
-                dest_ie = fields[10].strip() if len(fields) > 10 else ""
+                reg0000 = self._parse_reg_0000(fields)
+                dest_nome = reg0000["razao_social"]
+                dest_cnpj = reg0000["cnpj"]
+                dest_uf = reg0000["uf"]
+                dest_ie = reg0000["ie"]
 
             # 2. Registro 0150: Cadastro de Participantes / Fornecedores
             elif reg == "0150":
@@ -358,7 +360,7 @@ class SpedFiscalExtractor:
                 # Campo 3: COD_ITEM
                 cod_item = fields[3].strip() if len(fields) > 3 else ""
                 item_info = itens_cadastrados.get(cod_item, {})
-                ncm = item_info.get("ncm", "00000000")
+                ncm = item_info.get("ncm", NCM_SENTINELA)
                 cest = item_info.get("cest", "")
                 descr = item_info.get("descricao", f"Item {cod_item}")
 

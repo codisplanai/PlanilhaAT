@@ -182,3 +182,46 @@ Os avisos restantes vêm de compatibilidade futura de bibliotecas (`datetime.utc
 SQLAlchemy e atalho `app` do HTTPX). As versões foram limitadas em `requirements.txt` para
 manter o comportamento atual; uma migração de timezone e transporte de testes deve ser
 feita separadamente para não alterar contratos de datas nesta refatoração.
+
+## Segunda rodada de refatoração estrutural
+
+### Backend
+
+- Vocabulário e conjuntos de domínio centralizados em `app/constants.py` (`NCM_SENTINELA`,
+  `DESTINOS_ANTECIPADOS`, `DESTINOS_TRIBUTARIA`, `DESTINOS_DIFAL`) e reutilizados em
+  `schemas`, `seeds.py`, `rules_engine`, `pipeline_outputs.py` e endpoints.
+- Validadores e serializadores recorrentes de email, UF, UUID e paths internos extraídos
+  para `app/schemas/validators.py`; `CargaPadraoBAPayload` movido do endpoint para
+  `app/schemas/regra_exclusao_parcial.py`.
+- Clonagem de perfis unificada em `app/services/copia_regras.py` (`clonar_regras_perfil`),
+  substituindo a cópia inline de `perfis_regras.py`; mapeamento e seeds de templates
+  deduplicados em `app/core/seeds.py`.
+- Helper de busca 404 (`get_by_id_or_404`) e autorização (`authorize_solicitacao_access`)
+  aplicados de forma uniforme nos endpoints.
+- Decomposição de métodos extensos sem alteração fiscal em `cfop_resolver.py`,
+  `aliquota_resolver.py`, `sped_fiscal_extractor.py`, `data_entrada_matcher.py`,
+  `template_filler.py` (usando `BytesIO` + `atomic_write`), `template_manager.py` e
+  `pipeline_service.py` (helpers por etapa de elegibilidade, roteamento, alíquota/MVA e
+  consolidação).
+
+### Frontend
+
+- Removido código morto (`frontend/src/lib/supabase.ts`); extraídos `danfeApi`
+  (`src/api/danfe.ts`) e utilitários XML/PDF (`src/lib/danfe.ts`) para isolar o componente
+  `DanfeButton.tsx`.
+- Consolidados downloads de Blob (`src/lib/downloadBlob.ts`), filtro de empresas
+  (`src/lib/empresaFilter.ts`), tipos de seleção de template (`src/types/template.ts`),
+  cliente de exceções CRUD (`createExcecoesApi` em `src/api/crud.ts`) e exibição de notas
+  desconsideradas (`NotasIgnoradasSection.tsx`).
+- Deduplicado `localProcessing/` (`PARTIAL_DESTINATIONS`, `EARLY_DESTINATIONS`,
+  `TAX_SUBSTITUTION_DESTINATIONS`, `BONUS_SUFFIXES`, `SUL_SUDESTE_EXCETO_ES`, `IBGE_UF_MAP`,
+  `decodeUtf8OrWindows1252`, `normalizeDescription` em `domain.ts`; `UFS_BRASIL` em
+  `interstateRate.ts`; ajuste do Convênio 52/91 em `convenio5291.ts`); pré-análises
+  extraídas para `preAnalysis.ts`, casts `as never` eliminados e `processFiscalLocally`
+  decomposto em etapas auxiliares.
+- Decompostas e padronizadas páginas e hooks (`PerfisRegras` com correção de JSX no
+  cabeçalho de CFOP e extração de `AliquotasSectionCards.tsx`/`PerfisRegrasModals.tsx`;
+  `NovaSolicitacao` com `ReviewAndResultStep.tsx`; `Historico` com
+  `SolicitacaoDetalheModal.tsx` e `HistoricoModals.tsx`; `Empresas`, `Usuarios`,
+  `AdminTemplates` e `AlterarSenhaModal` movendo estado derivado para seus hooks e usando
+  helpers compartilhados).

@@ -1,7 +1,7 @@
 import re
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from app.core.exceptions import ValidationException
 from app.services.extraction.base import ExtractedNFData

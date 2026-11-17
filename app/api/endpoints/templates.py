@@ -9,7 +9,6 @@ from app.core.security import get_current_user, require_admin
 from app.models.profile import Profile
 from app.models.template_xlsx import TemplateXlsx
 from app.schemas.template_xlsx import (
-    TemplateMapping,
     TemplateSelectionConfigOut,
     TemplateSelectionConfigUpdate,
     TemplateXlsxOut,
@@ -75,12 +74,7 @@ def listar_templates_ativos_resumo(
     ativos = (
         db.query(TemplateXlsx)
         .filter(TemplateXlsx.ativo == True)
-        .order_by(
-            TemplateXlsx.tipo,
-            TemplateXlsx.capacidade_linhas.is_(None),
-            TemplateXlsx.capacidade_linhas,
-            TemplateXlsx.versao.desc(),
-        )
+        .order_by(*TemplateManager.DEFAULT_ORDER)
         .all()
     )
     return [
@@ -107,12 +101,7 @@ def listar_templates(
         query = query.filter(TemplateXlsx.tipo == tipo.strip().lower())
     if ativo is not None:
         query = query.filter(TemplateXlsx.ativo == ativo)
-    return query.order_by(
-        TemplateXlsx.tipo,
-        TemplateXlsx.capacidade_linhas.is_(None),
-        TemplateXlsx.capacidade_linhas,
-        TemplateXlsx.versao.desc(),
-    ).all()
+    return query.order_by(*TemplateManager.DEFAULT_ORDER).all()
 
 @router.get(
     "/configuracoes-selecao",

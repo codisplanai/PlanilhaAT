@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -221,6 +221,15 @@ export function useHistoricoPage(currentUser?: User | null) {
     setEntryDateError(null);
   };
 
+  const solicitacoes = useMemo(() => solicitacoesQuery.data ?? [], [solicitacoesQuery.data]);
+  const visibleIds = useMemo(() => solicitacoes.map((s) => s.id), [solicitacoes]);
+  const isAllSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const isSomeSelected = visibleIds.some((id) => selectedIds.has(id)) && !isAllSelected;
+  const solicitacoesSelecionadas = useMemo(
+    () => solicitacoes.filter((s) => selectedIds.has(s.id)),
+    [solicitacoes, selectedIds],
+  );
+
   return {
     solicitacoesQuery,
     empresasQuery,
@@ -245,8 +254,11 @@ export function useHistoricoPage(currentUser?: User | null) {
     solicitacaoParaExcluir,
     setSolicitacaoParaExcluir,
     selectedIds,
+    isAllSelected,
+    isSomeSelected,
+    solicitacoesSelecionadas,
     toggleSelect,
-    toggleSelectAll,
+    toggleSelectAll: () => toggleSelectAll(visibleIds),
     clearSelection,
     isBatchDeleteModalOpen,
     setBatchDeleteModalOpen,

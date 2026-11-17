@@ -1,3 +1,5 @@
+import { triggerBlobDownload } from './downloadBlob.ts';
+
 export type DiagnosticLevel = 'debug' | 'info' | 'warning' | 'error';
 export type DiagnosticStatus =
   | 'em_andamento'
@@ -274,24 +276,10 @@ export function cloneDiagnosticSession(session: DiagnosticSession): DiagnosticSe
   return structuredClone(session);
 }
 
-function triggerDownload(content: string, filename: string, type: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.rel = 'noopener';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  // Firefox e WebKit abortam o download quando a URL é revogada no mesmo tick.
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
 export function downloadDiagnosticJson(session: DiagnosticSession): void {
-  triggerDownload(
-    JSON.stringify(session, null, 2),
+  triggerBlobDownload(
+    new Blob([JSON.stringify(session, null, 2)], { type: 'application/json;charset=utf-8' }),
     `diagnostico_${session.sessionId}.json`,
-    'application/json;charset=utf-8',
   );
 }
 
@@ -328,9 +316,8 @@ export function diagnosticAsText(session: DiagnosticSession): string {
 }
 
 export function downloadDiagnosticText(session: DiagnosticSession): void {
-  triggerDownload(
-    diagnosticAsText(session),
+  triggerBlobDownload(
+    new Blob([diagnosticAsText(session)], { type: 'text/plain;charset=utf-8' }),
     `diagnostico_${session.sessionId}.txt`,
-    'text/plain;charset=utf-8',
   );
 }

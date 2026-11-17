@@ -19,3 +19,15 @@ export function createCrudApi<Entity, CreatePayload, UpdatePayload>(basePath: st
     },
   };
 }
+
+export function createExcecoesApi<Excecao, ExcecaoCreate>(basePath: string) {
+  return {
+    criarExcecao: async (regraId: number, payload: ExcecaoCreate): Promise<Excecao> => {
+      const { data } = await apiClient.post<Excecao>(`${basePath}/${regraId}/excecoes`, payload);
+      return data;
+    },
+    deletarExcecao: async (regraId: number, excecaoId: number): Promise<void> => {
+      await apiClient.delete(`${basePath}/${regraId}/excecoes/${excecaoId}`);
+    },
+  };
+}
