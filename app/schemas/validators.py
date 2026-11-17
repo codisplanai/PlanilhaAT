@@ -1,15 +1,12 @@
-"""Validadores reutilizados pelos schemas de regras de alíquota."""
+"""Validadores reutilizados pelos schemas da API."""
 
+import os
 import re
 from decimal import Decimal
-from typing import List, Optional
+from typing import Any, List, Optional
 
+from app.constants import NCM_SENTINELA, UFS_BRASIL
 from app.services.rules_engine.descricao_matcher import normalizar
-
-# NCM que o extrator do SPED usa quando o item não consta no registro 0200.
-# É ausência de dado, não NCM: uma regra cadastrada nele capturaria tudo o que
-# o SPED não conseguiu identificar.
-NCM_SENTINELA = "00000000"
 
 
 def clean_ncm(v: Optional[str]) -> Optional[str]:
@@ -92,4 +89,32 @@ def clean_cfop_sufixo_obrigatorio(v: str) -> str:
     if sufixo is None:
         raise ValueError("CFOP de destino é obrigatório")
     return sufixo
+
+
+def clean_email(value: str) -> str:
+    """Normaliza e valida um endereço de e-mail."""
+    clean = value.strip().lower()
+    if clean.count("@") != 1 or clean.startswith("@") or clean.endswith("@"):
+        raise ValueError("E-mail inválido")
+    return clean
+
+
+def clean_uf(value: Optional[str]) -> Optional[str]:
+    """Normaliza e valida sigla de UF brasileira, preservando None."""
+    if value is None:
+        return None
+    clean = value.strip().upper()
+    if clean not in UFS_BRASIL:
+        raise ValueError("UF inválida")
+    return clean
+
+
+def ensure_str_uuid(value: Any) -> Any:
+    """Converte UUID para string na serialização, preservando None."""
+    return str(value) if value is not None else value
+
+
+def hide_internal_path(value: Any) -> Any:
+    """Expõe apenas o nome do arquivo em respostas da API."""
+    return os.path.basename(str(value).replace("\\", "/")) if value else value
 

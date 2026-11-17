@@ -1,3 +1,4 @@
+import type { JsonObject } from '../../types/common';
 import type {
   LocalGeneratedArtifact,
   LocalOutputRow,
@@ -7,28 +8,40 @@ import type {
 } from '../../types/localProcessing';
 import type {
   AvisoAvaliacao,
-  Convenio5291Pendencia,
-  Convenio5291Decision,
   ItemExcluido,
-  NotaBonificacaoPendencia,
+  NotaFiscalProcessada,
   NotaIgnorada,
   TipoPlanilha,
 } from '../../types/solicitacao';
+import type { DiagnosticRecorder } from '../processingDiagnostics';
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain.ts';
+import {
+  BONUS_SUFFIXES,
+  EARLY_DESTINATIONS,
+  PARTIAL_DESTINATIONS,
+  TAX_SUBSTITUTION_DESTINATIONS,
+  normalizeDescription,
+} from './domain.ts';
 import { calculateTax, roundCurrency } from './calculations.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
 import { consolidateControlRows } from './controlRows.ts';
 import { sortRowsByEntryAndNumber } from './rowSorting.ts';
-import { classifyAnexoII, resolveAnexoIIApplication } from './convenio5291Agricola.ts';
+import { resolveAnexoIIApplication } from './convenio5291Agricola.ts';
 import { effectiveConvenio5291PartialConfig } from './convenio5291Global.ts';
 import {
   CONVENIO_52_91_RATE_ORIGIN,
-  classifyConvenio5291,
   convenioDecisionKey,
   fullIcmsCode,
-  normalizeConvenioDescription,
   resolveConvenio5291Application,
 } from './convenio5291.ts';
+import {
+  bonusPreAnalysis,
+  cleanDigits,
+  convenio5291PreAnalysis,
+  isOwnEmissionNote,
+  isSameUfNote,
+  withinPeriod,
+} from './preAnalysis.ts';
 import {
   acceptsRetroactiveDifal,
   classifyRevendaMva,
@@ -41,7 +54,6 @@ import {
   isIndustria,
   mvaColumnForNote,
   noOutputMessage,
-  normalizeDescription,
   redirectRevendaToAntecipacaoTributaria,
   routePaidEarlyDestination,
   resolveCfop,
@@ -66,37 +78,14 @@ import { fillTemplateLocally } from './xlsx.ts';
 import { buildSpreadsheetFilename } from './filename.ts';
 import { shouldExcludeStFromTributaria, ST_TRIBUTARIA_EXCLUSION_REASON } from './stTributariaExclusion.ts';
 
-const BONUS_SUFFIXES = new Set(['910', '911', '949']);
-const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
-  'antecipacao_parcial',
-  'antecipacao_parcial_antecipado',
-  'antecipacao_parcial_simples',
-  'antecipacao_parcial_antecipado_simples',
-]);
-const EARLY_DESTINATIONS = new Set<TipoPlanilha>([
-  'antecipacao_parcial_antecipado',
-  'antecipacao_parcial_antecipado_simples',
-  'antecipacao_tributaria_antecipado',
-  'difal_antecipado',
-]);
-
 // Planilha de controle (sem apuração) das mercadorias excluídas por imposto pago na entrada.
 const CONTROLE_DESTINATION: TipoPlanilha = 'controle_imposto_pago_entrada';
 
-const TAX_SUBSTITUTION_DESTINATIONS = new Set<TipoPlanilha>([
-  'antecipacao_tributaria',
-  'antecipacao_tributaria_antecipado',
-]);
-
-const CONVENIO_52_91_DESTINATIONS = new Set<TipoPlanilha>([
+const CONVENIO_52_91_DESTINATIONS: ReadonlySet<TipoPlanilha> = new Set<TipoPlanilha>([
   ...PARTIAL_DESTINATIONS,
   'difal',
   'difal_antecipado',
 ]);
-
-function cleanDigits(value: string): string {
-  return value.replace(/\D/g, '');
-}
 
 function validateCnpj(cnpj: string): boolean {
   const clean = cleanDigits(cnpj);
@@ -112,11 +101,6 @@ function validateCnpj(cnpj: string): boolean {
   return Number(clean[13]) === second;
 }
 
-function withinPeriod(note: ExtractedNote, start: string, end: string): boolean {
-  const date = note.dataEmissao.slice(0, 10);
-  return date >= start && date <= end;
-}
-
 function ignoredNote(note: ExtractedNote, reason: string): NotaIgnorada {
   return {
     numero_nota: note.numeroNota,
@@ -128,160 +112,61 @@ function ignoredNote(note: ExtractedNote, reason: string): NotaIgnorada {
   };
 }
 
-function bonusPreAnalysis(
-  notes: ExtractedNote[],
-  start: string,
-  end: string,
-  companyUf: string,
-  companyCnpj?: string,
-  isSimples = false,
-): NotaBonificacaoPendencia[] {
-  const pending: NotaBonificacaoPendencia[] = [];
-  const cleanEmpresa = cleanDigits(companyCnpj ?? '');
-  for (const note of notes) {
-    const cleanEmitente = cleanDigits(note.cnpjEmitente);
-    if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
-    if (note.ufEmitente && companyUf && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
-    if (!withinPeriod(note, start, end) && !acceptsRetroactiveDifal(note, start, isSimples)) continue;
-    const bonus = note.itens.filter((item) => BONUS_SUFFIXES.has(cleanDigits(item.cfop).slice(-3)));
-    if (bonus.length === 0) continue;
-    const total = bonus.reduce((sum, item) => sum + item.vTotal, 0);
-    const hasCredit = note.vIcmsNota > 0 || bonus.some((item) => item.vIcms > 0 || (item.baseCalculo > 0 && item.aOri > 0));
-    pending.push({
-      chave_acesso: note.chaveAcesso,
-      numero_nota: note.numeroNota,
-      serie: note.serie,
-      cnpj_emitente: note.cnpjEmitente,
-      nome_emitente: String(note.rawMetadata.emit_nome ?? ''),
-      cfops: [...new Set(bonus.map((item) => item.cfop).filter(Boolean))].sort(),
-      valor_total: total,
-      tem_credito: hasCredit,
-      sugestao_revenda: hasCredit,
-      motivo_sugestao: hasCredit
-        ? (note.vIcmsNota > 0
-          ? `Crédito de ICMS de R$ ${note.vIcmsNota.toFixed(2)} identificado no documento fiscal`
-          : 'Destaque de crédito de ICMS identificado no item')
-        : 'Sem destaque de crédito de ICMS',
-    });
-  }
-  return pending;
+function itemBaseOrTotal(item: ExtractedItem): number {
+  return item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo;
 }
 
-function convenio5291PreAnalysis(
-  notes: ExtractedNote[],
-  start: string,
-  end: string,
-  companyUf: string,
-  context: LocalProcessingRequest['context'],
-  entryRecords: Parameters<typeof matchEntryCfop>[1],
-  bonusDecisions: Record<string, boolean> | undefined,
-  decisions: Record<string, Convenio5291Decision> | undefined,
-): Convenio5291Pendencia[] {
-  const savedIndustrialConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
-  const config = effectiveConvenio5291PartialConfig(savedIndustrialConfig);
-  const agricolaConfig = effectiveConvenio5291PartialConfig(
-    context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_ii,
-  );
-  if (companyUf.toUpperCase() !== 'BA') return [];
+function buildExcludedItem(
+  note: ExtractedNote,
+  item: ExtractedItem,
+  destino: string,
+  motivo: string,
+  tipo_exclusao: ItemExcluido['tipo_exclusao'],
+  extra: Partial<ItemExcluido> = {},
+): ItemExcluido {
+  return {
+    chave_acesso: note.chaveAcesso,
+    numero_nota: note.numeroNota,
+    serie: note.serie,
+    item_numero: item.itemNumero,
+    arquivo: note.filename,
+    destino,
+    ncm: item.ncm,
+    descricao: item.descricao,
+    descricao_confiavel: item.descricaoConfiavel,
+    motivo,
+    tipo_exclusao,
+    regras_aplicadas: [],
+    v_total: item.vTotal,
+    base_calculo: itemBaseOrTotal(item),
+    ipi_despesas: item.ipiDespesas,
+    a_ori: item.aOri,
+    ...extra,
+  };
+}
 
-  const revendaConfig = getRevendaAntecipacaoConfig(context);
-  const industryCompany = isIndustria(context);
-  const pending: Convenio5291Pendencia[] = [];
-  const cleanEmpresa = cleanDigits(context.empresa.cnpj ?? '');
-
-  for (const note of notes) {
-    const cleanEmitente = cleanDigits(note.cnpjEmitente);
-    if ((cleanEmitente && cleanEmpresa && cleanEmitente === cleanEmpresa) || note.rawMetadata?.ind_emit === '0') continue;
-    if (note.ufEmitente && note.ufEmitente.toUpperCase() === companyUf.toUpperCase()) continue;
-    const retroactive = !withinPeriod(note, start, end)
-      && acceptsRetroactiveDifal(note, start, Boolean(context.empresa.optante_simples_nacional));
-    if (!withinPeriod(note, start, end) && !retroactive) continue;
-    const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
-
-    for (const originalItem of note.itens) {
-      const item = { ...originalItem };
-      if (auxiliaryCfop && isUsoConsumoAtivo(auxiliaryCfop)) item.cfop = auxiliaryCfop;
-
-      const cfopResolution = resolveCfop(context, item);
-      let destination = cfopResolution.destino as TipoPlanilha | null;
-      if (isUsoConsumoAtivo(item.cfop)) destination = 'difal';
-
-      const suffix = cleanDigits(item.cfop).slice(-3);
-      if (BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
-        const decision = bonusDecisions[note.chaveAcesso] ?? bonusDecisions[String(note.numeroNota)];
-        if (decision === true && industryCompany) continue;
-        if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
-      }
-      if (!destination) continue;
-
-      if (cfopResolution.reclassificado) item.cfop = cfopResolution.cfopEfetivo;
-      destination = redirectRevendaToAntecipacaoTributaria(revendaConfig, destination);
-      if (retroactive && destination !== 'difal') continue;
-      // Indústria: itens fora da DIFAL serão excluídos, a decisão não teria efeito.
-      if (industryCompany && !isDifalDestination(destination)) continue;
-      if (!CONVENIO_52_91_DESTINATIONS.has(destination)) continue;
-      // O Anexo I é global somente na Parcial; o DIFAL conserva o perfil
-      // anterior à ativação (sem mudança retroativa da sua regra fiscal).
-      const industrialConfig = PARTIAL_DESTINATIONS.has(destination)
-        ? config : savedIndustrialConfig;
-
-      // A prioridade agrícola aplica-se EXCLUSIVAMENTE à Parcial; DIFAL mantém
-      // integralmente o tratamento industrial anterior.
-      const agricola = PARTIAL_DESTINATIONS.has(destination)
-        ? classifyAnexoII(agricolaConfig, note, item, companyUf)
-        : null;
-      const anexo = agricola && agricola.status !== 'fora_catalogo' ? 'II' : 'I';
-      const classification = anexo === 'II'
-        ? agricola!
-        : classifyConvenio5291(industrialConfig, note, item, companyUf);
-      if (classification.status !== 'revisar') continue;
-
-      const decisionKey = convenioDecisionKey(note, item);
-      if (typeof decisions?.[decisionKey] === 'boolean' || decisions?.[decisionKey] === 'anexo_i') continue;
-
-      const alternativeIndustrial = anexo === 'II' && Boolean(industrialConfig?.enabled)
-        && !['fora_catalogo', 'nao_aplicar'].includes(classifyConvenio5291(industrialConfig, note, item, companyUf).status);
-      pending.push({
-        anexo,
-        alternativa_anexo_i: alternativeIndustrial,
-        decision_key: decisionKey,
-        chave_acesso: note.chaveAcesso,
-        numero_nota: note.numeroNota,
-        serie: note.serie || null,
-        item_numero: item.itemNumero,
-        fornecedor: String(note.rawMetadata.emit_nome ?? ''),
-        cnpj_emitente: note.cnpjEmitente,
-        uf_origem: note.ufEmitente,
-        ncm: item.ncm,
-        descricao: item.descricao,
-        descricao_normalizada: normalizeConvenioDescription(item.descricao),
-        cst: fullIcmsCode(item),
-        p_icms: item.aOri,
-        carga_efetiva_xml: Number(item.vIcms ?? 0) > 0 && Number(item.baseSemIpi ?? 0) > 0
-          ? Number(item.vIcms) / Number(item.baseSemIpi)
-          : null,
-        carga_origem_convenio: anexo === 'II'
-          ? (classification.operacaoQuatroPorCento ? 0.04
-            : ['SP', 'MG', 'RJ', 'PR', 'SC', 'RS'].includes(note.ufEmitente.toUpperCase()) ? 0.041 : 0.07)
-          : null,
-        carga_interna_convenio: anexo === 'II' ? 0.056 : null,
-        p_red_bc: Number(item.pRedBC ?? 0) > 1
-          ? Number(item.pRedBC ?? 0) / 100
-          : Number(item.pRedBC ?? 0),
-        v_bc_xml: Number(item.baseCalculoXml ?? item.baseCalculo),
-        base_sem_ipi: Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))),
-        motivo: classification.motivo,
-        item_legal: classification.itemLegal ?? null,
-        descricao_legal: classification.descricaoLegal ?? null,
-        cst20: classification.cst20,
-        reducao_destacada: classification.reducaoDestacada,
-        operacao_quatro_por_cento: classification.operacaoQuatroPorCento,
-        sugestao_aplicar: classification.sugestaoAplicar,
-      });
-    }
+function pushPartialMetadataWarnings(
+  note: ExtractedNote,
+  item: ExtractedItem,
+  warnings: AvisoAvaliacao[],
+): void {
+  let aviso: string | null = null;
+  if (!item.descricaoConfiavel) {
+    aviso = 'Descrição sintética/não confiável: regra de exclusão por mercadoria não avaliada.';
+  } else if (!normalizeDescription(item.descricao)) {
+    aviso = 'Descrição do produto ausente: regra de exclusão por mercadoria não avaliada.';
+  } else if (!item.ncm || item.ncm === '00000000' || item.ncm.length < 8) {
+    aviso = `NCM ausente ou genérico ("${item.ncm}"): regra de exclusão por mercadoria não avaliada.`;
   }
-
-  return pending;
+  if (aviso) {
+    warnings.push({
+      numero_nota: note.numeroNota,
+      serie: note.serie,
+      item_numero: item.itemNumero,
+      arquivo: note.filename,
+      aviso,
+    });
+  }
 }
 
 interface Group {
@@ -321,6 +206,449 @@ export function groupKey(
   return JSON.stringify([destination, aOri, aDst, mva, convenio5291Applied, reducao]);
 }
 
+function resolveConvenioAndRatesForItem(params: {
+  request: LocalProcessingRequest;
+  note: ExtractedNote;
+  item: ExtractedItem;
+  destination: TipoPlanilha;
+  convenio5291SavedIndustrialConfig: LocalProcessingRequest['context']['perfil']['configuracoes_extras']['convenio_icms_52_91_anexo_i'];
+  convenio5291Config: ReturnType<typeof effectiveConvenio5291PartialConfig>;
+  convenio5291AgricolaConfig: ReturnType<typeof effectiveConvenio5291PartialConfig>;
+  industrialDecisions: Record<string, boolean> | undefined;
+  warnings: AvisoAvaliacao[];
+  diagnostic?: DiagnosticRecorder;
+}) {
+  const {
+    request, note, item, destination,
+    convenio5291SavedIndustrialConfig, convenio5291Config, convenio5291AgricolaConfig,
+    industrialDecisions, warnings, diagnostic,
+  } = params;
+  const { context } = request;
+  const rate = resolveDestinationRate(context, item, destination);
+  // Nenhuma mudança de regra para DIFAL ou Tributária/ST.
+  const possivelAgricola = PARTIAL_DESTINATIONS.has(destination)
+    ? resolveAnexoIIApplication(
+      convenio5291AgricolaConfig, note, item, context.empresa.uf, request.convenio5291Decisions,
+    ) : null;
+  const escolherIndustrial = request.convenio5291Decisions?.[convenioDecisionKey(note, item)] === 'anexo_i';
+  const usarAgricola = Boolean(possivelAgricola)
+    && possivelAgricola?.classification.status !== 'fora_catalogo'
+    && !escolherIndustrial;
+  const convenio = usarAgricola
+    ? { ...possivelAgricola!, anexo: 'II' as const }
+    : CONVENIO_52_91_DESTINATIONS.has(destination)
+      ? { ...resolveConvenio5291Application(
+        PARTIAL_DESTINATIONS.has(destination) ? convenio5291Config : convenio5291SavedIndustrialConfig,
+        note, item, context.empresa.uf, industrialDecisions,
+      ), anexo: 'I' as const }
+      : null;
+  const tributariaReduction = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+    ? resolveTributariaReduction(context, item)
+    : null;
+  const itemReducao: number | null = tributariaReduction ? tributariaReduction.aliquota : null;
+  const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
+  const originalAOri = item.aOri;
+  const effectiveRate = convenio?.applied
+    ? {
+      aliquota: effectiveADst,
+      origem: CONVENIO_52_91_RATE_ORIGIN,
+      detalhe: `Convênio ICMS 52/91 — ${convenio.classification.motivo}`,
+    }
+    : rate;
+  // Somente fornecedor Simples sem pICMS em operação interestadual.
+  // A taxa é referência de origem, e não um crédito destacado no XML.
+  // Não se aplica à planilha de DIFAL.
+  const isDifal = isDifalDestination(destination);
+  // No DIFAL, sem pICMS destacado, a alíquota de crédito autorizada nas
+  // Informações Complementares (fornecedor do Simples) vale como A.ORI.
+  const infComplRate = isDifal && !(originalAOri && originalAOri > 0)
+    ? (note.aliqCreditoIcmsInfCompl ?? 0)
+    : 0;
+  const aOriInfCompl = infComplRate > 0;
+  const documentAOri = aOriInfCompl ? infComplRate : originalAOri;
+  const aOriHighlighted = Boolean(documentAOri && documentAOri > 0);
+  if (aOriInfCompl) {
+    const ratePct = (infComplRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    warnings.push({
+      numero_nota: note.numeroNota,
+      serie: note.serie,
+      item_numero: item.itemNumero,
+      arquivo: note.filename,
+      aviso: `Item ${item.itemNumero}: A.ORI de ${ratePct}% obtida das Informações Complementares da NF-e (crédito de ICMS autorizado pelo fornecedor), sem pICMS destacado no item.`,
+    });
+  }
+  const reference = isDifal
+    ? { rate: 0, inferred: false }
+    : resolveSimpleOriginReference(note, item, context.empresa.uf, Boolean(convenio?.applied));
+  const referenceRate = isDifal ? 0 : reference.rate;
+  const resolvedAOri = isDifal
+    ? (aOriHighlighted ? documentAOri : 0)
+    : (convenio?.applied ? Number(convenio.aOri) : referenceRate);
+  const originRate = resolveOriginRate(
+    context, destination, resolvedAOri, effectiveADst, effectiveRate.origem,
+  );
+  const aOri = isDifal ? (aOriHighlighted ? originRate.aOri : 0) : originRate.aOri;
+  const aOriInferredSimples = !isDifal && reference.inferred && !originRate.fixed;
+  if (aOriInferredSimples) {
+    const ratePct = (referenceRate * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    warnings.push({
+      numero_nota: note.numeroNota,
+      serie: note.serie,
+      item_numero: item.itemNumero,
+      arquivo: note.filename,
+      aviso: `Item ${item.itemNumero}: Alíquota interestadual de ${ratePct}% aplicada automaticamente (fornecedor optante pelo Simples Nacional sem pICMS: ${note.ufEmitente} -> ${context.empresa.uf}). Alíquota de referência, não crédito destacado.`,
+    });
+    diagnostic?.event('info', 'calculo', 'A.ORI de referência interestadual aplicada ao fornecedor Simples Nacional.', {
+      numeroNota: note.numeroNota,
+      itemNumero: item.itemNumero,
+      ufOrigem: note.ufEmitente,
+      ufDestino: context.empresa.uf,
+      origemMercadoria: item.origemMercadoria || 'não identificada',
+      pCredSN: item.pCredSN ?? null,
+      aliquotaReferencia: referenceRate,
+    });
+    if (!item.origemMercadoria) {
+      warnings.push({
+        numero_nota: note.numeroNota,
+        serie: note.serie,
+        item_numero: item.itemNumero,
+        arquivo: note.filename,
+        aviso: 'Origem da mercadoria não identificada: aplicada referência geográfica (7% ou 12%). Verifique eventual enquadramento na alíquota de 4%.',
+      });
+    }
+  }
+
+  return {
+    convenio,
+    itemReducao,
+    effectiveADst,
+    effectiveRate,
+    originalAOri,
+    originRate,
+    aOri,
+    aOriInferredSimples,
+    aOriHighlighted,
+    aOriInfCompl,
+  };
+}
+
+function consolidateNoteGroups(params: {
+  note: ExtractedNote;
+  groups: Map<string, Group>;
+  classifiedItems: number;
+  context: LocalProcessingRequest['context'];
+  entryDate: string | null;
+  entryOrigin: NotaFiscalProcessada['origem_data_entrada'];
+  supplierIsSimples: boolean;
+  processed: LocalProcessingResult['notasProcessadas'];
+  rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  ignored: NotaIgnorada[];
+  excluded: ItemExcluido[];
+  diagnostic?: DiagnosticRecorder;
+}): void {
+  const {
+    note, groups, classifiedItems, context, entryDate, entryOrigin, supplierIsSimples,
+    processed, rowsByDestination, ignored, excluded, diagnostic,
+  } = params;
+  const splitByDestination = new Map<TipoPlanilha, number>();
+  for (const group of groups.values()) {
+    const splitIndex = splitByDestination.get(group.destination) ?? 1;
+    const useNoteTotal = groups.size === 1 && classifiedItems === note.itens.length && note.vTotalNota > 0;
+
+    const vTotal = useNoteTotal ? note.vTotalNota : group.items.reduce((sum, item) => sum + item.vTotal, 0);
+    const originalBaseXml = useNoteTotal && note.vBcNota > 0
+      ? note.vBcNota
+      : group.items.reduce((sum, item) => sum + Number(item.baseCalculoXml ?? item.baseCalculo), 0);
+    const ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
+    const maxBaseLiquida = Math.max(0, vTotal - ipi);
+    let base = group.convenio5291Applied
+      ? group.items.reduce((sum, item) => sum + Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))), 0)
+      : (useNoteTotal && note.vBcNota > 0
+        ? ((note.vDescNota ?? 0) > 0 && note.vBcNota > maxBaseLiquida
+            ? Math.max(0, Math.min(note.vBcNota - (note.vDescNota ?? 0), maxBaseLiquida))
+            : note.vBcNota)
+        : group.items.reduce((sum, item) => sum + item.baseCalculo, 0));
+    const reducedBaseEvidence = group.items.some(
+      (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
+    );
+
+    if (base <= 0) base = vTotal - ipi;
+
+    if (vTotal <= 0) {
+      ignored.push(ignoredNote(note, `Valor total zerado ou sem valor comercial (R$ ${vTotal.toFixed(2)}).`));
+      continue;
+    }
+    if (base < 0 || group.aOri < 0 || group.aOri > 1 || group.aDst < 0 || group.aDst > 1) {
+      throw new Error(`NF-e ${note.numeroNota}: valores fiscais fora da faixa válida.`);
+    }
+
+    const first = group.items[0];
+    const ncm = first?.ncm ?? '';
+    const cfop = first?.cfop ?? '';
+    const description = group.items.length === 1
+      ? first?.descricao ?? ''
+      : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
+    const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? group.mva : 0;
+    const aliqSimples = isDifalDestination(group.destination) && supplierIsSimples ? 'S' : 'N';
+
+    let valorPago = 0;
+    if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)) {
+      const itemStSum = group.items.reduce((sum, item) => sum + Number(item.vIcmsSt ?? 0), 0);
+      if (itemStSum > 0) {
+        valorPago = roundCurrency(itemStSum);
+      } else if ((note.vStNota ?? 0) > 0) {
+        const allStGroupsTotal = Array.from(groups.values())
+          .filter((g) => TAX_SUBSTITUTION_DESTINATIONS.has(g.destination))
+          .reduce((sum, g) => sum + g.items.reduce((s, it) => s + it.vTotal, 0), 0);
+        const groupTotal = group.items.reduce((s, it) => s + it.vTotal, 0);
+        valorPago = allStGroupsTotal > 0
+          ? roundCurrency((note.vStNota! * groupTotal) / allStGroupsTotal)
+          : (useNoteTotal ? roundCurrency(note.vStNota!) : 0);
+      }
+    }
+
+    const calculation = calculateTax(group.destination, {
+      vTotal,
+      baseCalculo: base,
+      ipiDespesas: ipi,
+      aOri: group.aOri,
+      aDst: group.aDst,
+      mva,
+      reducao: group.reducao,
+      aliqSimples,
+      isSimples: Boolean(context.empresa.optante_simples_nacional),
+      valorPago,
+    });
+
+    // Em Antecipação Tributária, se o ICMS ST destacado na nota cobrir o imposto ou resultar em <= 0,
+    // remover da planilha final e registrar em itens excluídos.
+    if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) && calculation.valorDevido <= 0) {
+      const diffDevido = roundCurrency(calculation.debito - calculation.credito);
+      const reason = valorPago > 0
+        ? `Antecipação Tributária: sem imposto a recolher pois o ICMS ST destacado na nota (R$ ${valorPago.toFixed(2)}) cobre integralmente o imposto apurado (R$ ${diffDevido.toFixed(2)}).`
+        : 'Antecipação Tributária: sem diferença positiva de imposto a recolher após confrontar débito com crédito.';
+      for (const fiscalItem of group.items) {
+        excluded.push(buildExcludedItem(note, fiscalItem, group.destination, reason, 'mercadoria', {
+          base_calculo: fiscalItem.baseSemIpi ?? fiscalItem.baseCalculo,
+          a_dst: group.aDst,
+        }));
+      }
+      diagnostic?.event('info', 'calculo', reason, {
+        numeroNota: note.numeroNota,
+        destino: group.destination,
+        itens: group.items.length,
+        debito: calculation.debito,
+        credito: calculation.credito,
+        valorPago,
+        valorDevido: calculation.valorDevido,
+      });
+      continue;
+    }
+
+    // Na Parcial agrícola não se gera planilha de imposto negativo ou zerado:
+    // quando a carga interestadual supera a interna pode não existir
+    // diferença a antecipar (RICMS/BA, art. 266). Registrar todos os itens.
+    if (group.convenio5291Anexo === 'II' && calculation.valorDevido <= 0) {
+      const reason = 'Convênio ICMS 52/91, Anexo II: sem diferença positiva de antecipação parcial após confrontar débito interno de 5,60% com crédito de origem.';
+      for (const fiscalItem of group.items) {
+        excluded.push(buildExcludedItem(note, fiscalItem, group.destination, reason, 'mercadoria', {
+          base_calculo: fiscalItem.baseSemIpi ?? fiscalItem.baseCalculo,
+          a_dst: group.aDst,
+        }));
+      }
+      diagnostic?.event('info', 'calculo', reason, {
+        numeroNota: note.numeroNota,
+        anexo: 'II',
+        itens: group.items.length,
+        cargaOrigem: group.aOri,
+        cargaDestino: group.aDst,
+      });
+      continue;
+    }
+
+    const effectiveEntryDate = EARLY_DESTINATIONS.has(group.destination) ? null : entryDate;
+    const effectiveEntryOrigin = EARLY_DESTINATIONS.has(group.destination) ? null : entryOrigin;
+    const rateOrigins = [...new Set(group.rateResolutions.map((item) => item.origem))].sort();
+    const rateDetails = [...new Set(group.rateResolutions.map((item) => item.detalhe))].sort();
+    const cfopDetails = [...new Set(group.cfopResolutions.map((item) => item.motivo).filter(Boolean))].sort();
+
+    const metadadosExtras: JsonObject = {
+      desdobramento: groups.size > 1,
+      subitem_index: splitIndex,
+      total_subitens_destino: group.items.length,
+      mva: String(mva),
+      reducao: group.reducao != null ? String(group.reducao) : null,
+      mva_grupo: group.mvaPolicyGroup || null,
+      mva_fonte: group.mvaPolicySource || null,
+      fornecedor_simples_nacional: supplierIsSimples,
+      aliq_simples: aliqSimples,
+      origem_a_dst: rateOrigins,
+      detalhe_a_dst: rateDetails.join('; '),
+      cfop_reclassificado: group.cfopResolutions.some((item) => item.reclassificado),
+      detalhe_cfop: cfopDetails.join('; '),
+      a_ori_limitada: group.aOriLimited,
+      a_ori_fixa_parcial: group.aOriFixed,
+      a_ori_limite_dispensado: group.aOriLimitWaived,
+      a_ori_original: String(group.aOriOriginal),
+      a_ori_inferida_simples: group.aOriInferredSimples,
+      a_ori_destacada: group.aOriHighlighted,
+      a_ori_inf_compl: group.aOriInfCompl,
+      p_cred_sn: group.pCredSN.length ? group.pCredSN : null,
+      convenio_52_91_aplicado: group.convenio5291Applied,
+      convenio_52_91_anexo: group.convenio5291Anexo || null,
+      convenio_52_91_decisao_manual: group.convenio5291Manual,
+      convenio_52_91_motivo: group.convenio5291Motivos.join('; ') || null,
+      convenio_52_91_origem_aliquota: group.convenio5291OrigemAliquota || null,
+      convenio_52_91_base_xml_original: originalBaseXml,
+      convenio_52_91_base_planilha: group.convenio5291Applied ? base : null,
+      convenio_52_91_cst_reducao_detectada: reducedBaseEvidence,
+      ...calculation.detalhes,
+    };
+
+    processed.push({
+      chave_acesso: note.chaveAcesso,
+      numero_nota: note.numeroNota,
+      serie: note.serie,
+      cnpj_emitente: note.cnpjEmitente,
+      uf_emitente: note.ufEmitente,
+      cnpj_destinatario: note.cnpjDestinatario,
+      uf_destinatario: context.empresa.uf,
+      data_emissao: note.dataEmissao,
+      data_entrada: effectiveEntryDate,
+      origem_data_entrada: effectiveEntryOrigin,
+      item_numero: splitIndex,
+      ncm,
+      cfop,
+      destino_planilha: group.destination,
+      v_total: vTotal,
+      base_calculo: base,
+      ipi_despesas: ipi,
+      a_ori: group.aOri,
+      a_dst_resolvida: group.aDst,
+      debito: calculation.debito,
+      credito: calculation.credito,
+      valor_devido: calculation.valorDevido,
+      metadados_extras: metadadosExtras,
+    });
+
+    const row: LocalOutputRow = {
+      numero_nota: splitIndex > 1 ? `${note.numeroNota}*` : note.numeroNota,
+      serie: note.serie,
+      chave_acesso: note.chaveAcesso,
+      cnpj_emitente: note.cnpjEmitente,
+      uf_emitente: note.ufEmitente,
+      cnpj_destinatario: note.cnpjDestinatario,
+      uf_destinatario: context.empresa.uf,
+      data_emissao: note.dataEmissao,
+      data_entrada: effectiveEntryDate,
+      item_numero: splitIndex,
+      descricao: description,
+      ncm,
+      cfop,
+      v_total: vTotal,
+      base_calculo: base,
+      ipi_despesas: ipi,
+      mva,
+      reducao: group.reducao,
+      red: '',
+      aliq_simples: aliqSimples,
+      a_ori: isDifalDestination(group.destination) && !group.aOriHighlighted ? null : group.aOri,
+      a_dst: group.aDst,
+      debito: calculation.debito,
+      credito: calculation.credito,
+      valor_devido: calculation.valorDevido,
+      valor_pago: valorPago,
+    };
+    (rowsByDestination[group.destination] ??= []).push(row);
+    splitByDestination.set(group.destination, splitIndex + 1);
+  }
+}
+
+async function generateOutputArtifacts(params: {
+  context: LocalProcessingRequest['context'];
+  periodoInicio: string;
+  spedIe: string | undefined;
+  rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  templateBytes: Map<number, ArrayBuffer>;
+  loadTemplate?: (template: LocalTemplateDescriptor) => Promise<ArrayBuffer>;
+  diagnostic?: DiagnosticRecorder;
+}): Promise<LocalGeneratedArtifact[]> {
+  const {
+    context, periodoInicio, spedIe, rowsByDestination, templateBytes, loadTemplate, diagnostic,
+  } = params;
+  const artifacts: LocalGeneratedArtifact[] = [];
+  const month = Number(periodoInicio.slice(5, 7));
+  const year = Number(periodoInicio.slice(0, 4));
+  const competencia = `${String(month).padStart(2, '0')}/${year}`;
+  const ie = context.empresa.inscricao_estadual || spedIe || '';
+
+  for (const [destination, rows] of Object.entries(rowsByDestination) as Array<[TipoPlanilha, LocalOutputRow[]]>) {
+    if (!rows?.length) continue;
+    const template = selectTemplateForRows(
+      context.templates_ativos,
+      destination,
+      rows.length,
+      context.margens_seguranca_templates[destination] ?? 0,
+    );
+    if (!template) continue;
+    let bytes = templateBytes.get(template.id);
+    if (!bytes && loadTemplate) {
+      bytes = await loadTemplate(template);
+      templateBytes.set(template.id, bytes);
+    }
+    if (!bytes) {
+      throw new Error(
+        `O modelo oficial necessário para ${destination} não pôde ser carregado (template ${template.id}, v${template.versao}).`,
+      );
+    }
+
+    const output = await fillTemplateLocally(bytes, template, rows, {
+      razaoSocial: context.empresa.razao_social,
+      ie,
+      competencia,
+      month,
+      year,
+    });
+    const filename = buildSpreadsheetFilename({
+      razaoSocial: context.empresa.razao_social,
+      tipo: destination,
+      month,
+      year,
+      observacoes: template.observacoes,
+    });
+    artifacts.push({
+      tipo: destination,
+      templateId: template.id,
+      filename,
+      bytes: output,
+      totalNotas: rows.length,
+      totalValorDevido: rows.reduce((sum, row) => sum + row.valor_devido, 0),
+    });
+    diagnostic?.event('info', 'geracao_planilha', 'Planilha montada e validada em memória.', {
+      tipo: destination,
+      linhas: rows.length,
+      tamanhoBytes: output.byteLength,
+      templateId: template.id,
+      capacidadeLinhas: template.capacidade_linhas ?? null,
+      margemSegurancaLinhas: context.margens_seguranca_templates[destination] ?? 0,
+    });
+  }
+
+  const destinationsWithoutTemplate = Object.entries(rowsByDestination)
+    .filter(([destination, rows]) => (
+      rows?.length
+      && destination !== CONTROLE_DESTINATION // auxiliar: sem template, apenas não é gerado
+      && !context.templates_ativos.some((item) => item.tipo === destination)
+    ))
+    .map(([destination]) => destination);
+  if (artifacts.length === 0 && destinationsWithoutTemplate.length > 0) {
+    throw new Error(
+      `Nenhuma planilha pôde ser gerada porque não há template ativo para: ${destinationsWithoutTemplate.join(', ')}.`,
+    );
+  }
+  return artifacts;
+}
+
 export async function processFiscalLocally(
   request: LocalProcessingRequest,
   templateBytes: Map<number, ArrayBuffer>,
@@ -356,10 +684,10 @@ export async function processFiscalLocally(
     read: sources.notes.length + sources.ignoredNotes.length,
     rejected: sources.ignoredNotes.length,
   });
-  for (const ignoredNote of sources.ignoredNotes) {
-    diagnostic?.event('warning', 'leitura', ignoredNote.motivo, {
-      numeroNota: ignoredNote.numero_nota,
-      referenciaArquivo: ignoredNote.arquivo ? 'disponível na interface' : 'não disponível',
+  for (const ignoredEntry of sources.ignoredNotes) {
+    diagnostic?.event('warning', 'leitura', ignoredEntry.motivo, {
+      numeroNota: ignoredEntry.numero_nota,
+      referenciaArquivo: ignoredEntry.arquivo ? 'disponível na interface' : 'não disponível',
     });
   }
   const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
@@ -431,18 +759,9 @@ export async function processFiscalLocally(
   }
 
   for (const note of sources.notes) {
-    const cleanEmitente = cleanDigits(note.cnpjEmitente);
-    const cleanEmpresa = cleanDigits(context.empresa.cnpj);
-    const isEmissaoPropria =
-      (Boolean(cleanEmitente && cleanEmpresa) && cleanEmitente === cleanEmpresa) ||
-      note.rawMetadata?.ind_emit === '0';
-
-    if (isEmissaoPropria) {
+    if (isOwnEmissionNote(note, context.empresa.cnpj)) {
       ignored.push(
-        ignoredNote(
-          note,
-          'Nota fiscal de emissão própria desconsiderada: emitente é a própria empresa.',
-        ),
+        ignoredNote(note, 'Nota fiscal de emissão própria desconsiderada: emitente é a própria empresa.'),
       );
       continue;
     }
@@ -453,7 +772,7 @@ export async function processFiscalLocally(
       );
     }
 
-    if (note.ufEmitente && context.empresa.uf && note.ufEmitente.toUpperCase() === context.empresa.uf.toUpperCase()) {
+    if (isSameUfNote(note, context.empresa.uf)) {
       ignored.push(ignoredNote(
         note,
         `Operação interna estadual desconsiderada: UF do fornecedor (${note.ufEmitente}) é igual à UF da empresa (${context.empresa.uf}).`,
@@ -477,7 +796,7 @@ export async function processFiscalLocally(
     };
 
     let entryDate = matchEntryDate(note, sources.entryRecords);
-    let entryOrigin: string | null = entryDate ? 'planilha_sistema_contabil' : null;
+    let entryOrigin: NotaFiscalProcessada['origem_data_entrada'] = entryDate ? 'planilha_sistema_contabil' : null;
     if (!entryDate && note.origemExtracao === 'sped' && note.dataEntrada) {
       entryDate = note.dataEntrada;
       entryOrigin = 'sped_fiscal';
@@ -495,26 +814,6 @@ export async function processFiscalLocally(
     const mvaColumn = mvaColumnForNote(note);
     const groups = new Map<string, Group>();
     let classifiedItems = 0;
-    const excludeIndustryItem = (item: ExtractedItem, destino: TipoPlanilha, motivo: string) => {
-      excluded.push({
-        chave_acesso: note.chaveAcesso,
-        numero_nota: note.numeroNota,
-        serie: note.serie,
-        item_numero: item.itemNumero,
-        arquivo: note.filename,
-        destino,
-        ncm: item.ncm,
-        descricao: item.descricao,
-        descricao_confiavel: item.descricaoConfiavel,
-        motivo,
-        tipo_exclusao: 'industria_sem_antecipacao',
-        regras_aplicadas: [],
-        v_total: item.vTotal,
-        base_calculo: item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo,
-        ipi_despesas: item.ipiDespesas,
-        a_ori: item.aOri,
-      });
-    };
 
     for (const originalItem of note.itens) {
       const item = { ...originalItem };
@@ -533,7 +832,9 @@ export async function processFiscalLocally(
         const decision = request.bonusDecisions[note.chaveAcesso]
           ?? request.bonusDecisions[String(note.numeroNota)];
         if (decision === true && isIndustryCompany) {
-          excludeIndustryItem(item, 'antecipacao_parcial', industryBonusRejectedReason(item.cfop));
+          excluded.push(buildExcludedItem(
+            note, item, 'antecipacao_parcial', industryBonusRejectedReason(item.cfop), 'industria_sem_antecipacao',
+          ));
           continue;
         }
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';
@@ -580,7 +881,9 @@ export async function processFiscalLocally(
       // Indústria: só DIFAL (uso/consumo e ativo). Parcial e Tributária vão para os
       // itens excluídos, inclusive as redirecionadas pela política do perfil.
       if (isIndustryCompany && !isDifalDestination(destination) && !retroactive) {
-        excludeIndustryItem(item, destination, INDUSTRY_EXCLUSION_REASON);
+        excluded.push(buildExcludedItem(
+          note, item, destination, INDUSTRY_EXCLUSION_REASON, 'industria_sem_antecipacao',
+        ));
         continue;
       }
 
@@ -594,24 +897,10 @@ export async function processFiscalLocally(
       // Tributária destas empresas, ainda que reste imposto a recolher.
       // DIFAL e Parcial não são afetadas.
       if (excludeStTributariaNote && TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
-        excluded.push({
-          chave_acesso: note.chaveAcesso,
-          numero_nota: note.numeroNota,
-          serie: note.serie,
-          item_numero: item.itemNumero,
-          arquivo: note.filename,
-          destino: destination,
-          ncm: item.ncm,
-          descricao: item.descricao,
-          descricao_confiavel: item.descricaoConfiavel,
-          motivo: ST_TRIBUTARIA_EXCLUSION_REASON,
-          tipo_exclusao: 'mercadoria',
-          regras_aplicadas: [],
-          v_total: item.vTotal,
-          base_calculo: item.baseCalculo,
-          ipi_despesas: item.ipiDespesas,
-          a_ori: item.aOri,
-        });
+        excluded.push(buildExcludedItem(
+          note, item, destination, ST_TRIBUTARIA_EXCLUSION_REASON, 'mercadoria',
+          { base_calculo: item.baseCalculo },
+        ));
         diagnostic?.event('info', 'calculo', ST_TRIBUTARIA_EXCLUSION_REASON, {
           numeroNota: note.numeroNota,
           itemNumero: item.itemNumero,
@@ -621,53 +910,15 @@ export async function processFiscalLocally(
       }
 
       if (PARTIAL_DESTINATIONS.has(destination)) {
-        if (!item.descricaoConfiavel) {
-          warnings.push({
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: item.itemNumero,
-            arquivo: note.filename,
-            aviso: 'Descrição sintética/não confiável: regra de exclusão por mercadoria não avaliada.',
-          });
-        } else if (!normalizeDescription(item.descricao)) {
-          warnings.push({
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: item.itemNumero,
-            arquivo: note.filename,
-            aviso: 'Descrição do produto ausente: regra de exclusão por mercadoria não avaliada.',
-          });
-        } else if (!item.ncm || item.ncm === '00000000' || item.ncm.length < 8) {
-          warnings.push({
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: item.itemNumero,
-            arquivo: note.filename,
-            aviso: `NCM ausente ou genérico ("${item.ncm}"): regra de exclusão por mercadoria não avaliada.`,
-          });
-        }
+        pushPartialMetadataWarnings(note, item, warnings);
 
         const merchandise = evaluatePartialMerchandiseExclusion(context, destination, item);
         if (merchandise.excluded) {
-          const base = item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo;
-          excluded.push({
-            chave_acesso: note.chaveAcesso,
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: item.itemNumero,
-            arquivo: note.filename,
-            destino: destination,
-            ncm: item.ncm,
-            descricao: item.descricao,
-            descricao_confiavel: item.descricaoConfiavel,
-            motivo: merchandise.motivo || 'Mercadoria excluída',
-            tipo_exclusao: 'mercadoria',
-            regras_aplicadas: (merchandise.regras ?? []) as never[],
-            v_total: item.vTotal,
-            base_calculo: base,
-            ipi_despesas: item.ipiDespesas,
-            a_ori: item.aOri,
-          });
+          const base = itemBaseOrTotal(item);
+          excluded.push(buildExcludedItem(
+            note, item, destination, merchandise.motivo || 'Mercadoria excluída', 'mercadoria',
+            { regras_aplicadas: merchandise.regras ?? [], base_calculo: base },
+          ));
           // Controle: o item sai da apuração, mas consta na planilha separada de
           // imposto pago na entrada (Valor pago e Data de pagamento são manuais).
           if (merchandise.regras?.[0]?.motivo === 'imposto_pago_entrada') {
@@ -709,132 +960,36 @@ export async function processFiscalLocally(
         }
       }
 
-      const rate = resolveDestinationRate(context, item, destination);
-      // Nenhuma mudança de regra para DIFAL ou Tributária/ST.
-      const possivelAgricola = PARTIAL_DESTINATIONS.has(destination)
-        ? resolveAnexoIIApplication(
-          convenio5291AgricolaConfig, note, item, context.empresa.uf, request.convenio5291Decisions,
-        ) : null;
-      const escolherIndustrial = request.convenio5291Decisions?.[convenioDecisionKey(note, item)] === 'anexo_i';
-      const usarAgricola = Boolean(possivelAgricola)
-        && possivelAgricola?.classification.status !== 'fora_catalogo'
-        && !escolherIndustrial;
-      const convenio = usarAgricola
-        ? { ...possivelAgricola!, anexo: 'II' as const }
-        : CONVENIO_52_91_DESTINATIONS.has(destination)
-          ? { ...resolveConvenio5291Application(
-            PARTIAL_DESTINATIONS.has(destination) ? convenio5291Config : convenio5291SavedIndustrialConfig,
-            note, item, context.empresa.uf, industrialDecisions,
-          ), anexo: 'I' as const }
-          : null;
-      const tributariaReduction = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
-        ? resolveTributariaReduction(context, item)
-        : null;
-      const itemReducao: number | null = tributariaReduction ? tributariaReduction.aliquota : null;
-      const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
-      const originalAOri = item.aOri;
-      const effectiveRate = convenio?.applied
-        ? {
-          aliquota: effectiveADst,
-          origem: CONVENIO_52_91_RATE_ORIGIN,
-          detalhe: `Convênio ICMS 52/91 — ${convenio.classification.motivo}`,
-        }
-        : rate;
-      // Somente fornecedor Simples sem pICMS em operação interestadual.
-      // A taxa é referência de origem, e não um crédito destacado no XML.
-      // Não se aplica à planilha de DIFAL.
-      const isDifal = isDifalDestination(destination);
-      // No DIFAL, sem pICMS destacado, a alíquota de crédito autorizada nas
-      // Informações Complementares (fornecedor do Simples) vale como A.ORI.
-      const infComplRate = isDifal && !(originalAOri && originalAOri > 0)
-        ? (note.aliqCreditoIcmsInfCompl ?? 0)
-        : 0;
-      const aOriInfCompl = infComplRate > 0;
-      const documentAOri = aOriInfCompl ? infComplRate : originalAOri;
-      const aOriHighlighted = Boolean(documentAOri && documentAOri > 0);
-      if (aOriInfCompl) {
-        const ratePct = (infComplRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        warnings.push({
-          numero_nota: note.numeroNota,
-          serie: note.serie,
-          item_numero: item.itemNumero,
-          arquivo: note.filename,
-          aviso: `Item ${item.itemNumero}: A.ORI de ${ratePct}% obtida das Informações Complementares da NF-e (crédito de ICMS autorizado pelo fornecedor), sem pICMS destacado no item.`,
-        });
-      }
-      const reference = isDifal
-        ? { rate: 0, inferred: false }
-        : resolveSimpleOriginReference(
-          note, item, context.empresa.uf, Boolean(convenio?.applied),
-        );
-      const referenceRate = isDifal ? 0 : reference.rate;
-      const resolvedAOri = isDifal
-        ? (aOriHighlighted ? documentAOri : 0)
-        : (convenio?.applied ? Number(convenio.aOri) : referenceRate);
-      const originRate = resolveOriginRate(
-        context,
+      const resolved = resolveConvenioAndRatesForItem({
+        request,
+        note,
+        item,
         destination,
-        resolvedAOri,
-        effectiveADst,
-        effectiveRate.origem,
-      );
-      const aOri = isDifal ? (aOriHighlighted ? originRate.aOri : 0) : originRate.aOri;
-      const aOriInferredSimples = !isDifal && reference.inferred && !originRate.fixed;
-      if (aOriInferredSimples) {
-        const ratePct = (referenceRate * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
-        warnings.push({
-          numero_nota: note.numeroNota,
-          serie: note.serie,
-          item_numero: item.itemNumero,
-          arquivo: note.filename,
-          aviso: `Item ${item.itemNumero}: Alíquota interestadual de ${ratePct}% aplicada automaticamente (fornecedor optante pelo Simples Nacional sem pICMS: ${note.ufEmitente} -> ${context.empresa.uf}). Alíquota de referência, não crédito destacado.`,
-        });
-        diagnostic?.event('info', 'calculo', 'A.ORI de referência interestadual aplicada ao fornecedor Simples Nacional.', {
-          numeroNota: note.numeroNota,
-          itemNumero: item.itemNumero,
-          ufOrigem: note.ufEmitente,
-          ufDestino: context.empresa.uf,
-          origemMercadoria: item.origemMercadoria || 'não identificada',
-          pCredSN: item.pCredSN ?? null,
-          aliquotaReferencia: referenceRate,
-        });
-        if (!item.origemMercadoria) {
-          warnings.push({
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: item.itemNumero,
-            arquivo: note.filename,
-            aviso: 'Origem da mercadoria não identificada: aplicada referência geográfica (7% ou 12%). Verifique eventual enquadramento na alíquota de 4%.',
-          });
-        }
-      }
+        convenio5291SavedIndustrialConfig,
+        convenio5291Config,
+        convenio5291AgricolaConfig,
+        industrialDecisions,
+        warnings,
+        diagnostic,
+      });
+      const {
+        convenio, itemReducao, effectiveADst, effectiveRate,
+        originalAOri, originRate, aOri, aOriInferredSimples, aOriHighlighted, aOriInfCompl,
+      } = resolved;
 
       if (PARTIAL_DESTINATIONS.has(destination)) {
         const numeric = shouldExcludeEqualRates(context, destination, item, aOri, effectiveADst);
         if (numeric.excluded) {
-          const base = item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo;
-          excluded.push({
-            chave_acesso: note.chaveAcesso,
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: item.itemNumero,
-            arquivo: note.filename,
-            destino: destination,
-            ncm: item.ncm,
-            descricao: item.descricao,
-            descricao_confiavel: item.descricaoConfiavel,
-            motivo: 'Alíquotas iguais com valor devido zero ou negativo',
-            tipo_exclusao: 'aliquotas_iguais',
-            regras_aplicadas: [],
-            v_total: item.vTotal,
-            base_calculo: base,
-            ipi_despesas: item.ipiDespesas,
-            a_ori: aOri,
-            a_dst: effectiveADst,
-            debito: numeric.debito,
-            credito: numeric.credito,
-            valor_devido: numeric.valorDevido,
-          });
+          excluded.push(buildExcludedItem(
+            note, item, destination, 'Alíquotas iguais com valor devido zero ou negativo', 'aliquotas_iguais',
+            {
+              a_ori: aOri,
+              a_dst: effectiveADst,
+              debito: numeric.debito,
+              credito: numeric.credito,
+              valor_devido: numeric.valorDevido,
+            },
+          ));
           continue;
         }
       }
@@ -843,35 +998,17 @@ export async function processFiscalLocally(
       if (TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
         if (revendaAntecipacaoConfig) {
           itemMva = resolveRevendaMva(
-            revendaAntecipacaoConfig,
-            mvaPolicyGroup || 'demais',
-            aOri,
-            supplierIsSimples,
+            revendaAntecipacaoConfig, mvaPolicyGroup || 'demais', aOri, supplierIsSimples,
           );
         } else {
           // A faixa da MVA ajustada vem da A.ORI destacada no documento, antes de
           // inferência (Simples), alíquota fixa ou limite por redução.
           const mvaResolution = resolveMvaForItem(context, item.ncm, item.cest, originalAOri, mvaColumn);
           if (mvaResolution.status === 'pendente') {
-            excluded.push({
-              chave_acesso: note.chaveAcesso,
-              numero_nota: note.numeroNota,
-              serie: note.serie,
-              item_numero: item.itemNumero,
-              arquivo: note.filename,
-              destino: destination,
-              ncm: item.ncm,
-              descricao: item.descricao,
-              descricao_confiavel: item.descricaoConfiavel,
-              motivo: mvaResolution.motivo,
-              tipo_exclusao: 'mva_pendente',
-              regras_aplicadas: [],
-              v_total: item.vTotal,
-              base_calculo: item.baseCalculo <= 0 ? item.vTotal - item.ipiDespesas : item.baseCalculo,
-              ipi_despesas: item.ipiDespesas,
-              a_ori: originalAOri,
-              a_dst: effectiveADst,
-            });
+            excluded.push(buildExcludedItem(
+              note, item, destination, mvaResolution.motivo, 'mva_pendente',
+              { a_ori: originalAOri, a_dst: effectiveADst },
+            ));
             diagnostic?.event('warning', 'calculo', 'Item da Antecipação Tributária sem MVA determinável: ficou fora da planilha.', {
               numeroNota: note.numeroNota,
               itemNumero: item.itemNumero,
@@ -970,246 +1107,20 @@ export async function processFiscalLocally(
       });
     }
 
-    const splitByDestination = new Map<TipoPlanilha, number>();
-    for (const group of groups.values()) {
-      const splitIndex = splitByDestination.get(group.destination) ?? 1;
-      const useNoteTotal = groups.size === 1 && classifiedItems === note.itens.length && note.vTotalNota > 0;
-
-      let vTotal = useNoteTotal ? note.vTotalNota : group.items.reduce((sum, item) => sum + item.vTotal, 0);
-      const originalBaseXml = useNoteTotal && note.vBcNota > 0
-        ? note.vBcNota
-        : group.items.reduce((sum, item) => sum + Number(item.baseCalculoXml ?? item.baseCalculo), 0);
-      let ipi = group.items.reduce((sum, item) => sum + item.ipiDespesas, 0);
-      const maxBaseLiquida = Math.max(0, vTotal - ipi);
-      let base = group.convenio5291Applied
-        ? group.items.reduce((sum, item) => sum + Number(item.baseSemIpi ?? (item.vTotal - Number(item.vIpi ?? 0))), 0)
-        : (useNoteTotal && note.vBcNota > 0
-          ? ((note.vDescNota ?? 0) > 0 && note.vBcNota > maxBaseLiquida
-              ? Math.max(0, Math.min(note.vBcNota - (note.vDescNota ?? 0), maxBaseLiquida))
-              : note.vBcNota)
-          : group.items.reduce((sum, item) => sum + item.baseCalculo, 0));
-      const reducedBaseEvidence = group.items.some(
-        (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
-      );
-
-      if (base <= 0) base = vTotal - ipi;
-
-      if (vTotal <= 0) {
-        ignored.push(ignoredNote(note, `Valor total zerado ou sem valor comercial (R$ ${vTotal.toFixed(2)}).`));
-        continue;
-      }
-      if (base < 0 || group.aOri < 0 || group.aOri > 1 || group.aDst < 0 || group.aDst > 1) {
-        throw new Error(`NF-e ${note.numeroNota}: valores fiscais fora da faixa válida.`);
-      }
-
-      const first = group.items[0];
-      const ncm = first?.ncm ?? '';
-      const cfop = first?.cfop ?? '';
-      const description = group.items.length === 1
-        ? first?.descricao ?? ''
-        : `NF-e ${note.numeroNota} (${group.items.length} itens)`;
-      const mva = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? group.mva : 0;
-      const aliqSimples = isDifalDestination(group.destination) && supplierIsSimples ? 'S' : 'N';
-
-      let valorPago = 0;
-      if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)) {
-        const itemStSum = group.items.reduce((sum, item) => sum + Number(item.vIcmsSt ?? 0), 0);
-        if (itemStSum > 0) {
-          valorPago = roundCurrency(itemStSum);
-        } else if ((note.vStNota ?? 0) > 0) {
-          const allStGroupsTotal = Array.from(groups.values())
-            .filter((g) => TAX_SUBSTITUTION_DESTINATIONS.has(g.destination))
-            .reduce((sum, g) => sum + g.items.reduce((s, it) => s + it.vTotal, 0), 0);
-          const groupTotal = group.items.reduce((s, it) => s + it.vTotal, 0);
-          valorPago = allStGroupsTotal > 0
-            ? roundCurrency((note.vStNota! * groupTotal) / allStGroupsTotal)
-            : (useNoteTotal ? roundCurrency(note.vStNota!) : 0);
-        }
-      }
-
-      const calculation = calculateTax(group.destination, {
-        vTotal,
-        baseCalculo: base,
-        ipiDespesas: ipi,
-        aOri: group.aOri,
-        aDst: group.aDst,
-        mva,
-        reducao: group.reducao,
-        aliqSimples,
-        isSimples: Boolean(context.empresa.optante_simples_nacional),
-        valorPago,
-      });
-
-      // Em Antecipação Tributária, se o ICMS ST destacado na nota cobrir o imposto ou resultar em <= 0,
-      // remover da planilha final e registrar em itens excluídos.
-      if (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) && calculation.valorDevido <= 0) {
-        const diffDevido = roundCurrency(calculation.debito - calculation.credito);
-        const reason = valorPago > 0
-          ? `Antecipação Tributária: sem imposto a recolher pois o ICMS ST destacado na nota (R$ ${valorPago.toFixed(2)}) cobre integralmente o imposto apurado (R$ ${diffDevido.toFixed(2)}).`
-          : 'Antecipação Tributária: sem diferença positiva de imposto a recolher após confrontar débito com crédito.';
-        for (const fiscalItem of group.items) {
-          excluded.push({
-            chave_acesso: note.chaveAcesso,
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: fiscalItem.itemNumero,
-            arquivo: note.filename,
-            destino: group.destination,
-            ncm: fiscalItem.ncm,
-            descricao: fiscalItem.descricao,
-            descricao_confiavel: fiscalItem.descricaoConfiavel,
-            motivo: reason,
-            tipo_exclusao: 'mercadoria',
-            regras_aplicadas: [],
-            v_total: fiscalItem.vTotal,
-            base_calculo: fiscalItem.baseSemIpi ?? fiscalItem.baseCalculo,
-            ipi_despesas: fiscalItem.ipiDespesas,
-            a_ori: group.aOri,
-            a_dst: group.aDst,
-          });
-        }
-        diagnostic?.event('info', 'calculo', reason, {
-          numeroNota: note.numeroNota,
-          destino: group.destination,
-          itens: group.items.length,
-          debito: calculation.debito,
-          credito: calculation.credito,
-          valorPago,
-          valorDevido: calculation.valorDevido,
-        });
-        continue;
-      }
-
-      // Na Parcial agrícola não se gera planilha de imposto negativo ou zerado:
-      // quando a carga interestadual supera a interna pode não existir
-      // diferença a antecipar (RICMS/BA, art. 266). Registrar todos os itens.
-      if (group.convenio5291Anexo === 'II' && calculation.valorDevido <= 0) {
-        const reason = 'Convênio ICMS 52/91, Anexo II: sem diferença positiva de antecipação parcial após confrontar débito interno de 5,60% com crédito de origem.';
-        for (const fiscalItem of group.items) {
-          excluded.push({
-            chave_acesso: note.chaveAcesso,
-            numero_nota: note.numeroNota,
-            serie: note.serie,
-            item_numero: fiscalItem.itemNumero,
-            arquivo: note.filename,
-            destino: group.destination,
-            ncm: fiscalItem.ncm,
-            descricao: fiscalItem.descricao,
-            descricao_confiavel: fiscalItem.descricaoConfiavel,
-            motivo: reason,
-            tipo_exclusao: 'mercadoria',
-            regras_aplicadas: [],
-            v_total: fiscalItem.vTotal,
-            base_calculo: fiscalItem.baseSemIpi ?? fiscalItem.baseCalculo,
-            ipi_despesas: fiscalItem.ipiDespesas,
-            a_ori: group.aOri,
-            a_dst: group.aDst,
-          });
-        }
-        diagnostic?.event('info', 'calculo', reason, {
-          numeroNota: note.numeroNota,
-          anexo: 'II',
-          itens: group.items.length,
-          cargaOrigem: group.aOri,
-          cargaDestino: group.aDst,
-        });
-        continue;
-      }
-
-      const effectiveEntryDate = EARLY_DESTINATIONS.has(group.destination) ? null : entryDate;
-      const effectiveEntryOrigin = EARLY_DESTINATIONS.has(group.destination) ? null : entryOrigin;
-      const rateOrigins = [...new Set(group.rateResolutions.map((item) => item.origem))].sort();
-      const rateDetails = [...new Set(group.rateResolutions.map((item) => item.detalhe))].sort();
-      const cfopDetails = [...new Set(group.cfopResolutions.map((item) => item.motivo).filter(Boolean))].sort();
-
-      processed.push({
-        chave_acesso: note.chaveAcesso,
-        numero_nota: note.numeroNota,
-        serie: note.serie,
-        cnpj_emitente: note.cnpjEmitente,
-        uf_emitente: note.ufEmitente,
-        cnpj_destinatario: note.cnpjDestinatario,
-        uf_destinatario: context.empresa.uf,
-        data_emissao: note.dataEmissao,
-        data_entrada: effectiveEntryDate,
-        origem_data_entrada: effectiveEntryOrigin as never,
-        item_numero: splitIndex,
-        ncm,
-        cfop,
-        destino_planilha: group.destination,
-        v_total: vTotal,
-        base_calculo: base,
-        ipi_despesas: ipi,
-        a_ori: group.aOri,
-        a_dst_resolvida: group.aDst,
-        debito: calculation.debito,
-        credito: calculation.credito,
-        valor_devido: calculation.valorDevido,
-        metadados_extras: {
-          desdobramento: groups.size > 1,
-          subitem_index: splitIndex,
-          total_subitens_destino: group.items.length,
-          mva: String(mva),
-          reducao: group.reducao != null ? String(group.reducao) : null,
-          mva_grupo: group.mvaPolicyGroup || null,
-          mva_fonte: group.mvaPolicySource || null,
-          fornecedor_simples_nacional: supplierIsSimples,
-          aliq_simples: aliqSimples,
-          origem_a_dst: rateOrigins,
-          detalhe_a_dst: rateDetails.join('; '),
-          cfop_reclassificado: group.cfopResolutions.some((item) => item.reclassificado),
-          detalhe_cfop: cfopDetails.join('; '),
-          a_ori_limitada: group.aOriLimited,
-          a_ori_fixa_parcial: group.aOriFixed,
-          a_ori_limite_dispensado: group.aOriLimitWaived,
-          a_ori_original: String(group.aOriOriginal),
-          a_ori_inferida_simples: group.aOriInferredSimples,
-          a_ori_destacada: group.aOriHighlighted,
-          a_ori_inf_compl: group.aOriInfCompl,
-          p_cred_sn: group.pCredSN.length ? group.pCredSN : null,
-          convenio_52_91_aplicado: group.convenio5291Applied,
-          convenio_52_91_anexo: group.convenio5291Anexo || null,
-          convenio_52_91_decisao_manual: group.convenio5291Manual,
-          convenio_52_91_motivo: group.convenio5291Motivos.join('; ') || null,
-          convenio_52_91_origem_aliquota: group.convenio5291OrigemAliquota || null,
-          convenio_52_91_base_xml_original: originalBaseXml,
-          convenio_52_91_base_planilha: group.convenio5291Applied ? base : null,
-          convenio_52_91_cst_reducao_detectada: reducedBaseEvidence,
-          ...calculation.detalhes,
-        } as never,
-      });
-
-      const row: LocalOutputRow = {
-        numero_nota: splitIndex > 1 ? `${note.numeroNota}*` : note.numeroNota,
-        serie: note.serie,
-        chave_acesso: note.chaveAcesso,
-        cnpj_emitente: note.cnpjEmitente,
-        uf_emitente: note.ufEmitente,
-        cnpj_destinatario: note.cnpjDestinatario,
-        uf_destinatario: context.empresa.uf,
-        data_emissao: note.dataEmissao,
-        data_entrada: effectiveEntryDate,
-        item_numero: splitIndex,
-        descricao: description,
-        ncm,
-        cfop,
-        v_total: vTotal,
-        base_calculo: base,
-        ipi_despesas: ipi,
-        mva,
-        reducao: group.reducao,
-        red: '',
-        aliq_simples: aliqSimples,
-        a_ori: isDifalDestination(group.destination) && !group.aOriHighlighted ? null : group.aOri,
-        a_dst: group.aDst,
-        debito: calculation.debito,
-        credito: calculation.credito,
-        valor_devido: calculation.valorDevido,
-        valor_pago: valorPago,
-      };
-      (rowsByDestination[group.destination] ??= []).push(row);
-      splitByDestination.set(group.destination, splitIndex + 1);
-    }
+    consolidateNoteGroups({
+      note,
+      groups,
+      classifiedItems,
+      context,
+      entryDate,
+      entryOrigin,
+      supplierIsSimples,
+      processed,
+      rowsByDestination,
+      ignored,
+      excluded,
+      diagnostic,
+    });
   }
 
   if (rowsByDestination[CONTROLE_DESTINATION]?.length) {
@@ -1235,78 +1146,17 @@ export async function processFiscalLocally(
     }
   }
 
-  const artifacts: LocalGeneratedArtifact[] = [];
-  if (totalRows > 0 || controlRows > 0) {
-    const month = Number(periodoInicio.slice(5, 7));
-    const year = Number(periodoInicio.slice(0, 4));
-    const competencia = `${String(month).padStart(2, '0')}/${year}`;
-    const ie = context.empresa.inscricao_estadual || sources.spedCompanyInfo.ie || '';
-
-    for (const [destination, rows] of Object.entries(rowsByDestination) as Array<[TipoPlanilha, LocalOutputRow[]]>) {
-      if (!rows?.length) continue;
-      const template = selectTemplateForRows(
-        context.templates_ativos,
-        destination,
-        rows.length,
-        context.margens_seguranca_templates[destination] ?? 0,
-      );
-      if (!template) continue;
-      let bytes = templateBytes.get(template.id);
-      if (!bytes && loadTemplate) {
-        bytes = await loadTemplate(template);
-        templateBytes.set(template.id, bytes);
-      }
-      if (!bytes) {
-        throw new Error(
-          `O modelo oficial necessário para ${destination} não pôde ser carregado (template ${template.id}, v${template.versao}).`,
-        );
-      }
-
-      const output = await fillTemplateLocally(bytes, template, rows, {
-        razaoSocial: context.empresa.razao_social,
-        ie,
-        competencia,
-        month,
-        year,
-      });
-      const filename = buildSpreadsheetFilename({
-        razaoSocial: context.empresa.razao_social,
-        tipo: destination,
-        month,
-        year,
-        observacoes: template.observacoes,
-      });
-      artifacts.push({
-        tipo: destination,
-        templateId: template.id,
-        filename,
-        bytes: output,
-        totalNotas: rows.length,
-        totalValorDevido: rows.reduce((sum, row) => sum + row.valor_devido, 0),
-      });
-      diagnostic?.event('info', 'geracao_planilha', 'Planilha montada e validada em memória.', {
-        tipo: destination,
-        linhas: rows.length,
-        tamanhoBytes: output.byteLength,
-        templateId: template.id,
-        capacidadeLinhas: template.capacidade_linhas ?? null,
-        margemSegurancaLinhas: context.margens_seguranca_templates[destination] ?? 0,
-      });
-    }
-
-    const destinationsWithoutTemplate = Object.entries(rowsByDestination)
-      .filter(([destination, rows]) => (
-        rows?.length
-        && destination !== CONTROLE_DESTINATION // auxiliar: sem template, apenas não é gerado
-        && !context.templates_ativos.some((item) => item.tipo === destination)
-      ))
-      .map(([destination]) => destination);
-    if (artifacts.length === 0 && destinationsWithoutTemplate.length > 0) {
-      throw new Error(
-        `Nenhuma planilha pôde ser gerada porque não há template ativo para: ${destinationsWithoutTemplate.join(', ')}.`,
-      );
-    }
-  }
+  const artifacts = totalRows > 0 || controlRows > 0
+    ? await generateOutputArtifacts({
+      context,
+      periodoInicio,
+      spedIe: sources.spedCompanyInfo.ie,
+      rowsByDestination,
+      templateBytes,
+      loadTemplate,
+      diagnostic,
+    })
+    : [];
 
   diagnostic?.event('info', 'transformacao', 'Regras fiscais e cálculos concluídos.', {
     registrosProcessados: processed.length,

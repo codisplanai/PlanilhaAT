@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
+from app.constants import ANTECIPACAO_PARCIAL
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.perfil_regras import PerfilRegras
@@ -25,7 +26,7 @@ def _conflita(
     perfil_id: int,
     ncm: str,
     termos: List[str],
-    escopo: str = "antecipacao_parcial",
+    escopo: str = ANTECIPACAO_PARCIAL,
     ignorar_id: Optional[int] = None,
 ) -> bool:
     """Duplicata literal: mesmo perfil, mesmo escopo, mesmo NCM e mesmo conjunto de termos.
@@ -46,9 +47,7 @@ def _conflita(
 
 @router.post("", response_model=RegraReducaoOut, status_code=status.HTTP_201_CREATED)
 def criar_regra_reducao(payload: RegraReducaoCreate, db: Session = Depends(get_db)):
-    perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-    if not perfil:
-        raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
+    get_by_id_or_404(db, PerfilRegras, payload.perfil_regras_id, "Perfil de regras não encontrado.")
 
     if _conflita(db, payload.perfil_regras_id, payload.ncm, payload.termos_inclusao, payload.escopo):
         raise HTTPException(
@@ -117,7 +116,7 @@ def atualizar_regra_reducao(id: int, payload: RegraReducaoUpdate, db: Session = 
         regra.perfil_regras_id,
         regra.ncm,
         regra.termos_inclusao,
-        regra.escopo or "antecipacao_parcial",
+        regra.escopo or ANTECIPACAO_PARCIAL,
         ignorar_id=id,
     ):
         raise HTTPException(

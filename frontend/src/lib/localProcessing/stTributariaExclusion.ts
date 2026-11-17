@@ -1,4 +1,5 @@
 import type { ExtractedNote } from './domain.ts';
+import { normalizeDescription } from './domain.ts';
 
 // Somente estas cinco empresas dispensam a Antecipação Tributária quando a
 // própria NF-e já apresenta ICMS ST destacado. Demais empresas: regra geral.
@@ -10,19 +11,11 @@ const COMPANIES = [
   'BAIA FERRO FSA',
 ];
 
-function normalizeCompanyName(name: string): string {
-  return name.normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, ' ')
-    .trim();
-}
-
 export function shouldExcludeStFromTributaria(
   companyName: string,
   note: Pick<ExtractedNote, 'vStNota' | 'itens'>,
 ): boolean {
-  const normalized = normalizeCompanyName(companyName);
+  const normalized = normalizeDescription(companyName);
   const affected = COMPANIES.some((company) => normalized === company || normalized.startsWith(`${company} `));
   if (!affected) return false;
   return Number(note.vStNota ?? 0) > 0

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.profile import Profile
-from app.constants import ROLE_ADMIN, ROLE_OPERADOR
+from app.constants import CARGO_POR_ROLE, ROLE_ADMIN, ROLE_OPERADOR
 
 logger = logging.getLogger(__name__)
 
@@ -25,28 +25,28 @@ LOCAL_USERS_FALLBACK = {
         "id": "184e793c-50b7-4b57-ace1-c02b19649408",
         "nome": "Contador Responsável",
         "email": "admin@contabilidade.com",
-        "cargo": "Contador Sênior",
+        "cargo": CARGO_POR_ROLE[ROLE_ADMIN],
         "role": ROLE_ADMIN,
     },
     "admin@codisplan.com": {
         "id": "d7a327b5-7959-47ac-afc8-1850430f0b12",
         "nome": "Contador Responsável",
         "email": "admin@codisplan.com",
-        "cargo": "Contador Sênior",
+        "cargo": CARGO_POR_ROLE[ROLE_ADMIN],
         "role": ROLE_ADMIN,
     },
     "admin@admin.com": {
         "id": "e2a336a9-579e-472f-845b-cf3e91284c0b",
         "nome": "Administrador",
         "email": "admin@admin.com",
-        "cargo": "Contador Sênior",
+        "cargo": CARGO_POR_ROLE[ROLE_ADMIN],
         "role": ROLE_ADMIN,
     },
     "operador@contabilidade.com": {
         "id": "53ce2b64-1c96-4be8-b232-cf6e4171ee23",
         "nome": "Operador Fiscal",
         "email": "operador@contabilidade.com",
-        "cargo": "Analista Fiscal",
+        "cargo": CARGO_POR_ROLE[ROLE_OPERADOR],
         "role": ROLE_OPERADOR,
     },
 }
@@ -103,9 +103,9 @@ def verify_supabase_token(token: str) -> Optional[Dict[str, Any]]:
 def known_account_profile(email: Optional[str]) -> Optional[Dict[str, Any]]:
     """Cadastro institucional de nome/cargo/role indexado por e-mail.
 
-    O sistema não expõe gestão de usuários, portanto este mapa é a única origem
-    de cargo e papel das contas institucionais — qualquer que seja o provedor
-    que validou a credencial (Supabase Auth ou fallback local).
+    Define cargo e papel das contas institucionais padrão reconciliadas no login,
+    independentemente do provedor que validou a credencial (Supabase Auth ou
+    fallback local).
     """
     if not email:
         return None
@@ -231,3 +231,9 @@ def require_admin(
             detail="Acesso restrito. Esta funcionalidade é exclusiva para o Contador Sênior / Administrador.",
         )
     return current_user
+
+
+def authorize_solicitacao_access(solicitacao: Any, current_user: Profile) -> None:
+    """Garante que operadores acessem apenas as próprias solicitações."""
+    if not is_admin_or_senior(current_user) and str(getattr(solicitacao, "usuario_id", "") or "") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")

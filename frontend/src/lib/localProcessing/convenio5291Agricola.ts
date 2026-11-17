@@ -8,8 +8,9 @@
 import type { Convenio5291Config } from '../../types/perfil';
 import type { ExtractedItem, ExtractedNote } from './domain';
 import type { Convenio5291Decision } from '../../types/solicitacao';
+import { SUL_SUDESTE_EXCETO_ES } from './domain.ts';
 import {
-  convenioDecisionKey, fullIcmsCode, normalizeConvenioDescription,
+  convenioDecisionKey, fullIcmsCode, matchesConvenioAdjustment, normalizeConvenioDescription,
   type Convenio5291Applied, type Convenio5291Classification,
 } from './convenio5291.ts';
 
@@ -163,13 +164,9 @@ export function classifyAnexoII(
     ...base, ...identify, status: 'nao_aplicar',
     motivo: 'Convênio sem prorrogação conhecida após 31/12/2026; não aplicar sem atualização legal.', sugestaoAplicar: false,
   };
-  const ajuste = (config.ajustes ?? []).find((rule) => {
-    if (rule.ncm.replace(/\D/g, '') !== ncm) return false;
-    if (rule.vigencia_inicio && date < rule.vigencia_inicio) return false;
-    if (rule.vigencia_fim && date > rule.vigencia_fim) return false;
-    const terms = rule.termos_descricao ?? [];
-    return !terms.length || matches(d, terms);
-  });
+  const ajuste = (config.ajustes ?? []).find((rule) =>
+    matchesConvenioAdjustment(rule, ncm, d, date),
+  );
   if (ajuste?.acao === 'nao_aplicar') return {
     ...base, ...identify, status: 'nao_aplicar',
     motivo: ajuste.motivo || 'Exclusão deste produto pelo Perfil de Regras.',
@@ -226,8 +223,7 @@ export function resolveAnexoIIApplication(
     || (classification.status === 'revisar' && decisions?.[decisionKey] === true);
   if (!applied) return { applied: false, classification, decisionKey };
   const four = classification.operacaoQuatroPorCento;
-  const selectedOrigin = new Set(['SP', 'RJ', 'MG', 'PR', 'SC', 'RS'])
-    .has(note.ufEmitente.toUpperCase());
+  const selectedOrigin = SUL_SUDESTE_EXCETO_ES.has(note.ufEmitente.toUpperCase());
   const aOri = four ? product.aOri : selectedOrigin ? 0.041 : 0.07;
   return {
     applied: true, classification, decisionKey, aOri, aDst: 0.056,

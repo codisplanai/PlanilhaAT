@@ -1,4 +1,5 @@
 import type { EntrySheetRecord } from './domain';
+import { decodeUtf8OrWindows1252 } from './domain.ts';
 import type { LocalOutputRow, LocalTemplateDescriptor } from '../../types/localProcessing';
 import { readZip, writeZip } from './zip.ts';
 
@@ -220,14 +221,6 @@ function findHeader(
   throw new Error('A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração.');
 }
 
-function decodeTextBuffer(bytes: Uint8Array): string {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch {
-    return new TextDecoder('windows-1252').decode(bytes);
-  }
-}
-
 function parseDelimitedEntrySheet(text: string): EntrySheetRecord[] {
   const lines = text.split(/\r?\n/);
   let delimiter = '\t';
@@ -299,7 +292,7 @@ export async function parseEntrySheet(buffer: ArrayBuffer): Promise<EntrySheetRe
   }
 
   if (!isZip) {
-    const text = decodeTextBuffer(bytes);
+    const text = decodeUtf8OrWindows1252(bytes);
     return parseDelimitedEntrySheet(text);
   }
 

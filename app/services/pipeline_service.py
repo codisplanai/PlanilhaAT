@@ -50,11 +50,14 @@ from app.constants import (
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     ATIVIDADE_INDUSTRIA,
     CONTROLE_IMPOSTO_PAGO_ENTRADA,
+    DESTINOS_ANTECIPADOS,
+    DESTINOS_DIFAL,
+    DESTINOS_TRIBUTARIA,
     DIFAL,
     DIFAL_ANTECIPADO,
     MOTIVO_DIFAL_AGUARDANDO_ENTRADA,
     MOTIVO_EXCLUSAO_INDUSTRIA,
-    TIPO_EXCLUSAO_INDUSTRIA,
+    NCM_SENTINELA,
     TIPO_EXCLUSAO_MVA_PENDENTE,
     TIPOS_PLANILHA_LEGADO,
 )
@@ -66,13 +69,18 @@ from app.services.pipeline_helpers import (
     consolidar_linhas_controle,
     crossing_keys,
     enrich_sped_with_xml,
+    excluir_item_industria_serialized,
     ignored_note,
     is_cfop_uso_consumo_ativo,
+    is_emissao_propria,
     is_imposto_pago_entrada,
     nfe_sort_key,
     no_output_message,
+    resolve_inscricao_estadual,
     serialize_excluded_item,
 )
+
+GrupoKey = Tuple[str, Decimal, Decimal, Decimal, Optional[Decimal]]
 
 
 class ProcessingPipelineService:
@@ -213,169 +221,55 @@ class ProcessingPipelineService:
             )
             is_industria = empresa.atividade == ATIVIDADE_INDUSTRIA
 
-            def excluir_item_industria(nf, item, filename, destino, motivo):
-                itens_excluidos.append(
-                    serialize_excluded_item(
-                        nf,
-                        item,
-                        filename,
-                        destino,
-                        DecisaoExclusaoItem(
-                            excluido=True,
-                            tipo_exclusao=TIPO_EXCLUSAO_INDUSTRIA,
-                            motivo=motivo,
-                            v_total=item.v_total,
-                            base_calculo=item.base_calculo,
-                            ipi_despesas=item.ipi_despesas,
-                            a_ori=item.a_ori,
-                        ),
-                    )
-                )
-
             for filename, nf_data in raw_nfs:
-                # 1. Regra Geral: Emissão própria desconsiderada
-                # Sempre que for identificado que o emitente da NF-e é a própria empresa processada (ex: emissão própria no SPED),
-                # desconsiderar a nota completamente.
-                clean_emitente = re.sub(r"\D", "", nf_data.cnpj_emitente or "")
-                clean_empresa = re.sub(r"\D", "", empresa.cnpj or "")
-                is_emissao_propria = (
-                    (clean_emitente and clean_empresa and clean_emitente == clean_empresa)
-                    or (nf_data.raw_metadata or {}).get("ind_emit") == "0"
+                eligibilidade = self._validar_elegibilidade_nota(
+                    nf_data=nf_data,
+                    filename=filename,
+                    empresa=empresa,
+                    solicitacao=solicitacao,
+                    notas_ignoradas=notas_ignoradas,
                 )
-                if is_emissao_propria:
-                    notas_ignoradas.append(
-                        ignored_note(
-                            nf_data,
-                            filename,
-                            "Nota fiscal de emissão própria desconsiderada: emitente é a própria empresa.",
-                        )
-                    )
+                if eligibilidade is None:
                     continue
+                retroativa, motivo_fora_periodo = eligibilidade
 
-                # 2. Camada 3: Validação de destinatário
-                SanityChecker.validate_nf_destinatario(nf_data, empresa.cnpj)
+                (
+                    data_entrada_resolvida,
+                    origem_data,
+                    pago_antecipadamente,
+                    cfop_auxiliar,
+                ) = self._resolver_contexto_entrada_nota(
+                    nf_data=nf_data,
+                    planilha_records=planilha_records,
+                    has_sped=has_sped,
+                    modo_legado=modo_legado,
+                )
 
-                # 3. Regra Fundamental: Operação Interestadual (UF Fornecedor != UF Empresa Cliente)
-                # Para apuração de antecipação parcial, antecipação tributária ou DIFAL, apenas notas
-                # de fornecedores/terceiros de UF diferente da empresa cliente selecionada devem ser consideradas.
                 uf_fornecedor = (nf_data.uf_emitente or "").strip().upper()
                 uf_empresa_dest = (empresa.uf or "").strip().upper()
-
-                if uf_fornecedor and uf_empresa_dest and uf_fornecedor == uf_empresa_dest:
-                    notas_ignoradas.append(
-                        ignored_note(
-                            nf_data,
-                            filename,
-                            f"Operação interna estadual desconsiderada: UF do "
-                            f"fornecedor/emitente ({uf_fornecedor}) é igual à UF da "
-                            f"empresa ({uf_empresa_dest}). Antecipação e DIFAL aplicam-se "
-                            f"exclusivamente a aquisições interestaduais.",
-                        )
-                    )
-                    continue
-
-                # 4. Camada 7: Checagem de período
-                # Se a nota estiver fora do período definido, ela é ignorada e registrada no relatório
-                # Exceção: no Regime Normal, nota de uso/consumo/ativo emitida antes do período
-                # e escriturada no SPED do período entra na DIFAL (só os itens de DIFAL).
-                dentro_do_periodo = SanityChecker.is_within_period(
-                    nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
+                is_operacao_interestadual = bool(
+                    uf_fornecedor and uf_empresa_dest and uf_fornecedor != uf_empresa_dest
                 )
-                retroativa = (not dentro_do_periodo) and aceita_difal_retroativa(
-                    nf_data, empresa.optante_simples_nacional, solicitacao.periodo_inicio
-                )
-                motivo_fora_periodo = (
-                    f"Data de emissão ({nf_data.data_emissao.strftime('%d/%m/%Y')}) fora do período informado "
-                    f"({solicitacao.periodo_inicio.strftime('%d/%m/%Y')} a "
-                    f"{solicitacao.periodo_fim.strftime('%d/%m/%Y')})."
-                )
-                if not dentro_do_periodo and not retroativa:
-                    dt_str = nf_data.data_emissao.strftime('%d/%m/%Y')
-                    p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
-                    p_fim_str = solicitacao.periodo_fim.strftime('%d/%m/%Y')
-                    notas_ignoradas.append(
-                        ignored_note(
-                            nf_data,
-                            filename,
-                            f"Data de emissão ({dt_str}) fora do período informado "
-                            f"({p_ini_str} a {p_fim_str}).",
-                        )
-                    )
-                    continue
-
-                # 5. Enriquecimento: Correspondência de Data de Entrada
-                data_entrada_resolvida = None
-                origem_data = None
-
-                if planilha_records:
-                    data_entrada_resolvida, origem_data = DataEntradaMatcher.match_data_entrada(
-                        nf_chave=nf_data.chave_acesso,
-                        nf_cnpj_emitente=nf_data.cnpj_emitente,
-                        nf_serie=nf_data.serie,
-                        nf_numero=nf_data.numero_nota,
-                        planilha_records=planilha_records
-                    )
-
-                # Se não foi fornecida/encontrada na planilha auxiliar, mas veio nativa no SPED:
-                # Regra estrita: Apenas o SPED Fiscal (ou planilha auxiliar) fornece data de entrada real.
-                if data_entrada_resolvida is None and nf_data.data_entrada is not None and nf_data.origem_extracao == "sped":
-                    data_entrada_resolvida = nf_data.data_entrada
-                    origem_data = "sped_fiscal"
-
-                # 5.1. Comprovação de Entrada e Antecipação Parcial Paga Antecipadamente:
-                # O SPED Fiscal e a Planilha Auxiliar de Entradas são as fontes válidas de comprovação de entrada.
-                # Se ao menos uma dessas fontes foi enviada, uma nota é considerada com entrada comprovada se:
-                #   - Constar no SPED Fiscal (nf_data.origem_extracao == "sped"); OU
-                #   - Constar na Planilha Auxiliar (data_entrada_resolvida is not None).
-                # Caso uma fonte tenha sido enviada mas a nota não tenha entrada comprovada em nenhuma delas,
-                # entende-se que a mercadoria ainda não deu entrada física. A antecipação parcial é paga
-                # adiantada e apurada na planilha 'Parcial Pago Antecipadamente'.
-                # Se NENHUMA fonte de entradas foi enviada (apenas XMLs puros), nada é considerado antecipado.
-                tem_fonte_entradas = has_sped or bool(planilha_records)
-                teve_entrada_comprovada = (nf_data.origem_extracao == "sped") or (data_entrada_resolvida is not None)
-                pago_antecipadamente = (
-                    tem_fonte_entradas
-                    and not modo_legado
-                    and not teve_entrada_comprovada
-                )
-
-                # 6. Roteamento por CFOP: cada item é classificado em qual planilha (destino) se aplica.
-                # Na falta do SPED, verifica se a Planilha Auxiliar definiu CFOP 2556, 2407 ou 2551 para esta nota
-                cfop_auxiliar = None
-                if planilha_records and (not has_sped or nf_data.origem_extracao != "sped"):
-                    cfop_auxiliar = DataEntradaMatcher.match_cfop(
-                        nf_chave=nf_data.chave_acesso,
-                        nf_cnpj_emitente=nf_data.cnpj_emitente,
-                        nf_serie=nf_data.serie,
-                        nf_numero=nf_data.numero_nota,
-                        planilha_records=planilha_records,
-                    )
-
-                is_operacao_interestadual = bool(uf_fornecedor and uf_empresa_dest and uf_fornecedor != uf_empresa_dest)
                 crt_fornecedor = (nf_data.raw_metadata.get("crt") or "").strip()
-                is_fornecedor_simples = (
-                    crt_fornecedor in ("1", "2", "4")
-                    or bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
+                evidencia_csosn = (
+                    bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
                     or any(bool(it.csosn) for it in nf_data.itens)
                 )
+                is_fornecedor_simples = crt_fornecedor in ("1", "2", "4") or evidencia_csosn
                 # Coluna da MVA do Anexo 1 (fluxo geral da Tributária). Decidida pelo CRT,
                 # e não por is_fornecedor_simples: o CRT 2 conta como Simples para a A.ORI
                 # e o DIFAL, mas usa a MVA ajustada. Sem CRT (nota só do SPED), a
                 # evidência é o CSOSN, exclusivo de CRT 1 e 4.
                 coluna_mva_nota = MvaResolver.coluna_por_regime(
                     crt_fornecedor,
-                    evidencia_csosn=(
-                        bool(nf_data.raw_metadata.get("fornecedor_simples_nacional"))
-                        or any(bool(it.csosn) for it in nf_data.itens)
-                    ),
+                    evidencia_csosn=evidencia_csosn,
                 )
 
-                grupos: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[Any]] = {}
-                resolucoes: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[ResolucaoAliquota]] = {}
-                resolucoes_cfop: Dict[Tuple[str, Decimal, Decimal, str, str, str], List[ResolucaoCfop]] = {}
-                info_a_ori: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
-                info_mva_policy: Dict[Tuple[str, Decimal, Decimal, str, str, str], Dict[str, Any]] = {}
-                itens_bonificacao_desconsiderados: List[Any] = []
+                grupos: Dict[GrupoKey, List[Any]] = {}
+                resolucoes: Dict[GrupoKey, List[ResolucaoAliquota]] = {}
+                resolucoes_cfop: Dict[GrupoKey, List[ResolucaoCfop]] = {}
+                info_a_ori: Dict[GrupoKey, Dict[str, Any]] = {}
+                info_mva_policy: Dict[GrupoKey, Dict[str, Any]] = {}
                 itens_retroativos_pulados: List[int] = []
                 itens_aguardando_entrada: List[int] = []
                 exclude_st_tributaria_note = should_exclude_st_from_tributaria(
@@ -397,11 +291,9 @@ class ProcessingPipelineService:
                     )
                     destino_item = resolucao_cfop.destino
 
-                    # Avaliação de CFOP 2556, 2407 e 2551 (uso/consumo e ativo imobilizado)
                     if is_cfop_uso_consumo_ativo(item.cfop):
                         destino_item = DIFAL
 
-                    # Avaliação de Remessa em Bonificação (6910/2910), Amostra Grátis (6911/2911) e Outras Saídas (6949/2949)
                     sufixo_item = re.sub(r"\D", "", item.cfop or "")[-3:]
                     if sufixo_item in CFOP_SUFFIXES_REQUIRING_DESTINATION and decisoes_bonificacao is not None:
                         is_revenda = None
@@ -411,13 +303,15 @@ class ProcessingPipelineService:
                             is_revenda = decisoes_bonificacao[str(nf_data.numero_nota)]
 
                         if is_revenda is True and is_industria:
-                            excluir_item_industria(
-                                nf_data,
-                                item,
-                                filename,
-                                ANTECIPACAO_PARCIAL,
-                                f"Bonificação/amostra/outras entradas (CFOP {item.cfop}) não confirmada "
-                                "como uso/consumo pelo usuário (empresa industrial).",
+                            itens_excluidos.append(
+                                excluir_item_industria_serialized(
+                                    nf_data,
+                                    item,
+                                    filename,
+                                    ANTECIPACAO_PARCIAL,
+                                    f"Bonificação/amostra/outras entradas (CFOP {item.cfop}) não confirmada "
+                                    "como uso/consumo pelo usuário (empresa industrial).",
+                                )
                             )
                             continue
 
@@ -432,18 +326,14 @@ class ProcessingPipelineService:
                         if retroativa:
                             itens_retroativos_pulados.append(item.item_numero)
                             continue
-                        if sufixo_item not in CFOP_SUFFIXES_REQUIRING_DESTINATION or (decisoes_bonificacao is None):
-                            sufixo = re.sub(r"\D", "", item.cfop or "")
-                            sufixo = sufixo[-3:] if len(sufixo) >= 3 else (sufixo or "????")
+                        if sufixo_item not in CFOP_SUFFIXES_REQUIRING_DESTINATION or decisoes_bonificacao is None:
+                            sufixo = sufixo_item if len(sufixo_item) >= 3 else (sufixo_item or "????")
                             cfops_sem_regra[sufixo] += 1
                         continue
 
                     if resolucao_cfop.reclassificado:
                         item.cfop = resolucao_cfop.cfop_efetivo
 
-                    # Política especial, habilitada exclusivamente pelo perfil da empresa:
-                    # tudo que o fluxo normal classificou como revenda/Parcial passa para
-                    # Antecipação Tributária. DIFAL/uso-consumo e demais destinos permanecem intactos.
                     if revenda_tributaria_config and destino_item == ANTECIPACAO_PARCIAL:
                         destino_item = ANTECIPACAO_TRIBUTARIA
 
@@ -465,22 +355,12 @@ class ProcessingPipelineService:
                                 "aviso": classificacao_mva.aviso,
                             })
 
-                    if destino_item == ANTECIPACAO_PARCIAL and pago_antecipadamente:
-                        destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO
-                    elif destino_item == ANTECIPACAO_TRIBUTARIA and pago_antecipadamente:
-                        destino_item = ANTECIPACAO_TRIBUTARIA_ANTECIPADO
-                    elif (
-                        destino_item == DIFAL
-                        and pago_antecipadamente
-                        and empresa.optante_simples_nacional
-                    ):
-                        # Simples Nacional: DIFAL da mercadoria ainda sem entrada é paga
-                        # antecipadamente, em planilha própria (mesmo modelo RP-158).
-                        destino_item = DIFAL_ANTECIPADO
+                    destino_item = self._rotear_destino_pagamento_e_regime(
+                        destino_item=destino_item,
+                        pago_antecipadamente=pago_antecipadamente,
+                        optante_simples=empresa.optante_simples_nacional,
+                    )
 
-                    # Regime Normal: a DIFAL é apurada no mês da entrada. Bonificação de
-                    # uso/consumo ainda sem entrada fica para a apuração retroativa, senão
-                    # seria paga agora e de novo quando aparecer no SPED.
                     if destino_item == DIFAL and pago_antecipadamente and bonificacao_uso_consumo:
                         itens_aguardando_entrada.append(item.item_numero)
                         continue
@@ -491,26 +371,19 @@ class ProcessingPipelineService:
                         elif destino_item == ANTECIPACAO_PARCIAL_ANTECIPADO:
                             destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES
 
-                    # Indústria: só DIFAL (uso/consumo e ativo). Parcial e Tributária vão
-                    # para os itens excluídos, inclusive as redirecionadas pela política do perfil.
-                    if is_industria and destino_item not in (DIFAL, DIFAL_ANTECIPADO) and not retroativa:
-                        excluir_item_industria(
-                            nf_data, item, filename, destino_item, MOTIVO_EXCLUSAO_INDUSTRIA
+                    if is_industria and destino_item not in DESTINOS_DIFAL and not retroativa:
+                        itens_excluidos.append(
+                            excluir_item_industria_serialized(
+                                nf_data, item, filename, destino_item, MOTIVO_EXCLUSAO_INDUSTRIA
+                            )
                         )
                         continue
 
-                    # Nota retroativa (Regime Normal): só a DIFAL é apurada na entrada.
                     if retroativa and destino_item != DIFAL:
                         itens_retroativos_pulados.append(item.item_numero)
                         continue
 
-                    # Para as três empresas selecionadas, ST positiva no XML
-                    # elimina a NF-e inteira APENAS dos destinos Tributária.
-                    # DIFAL e Parcial continuam independentes.
-                    if exclude_st_tributaria_note and destino_item in (
-                        ANTECIPACAO_TRIBUTARIA,
-                        ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
-                    ):
+                    if exclude_st_tributaria_note and destino_item in DESTINOS_TRIBUTARIA:
                         itens_excluidos.append(
                             serialize_excluded_item(
                                 nf_data,
@@ -530,213 +403,48 @@ class ProcessingPipelineService:
                         )
                         continue
 
-                    if modo_legado:
-                        if destino_item != solicitacao.tipo_planilha:
-                            if solicitacao.tipo_planilha == ANTECIPACAO_PARCIAL and destino_item == ANTECIPACAO_PARCIAL_SIMPLES:
-                                pass
-                            elif solicitacao.tipo_planilha == ANTECIPACAO_PARCIAL_ANTECIPADO and destino_item == ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES:
-                                pass
-                            else:
-                                continue
-
-                    if destino_item in DESTINOS_PARCIAL:
-                        if not item.descricao_confiavel:
-                            avisos_avaliacao.append({
-                                "numero_nota": nf_data.numero_nota,
-                                "serie": nf_data.serie,
-                                "item_numero": item.item_numero,
-                                "arquivo": filename,
-                                "aviso": "Descrição sintética/não confiável (SPED sem C170): regra de exclusão por mercadoria não avaliada.",
-                            })
-                        elif not item.descricao or not normalizar(item.descricao).strip():
-                            avisos_avaliacao.append({
-                                "numero_nota": nf_data.numero_nota,
-                                "serie": nf_data.serie,
-                                "item_numero": item.item_numero,
-                                "arquivo": filename,
-                                "aviso": "Descrição do produto ausente ou vazia: regra de exclusão por mercadoria não avaliada.",
-                            })
-                        elif not item.ncm or item.ncm.strip() == "00000000" or len(item.ncm.strip()) < 8:
-                            avisos_avaliacao.append({
-                                "numero_nota": nf_data.numero_nota,
-                                "serie": nf_data.serie,
-                                "item_numero": item.item_numero,
-                                "arquivo": filename,
-                                "aviso": f"NCM ausente ou genérico ('{item.ncm}'): regra de exclusão por mercadoria não avaliada.",
-                            })
-
-                        # Avaliação de exclusão por mercadoria ANTES da resolução de A.DST
-                        decisao_mercadoria = self.parcial_exclusion.avaliar_mercadoria(
-                            perfil_regras_id=empresa.perfil_regras_id,
-                            uf_empresa=empresa.uf,
-                            destino=destino_item,
-                            ncm=item.ncm,
-                            descricao=item.descricao if item.descricao_confiavel else "",
-                            descricao_confiavel=item.descricao_confiavel,
-                            v_total=item.v_total,
-                            base_calculo=item.base_calculo,
-                            ipi_despesas=item.ipi_despesas,
-                            a_ori=item.a_ori,
-                        )
-                        if decisao_mercadoria.excluido:
-                            itens_excluidos.append(
-                                serialize_excluded_item(
-                                    nf_data,
-                                    item,
-                                    filename,
-                                    destino_item,
-                                    decisao_mercadoria,
-                                )
-                            )
-                            if is_imposto_pago_entrada(decisao_mercadoria):
-                                # Controle: o item sai da apuração, mas consta na
-                                # planilha separada de imposto pago na entrada.
-                                try:
-                                    a_dst_controle = self.resolver.resolve_a_dst(
-                                        perfil_regras_id=empresa.perfil_regras_id,
-                                        uf=empresa.uf,
-                                        ncm=item.ncm,
-                                        descricao=item.descricao if item.descricao_confiavel else None,
-                                        empresa_id=empresa.id,
-                                    ).aliquota
-                                except RuleResolutionException:
-                                    a_dst_controle = None  # sem regra: A.DST em branco, sem bloquear
-                                rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA].append(
-                                    build_controle_row(
-                                        nf_data,
-                                        item,
-                                        decisao_mercadoria,
-                                        a_dst_controle,
-                                        None
-                                        if destino_item in (
-                                            ANTECIPACAO_PARCIAL_ANTECIPADO,
-                                            ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
-                                        )
-                                        else data_entrada_resolvida,
-                                    )
-                                )
-                            continue
-
-                    # Camada 5: Resolução determinística de A.DST em três níveis
-                    is_tributaria = destino_item in (
-                        ANTECIPACAO_TRIBUTARIA,
-                        ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
-                    )
-                    try:
-                        resolucao = self.resolver.resolve_a_dst(
-                            perfil_regras_id=empresa.perfil_regras_id,
-                            uf=empresa.uf,
-                            ncm=item.ncm,
-                            descricao=item.descricao if item.descricao_confiavel else None,
-                            empresa_id=empresa.id,
-                            apenas_padrao_uf=(destino_item in (DIFAL, DIFAL_ANTECIPADO)),
-                            ignorar_termo_acordo=is_tributaria,
-                            ignorar_reducao_produto=is_tributaria,
-                        )
-                        resolucao_red_trib = (
-                            self.resolver.resolve_reducao_tributaria(
-                                perfil_regras_id=empresa.perfil_regras_id,
-                                ncm=item.ncm,
-                                descricao=item.descricao if item.descricao_confiavel else None,
-                            )
-                            if is_tributaria
-                            else None
-                        )
-                    except RuleResolutionException as err:
-                        # Sem identificar a nota, a mensagem não é acionável.
-                        raise RuleResolutionException(
-                            f"NF-e {nf_data.numero_nota} (arquivo {filename}): {err.message}"
-                        ) from err
-                    a_dst = resolucao.aliquota
-                    reducao_item: Optional[Decimal] = (
-                        resolucao_red_trib.aliquota if resolucao_red_trib is not None else None
-                    )
-                    # A.ORI veio diretamente do XML/SPED (item.a_ori)
-                    a_ori = item.a_ori
-                    a_ori_destacada = bool(a_ori is not None and a_ori > Decimal("0.00"))
-                    a_ori_inferida_simples = False
-                    a_ori_original = item.a_ori
-
-                    # Se a operação for interestadual e o fornecedor for Simples Nacional
-                    # sem pICMS (a_ori == 0), aplica a tabela de referência apenas nas planilhas
-                    # de Antecipação (Parcial e Tributária). Na planilha de DIFAL, nunca infere
-                    # alíquota de origem não destacada.
-                    if (
-                        destino_item not in (DIFAL, DIFAL_ANTECIPADO)
-                        and is_fornecedor_simples
-                        and is_operacao_interestadual
-                        and (a_ori is None or a_ori == Decimal("0.00"))
+                    if modo_legado and not self._compativel_com_modo_legado(
+                        destino_item, solicitacao.tipo_planilha
                     ):
-                        a_ori_inferida = InterstateRateResolver.resolve_rate(
-                            uf_origem=uf_fornecedor,
-                            uf_destino=uf_empresa_dest,
-                            origem_mercadoria=item.origem_mercadoria,
-                        )
-                        a_ori = a_ori_inferida
-                        a_ori_inferida_simples = True
-                        pct_val = a_ori_inferida * Decimal("100.0")
-                        pct_str = f"{pct_val:.0f}%" if pct_val % 1 == 0 else f"{pct_val:.2f}%"
-                        avisos_avaliacao.append({
-                            "numero_nota": nf_data.numero_nota,
-                            "serie": nf_data.serie,
-                            "item_numero": item.item_numero,
-                            "arquivo": filename,
-                            "aviso": (
-                                f"Item {item.item_numero}: Alíquota interestadual de {pct_str} aplicada automaticamente "
-                                f"(fornecedor optante pelo Simples Nacional sem pICMS na origem {uf_fornecedor} -> {uf_empresa_dest}). "
-                                "Alíquota de referência, não crédito destacado."
-                            ),
-                        })
+                        continue
 
-                    # No DIFAL, sem pICMS destacado a única fonte de A.ORI é a alíquota de crédito
-                    # autorizada nas Informações Complementares da NF-e (fornecedor do Simples).
-                    a_ori_inf_compl = False
-                    if (
-                        destino_item in (DIFAL, DIFAL_ANTECIPADO)
-                        and not a_ori_destacada
-                        and nf_data.aliq_credito_icms_inf_compl
+                    if destino_item in DESTINOS_PARCIAL and self._avaliar_exclusao_parcial_mercadoria(
+                        nf_data=nf_data,
+                        item=item,
+                        filename=filename,
+                        destino_item=destino_item,
+                        empresa=empresa,
+                        data_entrada_resolvida=data_entrada_resolvida,
+                        avisos_avaliacao=avisos_avaliacao,
+                        itens_excluidos=itens_excluidos,
+                        rows_por_destino=rows_por_destino,
                     ):
-                        a_ori = nf_data.aliq_credito_icms_inf_compl
-                        a_ori_destacada = True
-                        a_ori_inf_compl = True
-                        pct_inf = a_ori * Decimal("100.0")
-                        avisos_avaliacao.append({
-                            "numero_nota": nf_data.numero_nota,
-                            "serie": nf_data.serie,
-                            "item_numero": item.item_numero,
-                            "arquivo": filename,
-                            "aviso": (
-                                f"Item {item.item_numero}: A.ORI de {pct_inf:.2f}% obtida das Informações "
-                                "Complementares da NF-e (crédito de ICMS autorizado pelo fornecedor), "
-                                "sem pICMS destacado no item."
-                            ),
-                        })
+                        continue
 
-                    # No DIFAL, sem destaque de ICMS na NF-e a A.ORI de cálculo é zero (sem crédito)
-                    if destino_item in (DIFAL, DIFAL_ANTECIPADO) and not a_ori_destacada:
-                        a_ori = Decimal("0.00")
-
-                    # Se o perfil tiver a regra ativada e o item se enquadrou em Redução por Produto ou Termo de Acordo:
-                    # Alíquotas de origem superiores a 10% (ex: 12%) se limitam a 10% (0.10).
-                    # Se vier menor ou igual a 10%, permanece conforme a nota.
-                    limitar_a_ori_reducoes = bool(configuracoes_perfil.get("limitar_a_ori_reducoes"))
-                    origem_resolucao = resolucao.origem or ""
-                    teve_reducao_ou_acordo = (
-                        origem_resolucao.startswith("reducao_produto:")
-                        or origem_resolucao.startswith("excecao:")
-                        or origem_resolucao.startswith("termo_acordo:")
+                    (
+                        a_ori,
+                        a_dst,
+                        resolucao,
+                        a_ori_original,
+                        a_ori_destacada,
+                        a_ori_inferida_simples,
+                        a_ori_inf_compl,
+                        a_ori_limitada,
+                        reducao_item,
+                    ) = self._resolver_aliquotas_item(
+                        nf_data=nf_data,
+                        item=item,
+                        filename=filename,
+                        destino_item=destino_item,
+                        empresa=empresa,
+                        configuracoes_perfil=configuracoes_perfil,
+                        uf_fornecedor=uf_fornecedor,
+                        uf_empresa_dest=uf_empresa_dest,
+                        is_fornecedor_simples=is_fornecedor_simples,
+                        is_operacao_interestadual=is_operacao_interestadual,
+                        avisos_avaliacao=avisos_avaliacao,
                     )
-                    a_ori_limitada = False
-                    if (
-                        destino_item in DESTINOS_PARCIAL
-                        and limitar_a_ori_reducoes
-                        and teve_reducao_ou_acordo
-                        and a_ori > Decimal("0.10")
-                    ):
-                        a_ori = Decimal("0.10")
-                        a_ori_limitada = True
 
-                    # Avaliação da condição numérica de alíquotas iguais (após resolução de A.DST)
                     if destino_item in DESTINOS_PARCIAL:
                         decisao_numerica = self.parcial_exclusion.avaliar_aliquotas_iguais(
                             perfil_regras_id=empresa.perfil_regras_id,
@@ -761,47 +469,24 @@ class ProcessingPipelineService:
                             )
                             continue
 
-                    mva_item = Decimal("0.00")
-                    if destino_item in (ANTECIPACAO_TRIBUTARIA, ANTECIPACAO_TRIBUTARIA_ANTECIPADO):
-                        if revenda_tributaria_config:
-                            mva_item = RevendaAntecipacaoTributariaPolicy.resolve_mva(
-                                config=revenda_tributaria_config,
-                                grupo=mva_policy_group or "demais",
-                                a_ori=a_ori,
-                                fornecedor_simples=is_fornecedor_simples,
-                            )
-                        else:
-                            # A faixa da MVA ajustada vem da A.ORI destacada no documento,
-                            # antes de inferência (Simples) ou limite por redução.
-                            resultado_mva = MvaResolver.resolver_para_item(
-                                ncm=item.ncm,
-                                cest=item.cest,
-                                a_ori=a_ori_original,
-                                coluna=coluna_mva_nota,
-                            )
-                            if resultado_mva.pendente:
-                                itens_excluidos.append(
-                                    serialize_excluded_item(
-                                        nf_data,
-                                        item,
-                                        filename,
-                                        destino_item,
-                                        DecisaoExclusaoItem(
-                                            excluido=True,
-                                            tipo_exclusao=TIPO_EXCLUSAO_MVA_PENDENTE,
-                                            motivo=resultado_mva.motivo_pendencia,
-                                            v_total=item.v_total,
-                                            base_calculo=item.base_calculo,
-                                            ipi_despesas=item.ipi_despesas,
-                                            a_ori=a_ori_original,
-                                            a_dst=a_dst,
-                                        ),
-                                    )
-                                )
-                                continue
-                            mva_item = resultado_mva.mva
+                    mva_item = self._resolver_mva_item(
+                        nf_data=nf_data,
+                        item=item,
+                        filename=filename,
+                        destino_item=destino_item,
+                        a_ori=a_ori,
+                        a_dst=a_dst,
+                        a_ori_original=a_ori_original,
+                        is_fornecedor_simples=is_fornecedor_simples,
+                        coluna_mva_nota=coluna_mva_nota,
+                        revenda_tributaria_config=revenda_tributaria_config,
+                        mva_policy_group=mva_policy_group,
+                        itens_excluidos=itens_excluidos,
+                    )
+                    if mva_item is None:
+                        continue
 
-                    key = (
+                    key: GrupoKey = (
                         destino_item,
                         a_ori,
                         a_dst,
@@ -840,23 +525,11 @@ class ProcessingPipelineService:
                         info_a_ori[key]["p_cred_sn"].add(str(item.p_cred_sn))
 
                 if not grupos:
-                    # Nenhum item desta nota foi roteado (CFOP sem regra ou fora do tipo legado solicitado)
                     if retroativa:
                         notas_ignoradas.append(ignored_note(nf_data, filename, motivo_fora_periodo))
-                        continue
-                    if itens_aguardando_entrada:
+                    elif itens_aguardando_entrada:
                         notas_ignoradas.append(
                             ignored_note(nf_data, filename, MOTIVO_DIFAL_AGUARDANDO_ENTRADA)
-                        )
-                        continue
-                    if itens_bonificacao_desconsiderados:
-                        cfops_str = ", ".join(sorted(list({it.cfop for it in itens_bonificacao_desconsiderados if it.cfop})))
-                        notas_ignoradas.append(
-                            ignored_note(
-                                nf_data,
-                                filename,
-                                f"Operação em bonificação/amostra grátis (CFOP {cfops_str}) não destinada para revenda pelo usuário.",
-                            )
                         )
                     continue
 
@@ -878,233 +551,25 @@ class ProcessingPipelineService:
                         "aviso": aviso_difal_retroativa(nf_data),
                     })
 
-                if itens_bonificacao_desconsiderados:
-                    for it_desc in itens_bonificacao_desconsiderados:
-                        avisos_avaliacao.append({
-                            "numero_nota": nf_data.numero_nota,
-                            "serie": nf_data.serie,
-                            "item_numero": it_desc.item_numero,
-                            "arquivo": filename,
-                            "aviso": f"Item {it_desc.item_numero} em bonificação/amostra grátis (CFOP {it_desc.cfop}) desconsiderado do cálculo por não ser destinado para revenda.",
-                        })
-
-                qtd_itens_originais = len(nf_data.itens)
-                qtd_itens_classificados = sum(len(v) for v in grupos.values())
-
-                split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
-
-                for grupo_key, itens_objs in grupos.items():
-                    destino_grupo, a_ori, a_dst, mva_grupo, reducao_grupo = grupo_key
-                    split_index = split_index_por_destino[destino_grupo]
-
-                    # Se a nota inteira produziu exatamente 1 bucket/grupo (nenhum item descartado e
-                    # nenhum desdobramento por alíquota), o total oficial da NF-e pode ser usado direto.
-                    # Caso contrário (múltiplos destinos, múltiplas alíquotas, ou itens descartados),
-                    # os totais precisam ser somados a partir dos próprios itens do grupo.
-                    usar_total_nota = (
-                        len(grupos) == 1 and
-                        qtd_itens_classificados == qtd_itens_originais and
-                        nf_data.v_total_nota > 0
-                    )
-
-                    if usar_total_nota:
-                        v_total_grupo = nf_data.v_total_nota
-                        ipi_despesas_grupo = sum(it.ipi_despesas for it in itens_objs)
-                        if nf_data.v_bc_nota > 0:
-                            max_base_grupo = max(Decimal("0.00"), v_total_grupo - ipi_despesas_grupo)
-                            if nf_data.v_desc_nota > 0 and nf_data.v_bc_nota > max_base_grupo:
-                                v_bc_grupo = max(Decimal("0.00"), min(nf_data.v_bc_nota - nf_data.v_desc_nota, max_base_grupo))
-                            else:
-                                v_bc_grupo = nf_data.v_bc_nota
-                        else:
-                            v_bc_grupo = sum(it.base_calculo for it in itens_objs)
-                    else:
-                        v_total_grupo = sum(it.v_total for it in itens_objs)
-                        v_bc_grupo = sum(it.base_calculo for it in itens_objs)
-                        ipi_despesas_grupo = sum(it.ipi_despesas for it in itens_objs)
-
-                    # Se a base de cálculo for zero ou não declarada no grupo (ex: CST 60), a base é a mercadoria (v_total - ipi_despesas)
-                    if v_bc_grupo <= Decimal("0.00"):
-                        v_bc_grupo = v_total_grupo - ipi_despesas_grupo
-
-                    ncm_grupo = itens_objs[0].ncm if itens_objs else ""
-                    cfop_grupo = itens_objs[0].cfop if itens_objs else ""
-                    descricao_grupo = itens_objs[0].descricao if len(itens_objs) == 1 else f"NF-e {nf_data.numero_nota} ({len(itens_objs)} itens)"
-
-                    # Se o valor total for zero ou negativo (ex: nota complementar de ICMS, ajuste ou cancelada), ignora e registra no relatório
-                    if v_total_grupo <= Decimal("0.00"):
-                        notas_ignoradas.append(
-                            ignored_note(
-                                nf_data,
-                                filename,
-                                f"Valor total zerado ou sem valor comercial "
-                                f"(R$ {v_total_grupo:.2f}). Documento fiscal "
-                                f"complementar/ajuste desconsiderado para apuração.",
-                            )
-                        )
-                        continue
-
-                    aliq_simples = "N"
-                    fornecedor_simples = is_fornecedor_simples
-                    if destino_grupo in (DIFAL, DIFAL_ANTECIPADO):
-                        if is_fornecedor_simples:
-                            aliq_simples = "S"
-                        else:
-                            aliq_simples = "N"
-
-                    # Camada 6 e 7: Motor de cálculo (por destino) e validações numéricas
-                    try:
-                        calculator = CalculatorFactory.get_calculator(destino_grupo)
-                        calc_result = calculator.calculate(
-                            v_total=v_total_grupo,
-                            base_calculo=v_bc_grupo,
-                            ipi_despesas=ipi_despesas_grupo,
-                            a_ori=a_ori,
-                            a_dst=a_dst,
-                            parametros_extras={
-                                "mva": mva_grupo,
-                                "reducao": reducao_grupo,
-                                "aliq_simples": aliq_simples,
-                                "qtd_itens_grupo": len(itens_objs),
-                                "is_simples": empresa.optante_simples_nacional,
-                            }
-                        )
-
-                        SanityChecker.validate_numeric_values(
-                            numero_nota=nf_data.numero_nota,
-                            v_total=v_total_grupo,
-                            base_calculo=v_bc_grupo,
-                            a_ori=a_ori,
-                            a_dst=a_dst
-                        )
-                    except ValidationException as val_err:
-                        erros_validacao.append(str(val_err))
-                        notas_ignoradas.append(
-                            ignored_note(nf_data, filename, str(val_err))
-                        )
-                        continue
-
-                    # Regra estrita de Data de Entrada:
-                    # 1. Na planilha/destino de Parcial Pago Antecipadamente, as mercadorias ainda não
-                    #    deram entrada. A data de entrada DEVE ser estritamente None (vazia/nula) no banco e Excel.
-                    # 2. Nas demais planilhas, a data de entrada é a informada no SPED Fiscal (ou planilha auxiliar).
-                    #    Nunca deduzir ou utilizar data de emissão como fallback.
-                    data_entrada_efetiva = (
-                        None
-                        if destino_grupo in (
-                            ANTECIPACAO_PARCIAL_ANTECIPADO,
-                            ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
-                            ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
-                            DIFAL_ANTECIPADO,
-                        )
-                        else data_entrada_resolvida
-                    )
-                    origem_data_efetiva = (
-                        None
-                        if destino_grupo in (
-                            ANTECIPACAO_PARCIAL_ANTECIPADO,
-                            ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES,
-                            ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
-                            DIFAL_ANTECIPADO,
-                        )
-                        else origem_data
-                    )
-
-                    # Criar registro de NotaFiscalProcessada
-                    nf_proc = NotaFiscalProcessada(
-                        solicitacao_id=solicitacao.id,
-                        chave_acesso=nf_data.chave_acesso,
-                        numero_nota=nf_data.numero_nota,
-                        serie=nf_data.serie,
-                        cnpj_emitente=nf_data.cnpj_emitente,
-                        uf_emitente=nf_data.uf_emitente or uf_fornecedor,
-                        cnpj_destinatario=nf_data.cnpj_destinatario,
-                        uf_destinatario=empresa.uf,
-                        data_emissao=nf_data.data_emissao,
-                        data_entrada=data_entrada_efetiva,
-                        origem_data_entrada=origem_data_efetiva,
-                        item_numero=split_index,
-                        ncm=ncm_grupo,
-                        cfop=cfop_grupo,
-                        destino_planilha=destino_grupo,
-                        v_total=v_total_grupo,
-                        base_calculo=v_bc_grupo,
-                        ipi_despesas=ipi_despesas_grupo,
-                        a_ori=a_ori,
-                        a_dst_resolvida=a_dst,
-                        debito=calc_result.debito,
-                        credito=calc_result.credito,
-                        valor_devido=calc_result.valor_devido,
-                        metadados_extras={
-                            "desdobramento": len(grupos) > 1,
-                            "subitem_index": split_index,
-                            "total_subitens_destino": len(itens_objs),
-                            "mva": str(mva_grupo),
-                            "reducao": str(reducao_grupo) if reducao_grupo is not None else None,
-                            "mva_grupo": info_mva_policy.get(grupo_key, {}).get("grupo") or None,
-                            "mva_fonte": info_mva_policy.get(grupo_key, {}).get("fonte") or None,
-                            "fornecedor_simples_nacional": fornecedor_simples,
-                            "aliq_simples": aliq_simples,
-                            "origem_a_dst": sorted({r.origem for r in resolucoes.get(grupo_key, [])}),
-                            "detalhe_a_dst": "; ".join(
-                                sorted({r.detalhe for r in resolucoes.get(grupo_key, [])})
-                            ),
-                            "cfop_reclassificado": any(
-                                rc.reclassificado for rc in resolucoes_cfop.get(grupo_key, [])
-                            ),
-                            "detalhe_cfop": "; ".join(
-                                sorted({rc.motivo for rc in resolucoes_cfop.get(grupo_key, []) if rc.motivo})
-                            ),
-                            "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
-                            "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
-                            "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
-                            "a_ori_destacada": info_a_ori.get(grupo_key, {}).get("destacada", True),
-                            "a_ori_inf_compl": info_a_ori.get(grupo_key, {}).get("inf_compl", False),
-                            "p_cred_sn": sorted(info_a_ori.get(grupo_key, {}).get("p_cred_sn", set())) or None,
-                            **calc_result.detalhes
-                        }
-                    )
-                    notas_criadas.append(nf_proc)
-
-                    # Dados estruturados para escrita no Excel
-                    numero_nota_planilha = (
-                        f"{nf_data.numero_nota}*"
-                        if split_index > 1
-                        else nf_data.numero_nota
-                    )
-                    a_ori_planilha = (
-                        None
-                        if destino_grupo in (DIFAL, DIFAL_ANTECIPADO) and not info_a_ori.get(grupo_key, {}).get("destacada", True)
-                        else a_ori
-                    )
-                    rows_por_destino[destino_grupo].append({
-                        "numero_nota": numero_nota_planilha,
-                        "serie": nf_data.serie,
-                        "chave_acesso": nf_data.chave_acesso,
-                        "cnpj_emitente": nf_data.cnpj_emitente,
-                        "uf_emitente": nf_data.uf_emitente or uf_fornecedor,
-                        "cnpj_destinatario": nf_data.cnpj_destinatario,
-                        "uf_destinatario": empresa.uf,
-                        "data_emissao": nf_data.data_emissao,
-                        "data_entrada": data_entrada_efetiva,
-                        "item_numero": split_index,
-                        "descricao": descricao_grupo,
-                        "ncm": ncm_grupo,
-                        "cfop": cfop_grupo,
-                        "v_total": v_total_grupo,
-                        "base_calculo": v_bc_grupo,
-                        "ipi_despesas": ipi_despesas_grupo,
-                        "mva": mva_grupo,
-                        "reducao": reducao_grupo,
-                        "red": "",
-                        "aliq_simples": aliq_simples,
-                        "a_ori": a_ori_planilha,
-                        "a_dst": a_dst,
-                        "debito": calc_result.debito,
-                        "credito": calc_result.credito,
-                        "valor_devido": calc_result.valor_devido,
-                    })
-                    split_index_por_destino[destino_grupo] = split_index + 1
+                self._consolidar_grupos_nota(
+                    solicitacao=solicitacao,
+                    empresa=empresa,
+                    nf_data=nf_data,
+                    filename=filename,
+                    uf_fornecedor=uf_fornecedor,
+                    is_fornecedor_simples=is_fornecedor_simples,
+                    data_entrada_resolvida=data_entrada_resolvida,
+                    origem_data=origem_data,
+                    grupos=grupos,
+                    resolucoes=resolucoes,
+                    resolucoes_cfop=resolucoes_cfop,
+                    info_a_ori=info_a_ori,
+                    info_mva_policy=info_mva_policy,
+                    notas_criadas=notas_criadas,
+                    notas_ignoradas=notas_ignoradas,
+                    erros_validacao=erros_validacao,
+                    rows_por_destino=rows_por_destino,
+                )
 
             if rows_por_destino.get(CONTROLE_IMPOSTO_PAGO_ENTRADA):
                 rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA] = consolidar_linhas_controle(
@@ -1118,51 +583,19 @@ class ProcessingPipelineService:
                 if destino != CONTROLE_IMPOSTO_PAGO_ENTRADA
             )
             if total_rows == 0:
-                if cfops_sem_regra:
-                    raise ValidationException(
-                        "Nenhum item das notas enviadas correspondeu a um CFOP com regra de roteamento cadastrada "
-                        f"({', '.join(sorted(cfops_sem_regra.keys()))}). Cadastre as regras de CFOP em "
-                        "'Perfis e Regras' antes de processar."
-                    )
-
-                if erros_validacao:
-                    raise ValidationException(erros_validacao[0])
-
-                if itens_excluidos:
-                    if not modo_legado and rows_por_destino.get(CONTROLE_IMPOSTO_PAGO_ENTRADA):
-                        generated_artifacts = self._gerar_somente_controle(
-                            solicitacao=solicitacao,
-                            empresa=empresa,
-                            rows=rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA],
-                            sped_empresa_info=sped_empresa_info,
-                        )
-                    return self.lifecycle.complete_without_output(
-                        solicitacao,
-                        ignored_notes=notas_ignoradas,
-                        excluded_items=itens_excluidos,
-                        evaluation_warnings=avisos_avaliacao,
-                        message=no_output_message(itens_excluidos),
-                    )
-
-                if any("não destinada para revenda pelo usuário" in str(n.get("motivo", "")) for n in notas_ignoradas):
-                    return self.lifecycle.complete_without_output(
-                        solicitacao,
-                        ignored_notes=notas_ignoradas,
-                        excluded_items=itens_excluidos,
-                        evaluation_warnings=avisos_avaliacao,
-                        message="Nenhum item a recolher na Parcial (mercadoria em bonificação/amostra grátis não destinada para revenda)",
-                    )
-
-                total_ign = len(notas_ignoradas)
-                p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
-                p_fim_str = solicitacao.periodo_fim.strftime('%d/%m/%Y')
-                if total_ign > 0:
-                    raise ValidationException(
-                        f"Nenhuma NF-e válida para apuração interestadual encontrada dentro do período informado ({p_ini_str} a {p_fim_str}). "
-                        f"Todas as {total_ign} nota(s) enviadas foram desconsideradas (motivos registrados no relatório de conferência)."
-                    )
-                else:
-                    raise ValidationException("Nenhuma nota fiscal pôde ser processada a partir dos arquivos fornecidos.")
+                return self._tratar_sem_linhas_geradas(
+                    solicitacao=solicitacao,
+                    empresa=empresa,
+                    modo_legado=modo_legado,
+                    cfops_sem_regra=cfops_sem_regra,
+                    erros_validacao=erros_validacao,
+                    itens_excluidos=itens_excluidos,
+                    notas_ignoradas=notas_ignoradas,
+                    avisos_avaliacao=avisos_avaliacao,
+                    rows_por_destino=rows_por_destino,
+                    sped_empresa_info=sped_empresa_info,
+                    generated_artifacts=generated_artifacts,
+                )
 
             # Ordenação cronológica aplicada dentro de cada planilha/destino
             for destino_key in list(rows_por_destino.keys()):
@@ -1172,7 +605,7 @@ class ProcessingPipelineService:
             for nf_proc in notas_criadas:
                 self.db.add(nf_proc)
 
-            ie_final = (empresa.inscricao_estadual or "").strip() or (sped_empresa_info.get("ie") if sped_empresa_info else "") or ""
+            ie_final = resolve_inscricao_estadual(empresa, sped_empresa_info)
 
             header_info = build_header_info(
                 empresa,
@@ -1204,6 +637,639 @@ class ProcessingPipelineService:
             self.lifecycle.fail(solicitacao, generated_artifacts, exc)
             raise
 
+    @staticmethod
+    def _validar_elegibilidade_nota(
+        *,
+        nf_data: Any,
+        filename: str,
+        empresa: Empresa,
+        solicitacao: Solicitacao,
+        notas_ignoradas: List[Dict[str, Any]],
+    ) -> Optional[Tuple[bool, str]]:
+        if is_emissao_propria(nf_data, empresa.cnpj):
+            notas_ignoradas.append(
+                ignored_note(
+                    nf_data,
+                    filename,
+                    "Nota fiscal de emissão própria desconsiderada: emitente é a própria empresa.",
+                )
+            )
+            return None
+
+        SanityChecker.validate_nf_destinatario(nf_data, empresa.cnpj)
+
+        uf_fornecedor = (nf_data.uf_emitente or "").strip().upper()
+        uf_empresa_dest = (empresa.uf or "").strip().upper()
+        if not SanityChecker.is_interestadual(uf_fornecedor, uf_empresa_dest):
+            notas_ignoradas.append(
+                ignored_note(
+                    nf_data,
+                    filename,
+                    f"Operação interna estadual desconsiderada: UF do "
+                    f"fornecedor/emitente ({uf_fornecedor}) é igual à UF da "
+                    f"empresa ({uf_empresa_dest}). Antecipação e DIFAL aplicam-se "
+                    f"exclusivamente a aquisições interestaduais.",
+                )
+            )
+            return None
+
+        dentro_do_periodo = SanityChecker.is_within_period(
+            nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
+        )
+        retroativa = (not dentro_do_periodo) and aceita_difal_retroativa(
+            nf_data, empresa.optante_simples_nacional, solicitacao.periodo_inicio
+        )
+        motivo_fora_periodo = (
+            f"Data de emissão ({nf_data.data_emissao.strftime('%d/%m/%Y')}) fora do período informado "
+            f"({solicitacao.periodo_inicio.strftime('%d/%m/%Y')} a "
+            f"{solicitacao.periodo_fim.strftime('%d/%m/%Y')})."
+        )
+        if not dentro_do_periodo and not retroativa:
+            notas_ignoradas.append(ignored_note(nf_data, filename, motivo_fora_periodo))
+            return None
+        return retroativa, motivo_fora_periodo
+
+    @staticmethod
+    def _resolver_contexto_entrada_nota(
+        *,
+        nf_data: Any,
+        planilha_records: List[Any],
+        has_sped: bool,
+        modo_legado: bool,
+    ) -> Tuple[Optional[Any], Optional[str], bool, Optional[str]]:
+        data_entrada_resolvida = None
+        origem_data = None
+        if planilha_records:
+            data_entrada_resolvida, origem_data = DataEntradaMatcher.match_data_entrada(
+                nf_chave=nf_data.chave_acesso,
+                nf_cnpj_emitente=nf_data.cnpj_emitente,
+                nf_serie=nf_data.serie,
+                nf_numero=nf_data.numero_nota,
+                planilha_records=planilha_records,
+            )
+
+        if data_entrada_resolvida is None and nf_data.data_entrada is not None and nf_data.origem_extracao == "sped":
+            data_entrada_resolvida = nf_data.data_entrada
+            origem_data = "sped_fiscal"
+
+        tem_fonte_entradas = has_sped or bool(planilha_records)
+        teve_entrada_comprovada = (nf_data.origem_extracao == "sped") or (data_entrada_resolvida is not None)
+        pago_antecipadamente = tem_fonte_entradas and not modo_legado and not teve_entrada_comprovada
+
+        cfop_auxiliar = None
+        if planilha_records and (not has_sped or nf_data.origem_extracao != "sped"):
+            cfop_auxiliar = DataEntradaMatcher.match_cfop(
+                nf_chave=nf_data.chave_acesso,
+                nf_cnpj_emitente=nf_data.cnpj_emitente,
+                nf_serie=nf_data.serie,
+                nf_numero=nf_data.numero_nota,
+                planilha_records=planilha_records,
+            )
+        return data_entrada_resolvida, origem_data, pago_antecipadamente, cfop_auxiliar
+
+    @staticmethod
+    def _rotear_destino_pagamento_e_regime(
+        *,
+        destino_item: str,
+        pago_antecipadamente: bool,
+        optante_simples: bool,
+    ) -> str:
+        if destino_item == ANTECIPACAO_PARCIAL and pago_antecipadamente:
+            return ANTECIPACAO_PARCIAL_ANTECIPADO
+        if destino_item == ANTECIPACAO_TRIBUTARIA and pago_antecipadamente:
+            return ANTECIPACAO_TRIBUTARIA_ANTECIPADO
+        if destino_item == DIFAL and pago_antecipadamente and optante_simples:
+            return DIFAL_ANTECIPADO
+        return destino_item
+
+    @staticmethod
+    def _compativel_com_modo_legado(destino_item: str, tipo_solicitacao: Optional[str]) -> bool:
+        if destino_item == tipo_solicitacao:
+            return True
+        return (
+            (tipo_solicitacao == ANTECIPACAO_PARCIAL and destino_item == ANTECIPACAO_PARCIAL_SIMPLES)
+            or (tipo_solicitacao == ANTECIPACAO_PARCIAL_ANTECIPADO and destino_item == ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
+        )
+
+    def _avaliar_exclusao_parcial_mercadoria(
+        self,
+        *,
+        nf_data: Any,
+        item: Any,
+        filename: str,
+        destino_item: str,
+        empresa: Empresa,
+        data_entrada_resolvida: Any,
+        avisos_avaliacao: List[Dict[str, Any]],
+        itens_excluidos: List[Dict[str, Any]],
+        rows_por_destino: Dict[str, List[Dict[str, Any]]],
+    ) -> bool:
+        if not item.descricao_confiavel:
+            avisos_avaliacao.append({
+                "numero_nota": nf_data.numero_nota,
+                "serie": nf_data.serie,
+                "item_numero": item.item_numero,
+                "arquivo": filename,
+                "aviso": "Descrição sintética/não confiável (SPED sem C170): regra de exclusão por mercadoria não avaliada.",
+            })
+        elif not item.descricao or not normalizar(item.descricao).strip():
+            avisos_avaliacao.append({
+                "numero_nota": nf_data.numero_nota,
+                "serie": nf_data.serie,
+                "item_numero": item.item_numero,
+                "arquivo": filename,
+                "aviso": "Descrição do produto ausente ou vazia: regra de exclusão por mercadoria não avaliada.",
+            })
+        elif not item.ncm or item.ncm.strip() == NCM_SENTINELA or len(item.ncm.strip()) < 8:
+            avisos_avaliacao.append({
+                "numero_nota": nf_data.numero_nota,
+                "serie": nf_data.serie,
+                "item_numero": item.item_numero,
+                "arquivo": filename,
+                "aviso": f"NCM ausente ou genérico ('{item.ncm}'): regra de exclusão por mercadoria não avaliada.",
+            })
+
+        decisao_mercadoria = self.parcial_exclusion.avaliar_mercadoria(
+            perfil_regras_id=empresa.perfil_regras_id,
+            uf_empresa=empresa.uf,
+            destino=destino_item,
+            ncm=item.ncm,
+            descricao=item.descricao if item.descricao_confiavel else "",
+            descricao_confiavel=item.descricao_confiavel,
+            v_total=item.v_total,
+            base_calculo=item.base_calculo,
+            ipi_despesas=item.ipi_despesas,
+            a_ori=item.a_ori,
+        )
+        if not decisao_mercadoria.excluido:
+            return False
+
+        itens_excluidos.append(
+            serialize_excluded_item(nf_data, item, filename, destino_item, decisao_mercadoria)
+        )
+        if is_imposto_pago_entrada(decisao_mercadoria):
+            try:
+                a_dst_controle = self.resolver.resolve_a_dst(
+                    perfil_regras_id=empresa.perfil_regras_id,
+                    uf=empresa.uf,
+                    ncm=item.ncm,
+                    descricao=item.descricao if item.descricao_confiavel else None,
+                    empresa_id=empresa.id,
+                ).aliquota
+            except RuleResolutionException:
+                a_dst_controle = None
+            rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA].append(
+                build_controle_row(
+                    nf_data,
+                    item,
+                    decisao_mercadoria,
+                    a_dst_controle,
+                    None
+                    if destino_item in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
+                    else data_entrada_resolvida,
+                )
+            )
+        return True
+
+    def _resolver_aliquotas_item(
+        self,
+        *,
+        nf_data: Any,
+        item: Any,
+        filename: str,
+        destino_item: str,
+        empresa: Empresa,
+        configuracoes_perfil: Dict[str, Any],
+        uf_fornecedor: str,
+        uf_empresa_dest: str,
+        is_fornecedor_simples: bool,
+        is_operacao_interestadual: bool,
+        avisos_avaliacao: List[Dict[str, Any]],
+    ) -> Tuple[Decimal, Decimal, ResolucaoAliquota, Decimal, bool, bool, bool, bool, Optional[Decimal]]:
+        is_tributaria = destino_item in DESTINOS_TRIBUTARIA
+        try:
+            resolucao = self.resolver.resolve_a_dst(
+                perfil_regras_id=empresa.perfil_regras_id,
+                uf=empresa.uf,
+                ncm=item.ncm,
+                descricao=item.descricao if item.descricao_confiavel else None,
+                empresa_id=empresa.id,
+                apenas_padrao_uf=(destino_item in DESTINOS_DIFAL),
+                ignorar_termo_acordo=is_tributaria,
+                ignorar_reducao_produto=is_tributaria,
+            )
+            resolucao_red_trib = (
+                self.resolver.resolve_reducao_tributaria(
+                    perfil_regras_id=empresa.perfil_regras_id,
+                    ncm=item.ncm,
+                    descricao=item.descricao if item.descricao_confiavel else None,
+                )
+                if is_tributaria
+                else None
+            )
+        except RuleResolutionException as err:
+            raise RuleResolutionException(
+                f"NF-e {nf_data.numero_nota} (arquivo {filename}): {err.message}"
+            ) from err
+
+        a_dst = resolucao.aliquota
+        reducao_item: Optional[Decimal] = (
+            resolucao_red_trib.aliquota if resolucao_red_trib is not None else None
+        )
+        a_ori = item.a_ori
+        a_ori_destacada = bool(a_ori is not None and a_ori > Decimal("0.00"))
+        a_ori_inferida_simples = False
+        a_ori_original = item.a_ori
+
+        if (
+            destino_item not in DESTINOS_DIFAL
+            and is_fornecedor_simples
+            and is_operacao_interestadual
+            and (a_ori is None or a_ori == Decimal("0.00"))
+        ):
+            a_ori_inferida = InterstateRateResolver.resolve_rate(
+                uf_origem=uf_fornecedor,
+                uf_destino=uf_empresa_dest,
+                origem_mercadoria=item.origem_mercadoria,
+            )
+            a_ori = a_ori_inferida
+            a_ori_inferida_simples = True
+            pct_val = a_ori_inferida * Decimal("100.0")
+            pct_str = f"{pct_val:.0f}%" if pct_val % 1 == 0 else f"{pct_val:.2f}%"
+            avisos_avaliacao.append({
+                "numero_nota": nf_data.numero_nota,
+                "serie": nf_data.serie,
+                "item_numero": item.item_numero,
+                "arquivo": filename,
+                "aviso": (
+                    f"Item {item.item_numero}: Alíquota interestadual de {pct_str} aplicada automaticamente "
+                    f"(fornecedor optante pelo Simples Nacional sem pICMS na origem {uf_fornecedor} -> {uf_empresa_dest}). "
+                    "Alíquota de referência, não crédito destacado."
+                ),
+            })
+
+        a_ori_inf_compl = False
+        if (
+            destino_item in DESTINOS_DIFAL
+            and not a_ori_destacada
+            and nf_data.aliq_credito_icms_inf_compl
+        ):
+            a_ori = nf_data.aliq_credito_icms_inf_compl
+            a_ori_destacada = True
+            a_ori_inf_compl = True
+            pct_inf = a_ori * Decimal("100.0")
+            avisos_avaliacao.append({
+                "numero_nota": nf_data.numero_nota,
+                "serie": nf_data.serie,
+                "item_numero": item.item_numero,
+                "arquivo": filename,
+                "aviso": (
+                    f"Item {item.item_numero}: A.ORI de {pct_inf:.2f}% obtida das Informações "
+                    "Complementares da NF-e (crédito de ICMS autorizado pelo fornecedor), "
+                    "sem pICMS destacado no item."
+                ),
+            })
+
+        if destino_item in DESTINOS_DIFAL and not a_ori_destacada:
+            a_ori = Decimal("0.00")
+
+        limitar_a_ori_reducoes = bool(configuracoes_perfil.get("limitar_a_ori_reducoes"))
+        origem_resolucao = resolucao.origem or ""
+        teve_reducao_ou_acordo = (
+            origem_resolucao.startswith("reducao_produto:")
+            or origem_resolucao.startswith("excecao:")
+            or origem_resolucao.startswith("termo_acordo:")
+        )
+        a_ori_limitada = False
+        if (
+            destino_item in DESTINOS_PARCIAL
+            and limitar_a_ori_reducoes
+            and teve_reducao_ou_acordo
+            and a_ori > Decimal("0.10")
+        ):
+            a_ori = Decimal("0.10")
+            a_ori_limitada = True
+
+        return (
+            a_ori,
+            a_dst,
+            resolucao,
+            a_ori_original,
+            a_ori_destacada,
+            a_ori_inferida_simples,
+            a_ori_inf_compl,
+            a_ori_limitada,
+            reducao_item,
+        )
+
+    @staticmethod
+    def _resolver_mva_item(
+        *,
+        nf_data: Any,
+        item: Any,
+        filename: str,
+        destino_item: str,
+        a_ori: Decimal,
+        a_dst: Decimal,
+        a_ori_original: Decimal,
+        is_fornecedor_simples: bool,
+        coluna_mva_nota: Optional[str],
+        revenda_tributaria_config: Any,
+        mva_policy_group: str,
+        itens_excluidos: List[Dict[str, Any]],
+    ) -> Optional[Decimal]:
+        if destino_item not in DESTINOS_TRIBUTARIA:
+            return Decimal("0.00")
+        if revenda_tributaria_config:
+            return RevendaAntecipacaoTributariaPolicy.resolve_mva(
+                config=revenda_tributaria_config,
+                grupo=mva_policy_group or "demais",
+                a_ori=a_ori,
+                fornecedor_simples=is_fornecedor_simples,
+            )
+        resultado_mva = MvaResolver.resolver_para_item(
+            ncm=item.ncm,
+            cest=item.cest,
+            a_ori=a_ori_original,
+            coluna=coluna_mva_nota,
+        )
+        if resultado_mva.pendente:
+            itens_excluidos.append(
+                serialize_excluded_item(
+                    nf_data,
+                    item,
+                    filename,
+                    destino_item,
+                    DecisaoExclusaoItem(
+                        excluido=True,
+                        tipo_exclusao=TIPO_EXCLUSAO_MVA_PENDENTE,
+                        motivo=resultado_mva.motivo_pendencia,
+                        v_total=item.v_total,
+                        base_calculo=item.base_calculo,
+                        ipi_despesas=item.ipi_despesas,
+                        a_ori=a_ori_original,
+                        a_dst=a_dst,
+                    ),
+                )
+            )
+            return None
+        return resultado_mva.mva
+
+    def _consolidar_grupos_nota(
+        self,
+        *,
+        solicitacao: Solicitacao,
+        empresa: Empresa,
+        nf_data: Any,
+        filename: str,
+        uf_fornecedor: str,
+        is_fornecedor_simples: bool,
+        data_entrada_resolvida: Any,
+        origem_data: Optional[str],
+        grupos: Dict[GrupoKey, List[Any]],
+        resolucoes: Dict[GrupoKey, List[ResolucaoAliquota]],
+        resolucoes_cfop: Dict[GrupoKey, List[ResolucaoCfop]],
+        info_a_ori: Dict[GrupoKey, Dict[str, Any]],
+        info_mva_policy: Dict[GrupoKey, Dict[str, Any]],
+        notas_criadas: List[NotaFiscalProcessada],
+        notas_ignoradas: List[Dict[str, Any]],
+        erros_validacao: List[str],
+        rows_por_destino: Dict[str, List[Dict[str, Any]]],
+    ) -> None:
+        qtd_itens_originais = len(nf_data.itens)
+        qtd_itens_classificados = sum(len(v) for v in grupos.values())
+        split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
+
+        for grupo_key, itens_objs in grupos.items():
+            destino_grupo, a_ori, a_dst, mva_grupo, reducao_grupo = grupo_key
+            split_index = split_index_por_destino[destino_grupo]
+
+            usar_total_nota = (
+                len(grupos) == 1
+                and qtd_itens_classificados == qtd_itens_originais
+                and nf_data.v_total_nota > 0
+            )
+            if usar_total_nota:
+                v_total_grupo = nf_data.v_total_nota
+                ipi_despesas_grupo = sum(it.ipi_despesas for it in itens_objs)
+                if nf_data.v_bc_nota > 0:
+                    max_base_grupo = max(Decimal("0.00"), v_total_grupo - ipi_despesas_grupo)
+                    if nf_data.v_desc_nota > 0 and nf_data.v_bc_nota > max_base_grupo:
+                        v_bc_grupo = max(Decimal("0.00"), min(nf_data.v_bc_nota - nf_data.v_desc_nota, max_base_grupo))
+                    else:
+                        v_bc_grupo = nf_data.v_bc_nota
+                else:
+                    v_bc_grupo = sum(it.base_calculo for it in itens_objs)
+            else:
+                v_total_grupo = sum(it.v_total for it in itens_objs)
+                v_bc_grupo = sum(it.base_calculo for it in itens_objs)
+                ipi_despesas_grupo = sum(it.ipi_despesas for it in itens_objs)
+
+            if v_bc_grupo <= Decimal("0.00"):
+                v_bc_grupo = v_total_grupo - ipi_despesas_grupo
+
+            ncm_grupo = itens_objs[0].ncm if itens_objs else ""
+            cfop_grupo = itens_objs[0].cfop if itens_objs else ""
+            descricao_grupo = (
+                itens_objs[0].descricao
+                if len(itens_objs) == 1
+                else f"NF-e {nf_data.numero_nota} ({len(itens_objs)} itens)"
+            )
+
+            if v_total_grupo <= Decimal("0.00"):
+                notas_ignoradas.append(
+                    ignored_note(
+                        nf_data,
+                        filename,
+                        f"Valor total zerado ou sem valor comercial "
+                        f"(R$ {v_total_grupo:.2f}). Documento fiscal "
+                        f"complementar/ajuste desconsiderado para apuração.",
+                    )
+                )
+                continue
+
+            aliq_simples = "S" if (destino_grupo in DESTINOS_DIFAL and is_fornecedor_simples) else "N"
+
+            try:
+                calculator = CalculatorFactory.get_calculator(destino_grupo)
+                calc_result = calculator.calculate(
+                    v_total=v_total_grupo,
+                    base_calculo=v_bc_grupo,
+                    ipi_despesas=ipi_despesas_grupo,
+                    a_ori=a_ori,
+                    a_dst=a_dst,
+                    parametros_extras={
+                        "mva": mva_grupo,
+                        "reducao": reducao_grupo,
+                        "aliq_simples": aliq_simples,
+                        "qtd_itens_grupo": len(itens_objs),
+                        "is_simples": empresa.optante_simples_nacional,
+                    },
+                )
+                SanityChecker.validate_numeric_values(
+                    numero_nota=nf_data.numero_nota,
+                    v_total=v_total_grupo,
+                    base_calculo=v_bc_grupo,
+                    a_ori=a_ori,
+                    a_dst=a_dst,
+                )
+            except ValidationException as val_err:
+                erros_validacao.append(str(val_err))
+                notas_ignoradas.append(ignored_note(nf_data, filename, str(val_err)))
+                continue
+
+            is_antecipado = destino_grupo in DESTINOS_ANTECIPADOS
+            data_entrada_efetiva = None if is_antecipado else data_entrada_resolvida
+            origem_data_efetiva = None if is_antecipado else origem_data
+
+            nf_proc = NotaFiscalProcessada(
+                solicitacao_id=solicitacao.id,
+                chave_acesso=nf_data.chave_acesso,
+                numero_nota=nf_data.numero_nota,
+                serie=nf_data.serie,
+                cnpj_emitente=nf_data.cnpj_emitente,
+                uf_emitente=nf_data.uf_emitente or uf_fornecedor,
+                cnpj_destinatario=nf_data.cnpj_destinatario,
+                uf_destinatario=empresa.uf,
+                data_emissao=nf_data.data_emissao,
+                data_entrada=data_entrada_efetiva,
+                origem_data_entrada=origem_data_efetiva,
+                item_numero=split_index,
+                ncm=ncm_grupo,
+                cfop=cfop_grupo,
+                destino_planilha=destino_grupo,
+                v_total=v_total_grupo,
+                base_calculo=v_bc_grupo,
+                ipi_despesas=ipi_despesas_grupo,
+                a_ori=a_ori,
+                a_dst_resolvida=a_dst,
+                debito=calc_result.debito,
+                credito=calc_result.credito,
+                valor_devido=calc_result.valor_devido,
+                metadados_extras={
+                    "desdobramento": len(grupos) > 1,
+                    "subitem_index": split_index,
+                    "total_subitens_destino": len(itens_objs),
+                    "mva": str(mva_grupo),
+                    "reducao": str(reducao_grupo) if reducao_grupo is not None else None,
+                    "mva_grupo": info_mva_policy.get(grupo_key, {}).get("grupo") or None,
+                    "mva_fonte": info_mva_policy.get(grupo_key, {}).get("fonte") or None,
+                    "fornecedor_simples_nacional": is_fornecedor_simples,
+                    "aliq_simples": aliq_simples,
+                    "origem_a_dst": sorted({r.origem for r in resolucoes.get(grupo_key, [])}),
+                    "detalhe_a_dst": "; ".join(sorted({r.detalhe for r in resolucoes.get(grupo_key, [])})),
+                    "cfop_reclassificado": any(rc.reclassificado for rc in resolucoes_cfop.get(grupo_key, [])),
+                    "detalhe_cfop": "; ".join(
+                        sorted({rc.motivo for rc in resolucoes_cfop.get(grupo_key, []) if rc.motivo})
+                    ),
+                    "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
+                    "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
+                    "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
+                    "a_ori_destacada": info_a_ori.get(grupo_key, {}).get("destacada", True),
+                    "a_ori_inf_compl": info_a_ori.get(grupo_key, {}).get("inf_compl", False),
+                    "p_cred_sn": sorted(info_a_ori.get(grupo_key, {}).get("p_cred_sn", set())) or None,
+                    **calc_result.detalhes,
+                },
+            )
+            notas_criadas.append(nf_proc)
+
+            numero_nota_planilha = f"{nf_data.numero_nota}*" if split_index > 1 else nf_data.numero_nota
+            a_ori_planilha = (
+                None
+                if destino_grupo in DESTINOS_DIFAL and not info_a_ori.get(grupo_key, {}).get("destacada", True)
+                else a_ori
+            )
+            rows_por_destino[destino_grupo].append({
+                "numero_nota": numero_nota_planilha,
+                "serie": nf_data.serie,
+                "chave_acesso": nf_data.chave_acesso,
+                "cnpj_emitente": nf_data.cnpj_emitente,
+                "uf_emitente": nf_data.uf_emitente or uf_fornecedor,
+                "cnpj_destinatario": nf_data.cnpj_destinatario,
+                "uf_destinatario": empresa.uf,
+                "data_emissao": nf_data.data_emissao,
+                "data_entrada": data_entrada_efetiva,
+                "item_numero": split_index,
+                "descricao": descricao_grupo,
+                "ncm": ncm_grupo,
+                "cfop": cfop_grupo,
+                "v_total": v_total_grupo,
+                "base_calculo": v_bc_grupo,
+                "ipi_despesas": ipi_despesas_grupo,
+                "mva": mva_grupo,
+                "reducao": reducao_grupo,
+                "red": "",
+                "aliq_simples": aliq_simples,
+                "a_ori": a_ori_planilha,
+                "a_dst": a_dst,
+                "debito": calc_result.debito,
+                "credito": calc_result.credito,
+                "valor_devido": calc_result.valor_devido,
+            })
+            split_index_por_destino[destino_grupo] = split_index + 1
+
+    def _tratar_sem_linhas_geradas(
+        self,
+        *,
+        solicitacao: Solicitacao,
+        empresa: Empresa,
+        modo_legado: bool,
+        cfops_sem_regra: Dict[str, int],
+        erros_validacao: List[str],
+        itens_excluidos: List[Dict[str, Any]],
+        notas_ignoradas: List[Dict[str, Any]],
+        avisos_avaliacao: List[Dict[str, Any]],
+        rows_por_destino: Dict[str, List[Dict[str, Any]]],
+        sped_empresa_info: Optional[Dict[str, Any]],
+        generated_artifacts: GeneratedArtifacts,
+    ) -> Solicitacao:
+        if cfops_sem_regra:
+            raise ValidationException(
+                "Nenhum item das notas enviadas correspondeu a um CFOP com regra de roteamento cadastrada "
+                f"({', '.join(sorted(cfops_sem_regra.keys()))}). Cadastre as regras de CFOP em "
+                "'Perfis e Regras' antes de processar."
+            )
+
+        if erros_validacao:
+            raise ValidationException(erros_validacao[0])
+
+        if itens_excluidos:
+            if not modo_legado and rows_por_destino.get(CONTROLE_IMPOSTO_PAGO_ENTRADA):
+                controle_artifacts = self._gerar_somente_controle(
+                    solicitacao=solicitacao,
+                    empresa=empresa,
+                    rows=rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA],
+                    sped_empresa_info=sped_empresa_info,
+                )
+                generated_artifacts.local_paths.extend(controle_artifacts.local_paths)
+                generated_artifacts.cloud_names.extend(controle_artifacts.cloud_names)
+            return self.lifecycle.complete_without_output(
+                solicitacao,
+                ignored_notes=notas_ignoradas,
+                excluded_items=itens_excluidos,
+                evaluation_warnings=avisos_avaliacao,
+                message=no_output_message(itens_excluidos),
+            )
+
+        if any("não destinada para revenda pelo usuário" in str(n.get("motivo", "")) for n in notas_ignoradas):
+            return self.lifecycle.complete_without_output(
+                solicitacao,
+                ignored_notes=notas_ignoradas,
+                excluded_items=itens_excluidos,
+                evaluation_warnings=avisos_avaliacao,
+                message="Nenhum item a recolher na Parcial (mercadoria em bonificação/amostra grátis não destinada para revenda)",
+            )
+
+        total_ign = len(notas_ignoradas)
+        p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
+        p_fim_str = solicitacao.periodo_fim.strftime('%d/%m/%Y')
+        if total_ign > 0:
+            raise ValidationException(
+                f"Nenhuma NF-e válida para apuração interestadual encontrada dentro do período informado ({p_ini_str} a {p_fim_str}). "
+                f"Todas as {total_ign} nota(s) enviadas foram desconsideradas (motivos registrados no relatório de conferência)."
+            )
+        raise ValidationException("Nenhuma nota fiscal pôde ser processada a partir dos arquivos fornecidos.")
+
     def _gerar_somente_controle(
         self,
         *,
@@ -1218,7 +1284,7 @@ class ProcessingPipelineService:
         no registro de saída): o controle é auxiliar e nunca deve virar erro.
         """
         rows = sorted(rows, key=nfe_sort_key)
-        ie = (empresa.inscricao_estadual or "").strip() or (sped_empresa_info.get("ie") if sped_empresa_info else "") or ""
+        ie = resolve_inscricao_estadual(empresa, sped_empresa_info)
         try:
             return self.output_service.generate(
                 solicitacao=solicitacao,

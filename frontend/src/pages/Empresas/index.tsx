@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
   Building2,
@@ -50,6 +50,17 @@ export const EmpresasPage: React.FC = () => {
     termoParaRemover,
     removerTermoError,
     setRemoverTermoError,
+    empresaTermo,
+    aliquotaTermo,
+    setAliquotaTermo,
+    descricaoTermo,
+    setDescricaoTermo,
+    erroTermo,
+    setErroTermo,
+    openTermoModal: handleOpenTermoModal,
+    closeTermoModal,
+    saveTermo: handleSalvarTermo,
+    isSavingTermo,
     requestDeleteEmpresa,
     confirmDeleteEmpresa,
     cancelDeleteEmpresa,
@@ -62,53 +73,10 @@ export const EmpresasPage: React.FC = () => {
     openEditModal: handleOpenEditModal,
     closeModal: handleCloseModal,
     saveEmpresa,
-    definirTermoAcordo,
     register,
     errors,
     isSaving,
   } = useEmpresasPage();
-
-  const [empresaTermo, setEmpresaTermo] = useState<typeof filteredEmpresas[0] | null>(null);
-  const [aliquotaTermo, setAliquotaTermo] = useState('');
-  const [descricaoTermo, setDescricaoTermo] = useState('');
-  const [erroTermo, setErroTermo] = useState<string | null>(null);
-
-  const handleOpenTermoModal = (empresa: typeof filteredEmpresas[0]) => {
-    setEmpresaTermo(empresa);
-    setErroTermo(null);
-    if (empresa.termo_acordo) {
-      setAliquotaTermo((Number(empresa.termo_acordo.aliquota) * 100).toFixed(2));
-      setDescricaoTermo(empresa.termo_acordo.descricao || '');
-    } else {
-      setAliquotaTermo('');
-      setDescricaoTermo('');
-    }
-  };
-
-  const handleSalvarTermo = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!empresaTermo) return;
-    const aliqNum = Number(aliquotaTermo.replace(',', '.'));
-    if (isNaN(aliqNum) || aliqNum <= 0) {
-      setErroTermo('Informe uma alíquota válida.');
-      return;
-    }
-    definirTermoAcordo.mutate(
-      {
-        empresaId: empresaTermo.id,
-        aliquota: aliqNum,
-        descricao: descricaoTermo.trim() || null,
-      },
-      {
-        onSuccess: () => {
-          setEmpresaTermo(null);
-        },
-        onError: (err) => {
-          setErroTermo(getErrorMessage(err));
-        },
-      },
-    );
-  };
 
   return (
     <div className="space-y-6">
@@ -527,7 +495,7 @@ export const EmpresasPage: React.FC = () => {
       {/* Modal de Termo de Acordo */}
       <Modal
         isOpen={empresaTermo !== null}
-        onClose={() => setEmpresaTermo(null)}
+        onClose={closeTermoModal}
         title={empresaTermo?.termo_acordo ? 'Editar Termo de Acordo' : 'Cadastrar Termo de Acordo'}
         subtitle={`Empresa: ${empresaTermo?.razao_social ?? ''}`}
       >
@@ -555,10 +523,10 @@ export const EmpresasPage: React.FC = () => {
             placeholder="Termo de Acordo nº 123/2025"
           />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setEmpresaTermo(null)}>
+            <Button type="button" variant="outline" onClick={closeTermoModal}>
               Cancelar
             </Button>
-            <Button type="submit" isLoading={definirTermoAcordo.isPending}>
+            <Button type="submit" isLoading={isSavingTermo}>
               Salvar Termo
             </Button>
           </div>

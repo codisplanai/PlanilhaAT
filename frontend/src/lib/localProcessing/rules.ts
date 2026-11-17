@@ -1,16 +1,13 @@
+import type { JsonObject } from '../../types/common';
 import type { LocalProcessingContext, LocalMvaEntry } from '../../types/localProcessing';
 import type { CfopResolution, ExtractedItem, ExtractedNote, TaxRateResolution } from './domain';
 import type { TipoPlanilha } from '../../types/solicitacao';
 import type { MvaAntecipacaoTributariaConfig } from '../../types/perfil';
+import { PARTIAL_DESTINATIONS, normalizeDescription } from './domain.ts';
 import { calculateTax } from './calculations.ts';
 import { CONVENIO_52_91_RATE_ORIGIN } from './convenio5291.ts';
 
-const PARTIAL_DESTINATIONS = new Set<TipoPlanilha>([
-  'antecipacao_parcial',
-  'antecipacao_parcial_antecipado',
-  'antecipacao_parcial_simples',
-  'antecipacao_parcial_antecipado_simples',
-]);
+export { PARTIAL_DESTINATIONS, normalizeDescription };
 
 export interface RevendaMvaClassification {
   grupo: 'especial' | 'demais';
@@ -141,15 +138,6 @@ export function resolveRevendaMva(
     throw new Error(`MVA '${key}' não configurada para o grupo '${grupo}'.`);
   }
   return value;
-}
-
-export function normalizeDescription(value?: string | null): string {
-  return String(value ?? '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, ' ')
-    .trim();
 }
 
 function escapeRegex(value: string): string {
@@ -515,7 +503,7 @@ export function evaluatePartialMerchandiseExclusion(
   context: LocalProcessingContext,
   destination: TipoPlanilha,
   item: ExtractedItem,
-): { excluded: boolean; motivo?: string; regras?: Array<Record<string, unknown>> } {
+): { excluded: boolean; motivo?: string; regras?: JsonObject[] } {
   if (!PARTIAL_DESTINATIONS.has(destination) || !item.descricaoConfiavel) return { excluded: false };
   const desc = normalizeDescription(item.descricao);
   const ncm = item.ncm.trim();

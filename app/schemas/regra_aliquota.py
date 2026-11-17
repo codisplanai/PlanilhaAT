@@ -3,10 +3,10 @@ from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, validator
 from app.schemas.empresa import VALID_UFS
-from app.schemas.validators import clean_ncm, normalizar_aliquota
+from app.schemas.validators import clean_ncm, clean_uf, normalizar_aliquota
 
 # Reexportado: integrações e testes existentes importam clean_ncm daqui.
-__all__ = ["clean_ncm", "RegraAliquotaBase", "RegraAliquotaCreate",
+__all__ = ["clean_ncm", "VALID_UFS", "RegraAliquotaBase", "RegraAliquotaCreate",
            "RegraAliquotaUpdate", "RegraAliquotaOut"]
 
 
@@ -20,10 +20,7 @@ class RegraAliquotaBase(BaseModel):
 
     @validator("uf")
     def validate_uf(cls, v):
-        clean = v.strip().upper()
-        if clean not in VALID_UFS:
-            raise ValueError("UF inválida")
-        return clean
+        return clean_uf(v)
 
     @validator("ncm")
     def validate_ncm(cls, v):
@@ -51,12 +48,7 @@ class RegraAliquotaUpdate(BaseModel):
 
     @validator("uf")
     def validate_uf(cls, v):
-        if v is not None:
-            clean = v.strip().upper()
-            if clean not in VALID_UFS:
-                raise ValueError("UF inválida")
-            return clean
-        return v
+        return clean_uf(v)
 
     @validator("ncm")
     def validate_ncm(cls, v):

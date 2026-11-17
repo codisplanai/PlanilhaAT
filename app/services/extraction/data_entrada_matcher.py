@@ -212,6 +212,30 @@ class PlanilhaEntradaParser:
             ) from exc
 
     @classmethod
+    def _find_header_and_indexes(
+        cls,
+        candidate_rows: List[List[str]],
+        *,
+        is_xlsx: bool,
+    ) -> Tuple[int, Tuple[Optional[int], Optional[int], Optional[int], Optional[int], Optional[int], Optional[int]]]:
+        header_idx = 0
+        header_names = candidate_rows[0] if candidate_rows else []
+        for idx, vals in enumerate(candidate_rows):
+            if any(
+                "número nota" in v.lower() or "numero nota" in v.lower() or "dt.escritur" in v.lower()
+                for v in vals
+            ):
+                header_idx = idx
+                header_names = vals
+                break
+        indexes = cls._resolve_column_indexes(header_names, is_xlsx=is_xlsx)
+        if indexes[0] is None or indexes[1] is None:
+            raise ValidationException(
+                "A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração."
+            )
+        return header_idx, indexes
+
+    @classmethod
     def _parse_tsv_or_csv(cls, file_bytes: bytes) -> List[PlanilhaEntradaRecord]:
         try:
             text = file_bytes.decode("utf-8")
@@ -232,34 +256,18 @@ class PlanilhaEntradaParser:
                 delimiter = ";"
                 break
 
-        # Localizar cabeçalho nas primeiras 16 linhas
-        header_row_idx = None
-        header_names: List[str] = []
-
-        for r_idx, line in enumerate(lines[:16]):
-            vals = [v.strip().strip("'").strip('"').strip() for v in line.split(delimiter)]
-            if any("número nota" in v.lower() or "numero nota" in v.lower() or "dt.escritur" in v.lower() for v in vals):
-                header_row_idx = r_idx
-                header_names = vals
-                break
-
-        if header_row_idx is None:
-            header_row_idx = 0
-            header_names = [v.strip().strip("'").strip('"').strip() for v in lines[0].split(delimiter)]
-
-        (
+        candidate_rows = [
+            [v.strip().strip("'").strip('"').strip() for v in line.split(delimiter)]
+            for line in lines[:16]
+        ]
+        header_row_idx, (
             col_num_idx,
             col_dt_idx,
             col_serie_idx,
             col_cnpj_idx,
             col_chave_idx,
             col_cfop_idx,
-        ) = cls._resolve_column_indexes(header_names, is_xlsx=True)
-
-        if col_num_idx is None or col_dt_idx is None:
-            raise ValidationException(
-                "A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração."
-            )
+        ) = cls._find_header_and_indexes(candidate_rows, is_xlsx=True)
 
         records: List[PlanilhaEntradaRecord] = []
 
@@ -303,112 +311,78 @@ class PlanilhaEntradaParser:
     def _parse_openpyxl(cls, file_bytes: bytes) -> List[PlanilhaEntradaRecord]:
         bio = io.BytesIO(file_bytes)
         wb = openpyxl.load_workbook(bio, data_only=True)
-        ws = wb.active
+        try:
+            ws = wb.active
+            candidate_rows = [
+                [str(ws.cell(r, c).value or "").strip() for c in range(1, ws.max_column + 1)]
+                for r in range(1, min(16, ws.max_row + 1))
+            ]
+            header_offset, (
+                col_num_idx,
+                col_dt_idx,
+                col_serie_idx,
+                col_cnpj_idx,
+                col_chave_idx,
+                col_cfop_idx,
+            ) = cls._find_header_and_indexes(candidate_rows, is_xlsx=True)
+            header_row_idx = header_offset + 1
 
-        # Localizar linha de cabeçalho (busca nas primeiras 15 linhas)
-        header_row_idx = None
-        header_names: List[str] = []
+            records: List[PlanilhaEntradaRecord] = []
 
-        for r in range(1, min(16, ws.max_row + 1)):
-            row_vals = [str(ws.cell(r, c).value or "").strip() for c in range(1, ws.max_column + 1)]
-            # Critério: linha que contenha 'Número Nota' ou 'Dt.Escritur'
-            if any("número nota" in v.lower() or "numero nota" in v.lower() or "dt.escritur" in v.lower() for v in row_vals):
-                header_row_idx = r
-                header_names = row_vals
-                break
+            for r in range(header_row_idx + 1, ws.max_row + 1):
+                num_val = ws.cell(r, col_num_idx + 1).value if col_num_idx is not None else None
+                if num_val is None or str(num_val).strip() == "":
+                    continue
 
-        if header_row_idx is None:
-            # Se não encontrou cabeçalho específico, usa a linha 1 como cabeçalho
-            header_row_idx = 1
-            header_names = [str(ws.cell(1, c).value or "").strip() for c in range(1, ws.max_column + 1)]
+                num_str = str(num_val).strip()
+                dt_raw = ws.cell(r, col_dt_idx + 1).value if col_dt_idx is not None else None
+                serie_raw = ws.cell(r, col_serie_idx + 1).value if col_serie_idx is not None else ""
+                cnpj_raw = ws.cell(r, col_cnpj_idx + 1).value if col_cnpj_idx is not None else ""
+                chave_raw = ws.cell(r, col_chave_idx + 1).value if col_chave_idx is not None else ""
+                cfop_raw = ws.cell(r, col_cfop_idx + 1).value if col_cfop_idx is not None else ""
 
-        # Resolver índices das colunas (0-based)
-        (
-            col_num_idx,
-            col_dt_idx,
-            col_serie_idx,
-            col_cnpj_idx,
-            col_chave_idx,
-            col_cfop_idx,
-        ) = cls._resolve_column_indexes(header_names, is_xlsx=True)
+                parsed_date: Optional[datetime.date] = None
+                if isinstance(dt_raw, datetime.datetime):
+                    parsed_date = dt_raw.date()
+                elif isinstance(dt_raw, datetime.date):
+                    parsed_date = dt_raw
+                elif isinstance(dt_raw, str) and dt_raw.strip():
+                    parsed_date = cls._parse_text_date(
+                        dt_raw,
+                        ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"),
+                    )
 
-        if col_num_idx is None or col_dt_idx is None:
-            wb.close()
-            raise ValidationException(
-                "A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração."
-            )
-
-        records: List[PlanilhaEntradaRecord] = []
-
-        for r in range(header_row_idx + 1, ws.max_row + 1):
-            num_val = ws.cell(r, col_num_idx + 1).value if col_num_idx is not None else None
-            if num_val is None or str(num_val).strip() == "":
-                continue
-
-            num_str = str(num_val).strip()
-            dt_raw = ws.cell(r, col_dt_idx + 1).value if col_dt_idx is not None else None
-            serie_raw = ws.cell(r, col_serie_idx + 1).value if col_serie_idx is not None else ""
-            cnpj_raw = ws.cell(r, col_cnpj_idx + 1).value if col_cnpj_idx is not None else ""
-            chave_raw = ws.cell(r, col_chave_idx + 1).value if col_chave_idx is not None else ""
-            cfop_raw = ws.cell(r, col_cfop_idx + 1).value if col_cfop_idx is not None else ""
-
-            # Parse de data
-            parsed_date: Optional[datetime.date] = None
-            if isinstance(dt_raw, datetime.datetime):
-                parsed_date = dt_raw.date()
-            elif isinstance(dt_raw, datetime.date):
-                parsed_date = dt_raw
-            elif isinstance(dt_raw, str) and dt_raw.strip():
-                parsed_date = cls._parse_text_date(
-                    dt_raw,
-                    ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"),
+                rec = cls._build_record(
+                    numero=num_str,
+                    serie=serie_raw,
+                    cnpj=cnpj_raw,
+                    chave=chave_raw,
+                    data_entrada=parsed_date,
+                    cfop=cfop_raw,
                 )
+                records.append(rec)
 
-            rec = cls._build_record(
-                numero=num_str,
-                serie=serie_raw,
-                cnpj=cnpj_raw,
-                chave=chave_raw,
-                data_entrada=parsed_date,
-                cfop=cfop_raw,
-            )
-            records.append(rec)
-
-        wb.close()
-        return records
+            return records
+        finally:
+            wb.close()
 
     @classmethod
     def _parse_xlrd(cls, file_bytes: bytes) -> List[PlanilhaEntradaRecord]:
         book = xlrd.open_workbook(file_contents=file_bytes)
         sheet = book.sheet_by_index(0)
 
-        header_row_idx = None
-        header_names: List[str] = []
-
-        for r in range(min(16, sheet.nrows)):
-            row_vals = [str(sheet.cell_value(r, c) or "").strip() for c in range(sheet.ncols)]
-            if any("número nota" in v.lower() or "numero nota" in v.lower() or "dt.escritur" in v.lower() for v in row_vals):
-                header_row_idx = r
-                header_names = row_vals
-                break
-
-        if header_row_idx is None:
-            header_row_idx = 0
-            header_names = [str(sheet.cell_value(0, c) or "").strip() for c in range(sheet.ncols)]
-
-        (
+        candidate_rows = [
+            [str(sheet.cell_value(r, c) or "").strip() for c in range(sheet.ncols)]
+            for r in range(min(16, sheet.nrows))
+        ]
+        header_row_idx, (
             col_num_idx,
             col_dt_idx,
             col_serie_idx,
             col_cnpj_idx,
             col_chave_idx,
             col_cfop_idx,
-        ) = cls._resolve_column_indexes(header_names, is_xlsx=False)
-
-        if col_num_idx is None or col_dt_idx is None:
-            raise ValidationException(
-                "A planilha contábil precisa conter as colunas de número da nota e data de entrada/escrituração."
-            )
+        ) = cls._find_header_and_indexes(candidate_rows, is_xlsx=False)
 
         records: List[PlanilhaEntradaRecord] = []
 
@@ -418,7 +392,6 @@ class PlanilhaEntradaParser:
                 continue
 
             num_str = str(num_val).strip()
-            # Remover .0 se veio como float no xlrd
             if num_str.endswith(".0"):
                 num_str = num_str[:-2]
 

@@ -4,6 +4,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field, validator
 from openpyxl.utils import column_index_from_string
 
+from app.schemas.validators import hide_internal_path
+
 class TemplateMapping(BaseModel):
     start_row: int = Field(..., example=5, description="Linha onde começa o preenchimento dos dados")
     columns: Dict[str, str] = Field(
@@ -108,9 +110,8 @@ class TemplateXlsxOut(BaseModel):
     criado_em: datetime
 
     @validator("arquivo_path", pre=True)
-    def hide_internal_path(cls, value):
-        import os
-        return os.path.basename(str(value).replace("\\", "/"))
+    def _hide_internal_path(cls, value):
+        return hide_internal_path(value)
 
     class Config:
         orm_mode = True

@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import type { Convenio5291Adjustment, Convenio5291Config, PerfilRegras } from '../../types/perfil';
+import { parseCommaSeparatedTerms } from '../../lib/terms';
 import { effectiveConvenio5291PartialConfig } from '../../lib/localProcessing/convenio5291Global.ts';
 
 interface Props {
@@ -181,7 +182,7 @@ export const Convenio5291Section: React.FC<Props> = ({ perfil, anexo = 'I', open
                     <input
                       value={(item.termos_descricao ?? []).join(', ')}
                       onChange={(event) => updateAdjustment(item.id, {
-                        termos_descricao: event.target.value.split(',').map((term) => term.trim().toUpperCase()).filter(Boolean),
+                        termos_descricao: parseCommaSeparatedTerms(event.target.value, true),
                       })}
                       className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs"
                       placeholder="Opcional · termos separados por vírgula"

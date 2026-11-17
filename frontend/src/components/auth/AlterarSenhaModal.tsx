@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { isAxiosError } from 'axios';
+import React, { useState } from 'react';
+import { getErrorMessage } from '../../api/client';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { PasswordInput } from '../ui/PasswordInput';
 import { authApi } from '../../api/auth';
+import { useManagedTimeout } from '../../hooks/useManagedTimeout';
 import { CheckCircle2 } from 'lucide-react';
 import { ErrorAlert } from '../feedback/ErrorAlert';
 
@@ -20,13 +21,7 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const closeTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
-    };
-  }, []);
+  const closeTimeout = useManagedTimeout();
 
   const resetForm = () => {
     setSenhaAtual('');
@@ -37,7 +32,7 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
   };
 
   const handleClose = () => {
-    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimeout.clear();
     resetForm();
     onClose();
   };
@@ -73,18 +68,11 @@ export const AlterarSenhaModal: React.FC<AlterarSenhaModalProps> = ({ isOpen, on
         nova_senha: novaSenha,
       });
       setSuccess(true);
-      closeTimerRef.current = window.setTimeout(() => {
+      closeTimeout.schedule(() => {
         handleClose();
       }, 1800);
     } catch (err) {
-      const responseData = isAxiosError<{ detail?: string; message?: string }>(err)
-        ? err.response?.data
-        : undefined;
-      const msg =
-        responseData?.detail ||
-        responseData?.message ||
-        'Não foi possível alterar a senha. Verifique os dados e tente novamente.';
-      setError(msg);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

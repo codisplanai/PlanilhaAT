@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.constants import ANTECIPACAO_PARCIAL, ANTECIPACAO_TRIBUTARIA
 from app.core.exceptions import RuleResolutionException
 from app.models.regra_aliquota import RegraAliquotaDestino
 from app.models.regra_aliquota_empresa import RegraAliquotaEmpresa
@@ -88,7 +89,7 @@ class AliquotaResolver:
         self,
         perfil_regras_id: int,
         ncm: str,
-        escopo: str = "antecipacao_parcial",
+        escopo: str = ANTECIPACAO_PARCIAL,
     ) -> List[RegraReducaoProduto]:
         clean_ncm = re.sub(r"\D", "", ncm or "")
         if len(clean_ncm) < 4 or set(clean_ncm) == {"0"}:
@@ -104,7 +105,7 @@ class AliquotaResolver:
         return [
             r
             for r in todas
-            if (getattr(r, "escopo", None) or "antecipacao_parcial") == escopo
+            if (getattr(r, "escopo", None) or ANTECIPACAO_PARCIAL) == escopo
             and r.ncm
             and clean_ncm.startswith(r.ncm)
         ]
@@ -139,7 +140,7 @@ class AliquotaResolver:
 
         if not ignorar_reducao_produto:
             reducao = self._nivel_reducao_produto(
-                perfil_regras_id, clean_ncm, descricao, escopo="antecipacao_parcial"
+                perfil_regras_id, clean_ncm, descricao, escopo=ANTECIPACAO_PARCIAL
             )
             if reducao is not None:
                 return reducao
@@ -164,7 +165,7 @@ class AliquotaResolver:
             perfil_regras_id,
             clean_ncm,
             descricao,
-            escopo="antecipacao_tributaria",
+            escopo=ANTECIPACAO_TRIBUTARIA,
         )
 
     def resolve_a_dst_padrao(
@@ -177,12 +178,29 @@ class AliquotaResolver:
 
     # -- níveis --------------------------------------------------------------
 
+    def _selecionar_regra_mais_especifica(
+        self,
+        candidatas: List[RegraReducaoProduto],
+        rotulo_item: str,
+        ncm: str,
+    ) -> ResolucaoAliquota:
+        max_len = max(len(regra.ncm) for regra in candidatas)
+        especificas = [regra for regra in candidatas if len(regra.ncm) == max_len]
+        if len(especificas) > 1:
+            raise RuleResolutionException(self._msg_conflito(rotulo_item, ncm, especificas, "regras"))
+        regra = especificas[0]
+        return ResolucaoAliquota(
+            aliquota=Decimal(str(regra.aliquota)),
+            origem=f"reducao_produto:{regra.id}",
+            detalhe=f"Redução por produto: {regra.descricao or f'regra #{regra.id}'}",
+        )
+
     def _nivel_reducao_produto(
         self,
         perfil_regras_id: int,
         ncm: Optional[str],
         descricao: Optional[str],
-        escopo: str = "antecipacao_parcial",
+        escopo: str = ANTECIPACAO_PARCIAL,
     ) -> Optional[ResolucaoAliquota]:
         if not ncm:
             return None
@@ -225,16 +243,7 @@ class AliquotaResolver:
                 and not casa_algum(desc, regra.termos_exclusao)
             ]
             if candidatas:
-                max_len = max(len(regra.ncm) for regra in candidatas)
-                especificas = [regra for regra in candidatas if len(regra.ncm) == max_len]
-                if len(especificas) > 1:
-                    raise RuleResolutionException(self._msg_conflito(desc, ncm, especificas, "regras"))
-                regra = especificas[0]
-                return ResolucaoAliquota(
-                    aliquota=Decimal(str(regra.aliquota)),
-                    origem=f"reducao_produto:{regra.id}",
-                    detalhe=f"Redução por produto: {regra.descricao or f'regra #{regra.id}'}",
-                )
+                return self._selecionar_regra_mais_especifica(candidatas, desc, ncm)
 
         regras_genericas = [regra for regra in regras if not regra.termos_inclusao]
         if regras_genericas:
@@ -244,18 +253,7 @@ class AliquotaResolver:
                 if not (desc and regra.termos_exclusao and casa_algum(desc, regra.termos_exclusao))
             ]
             if candidatas_genericas:
-                max_len = max(len(regra.ncm) for regra in candidatas_genericas)
-                especificas = [regra for regra in candidatas_genericas if len(regra.ncm) == max_len]
-                if len(especificas) > 1:
-                    raise RuleResolutionException(
-                        self._msg_conflito(desc or ncm, ncm, especificas, "regras")
-                    )
-                regra = especificas[0]
-                return ResolucaoAliquota(
-                    aliquota=Decimal(str(regra.aliquota)),
-                    origem=f"reducao_produto:{regra.id}",
-                    detalhe=f"Redução por produto: {regra.descricao or f'regra #{regra.id}'}",
-                )
+                return self._selecionar_regra_mais_especifica(candidatas_genericas, desc or ncm, ncm)
 
         return None
 
@@ -269,6 +267,26 @@ class AliquotaResolver:
             aliquota=Decimal(str(regra.aliquota)),
             origem=f"termo_acordo:{regra.id}",
             detalhe=f"Termo de acordo da empresa: {regra.descricao or f'regra #{regra.id}'}",
+        )
+
+    def _buscar_regra_padrao_uf(
+        self, perfil_regras_id: int, clean_uf: str
+    ) -> Optional[ResolucaoAliquota]:
+        regra_padrao = (
+            self.db.query(RegraAliquotaDestino)
+            .filter(
+                RegraAliquotaDestino.perfil_regras_id == perfil_regras_id,
+                RegraAliquotaDestino.uf == clean_uf,
+                or_(RegraAliquotaDestino.ncm == None, RegraAliquotaDestino.ncm == ""),  # noqa: E711
+            )
+            .first()
+        )
+        if regra_padrao is None:
+            return None
+        return ResolucaoAliquota(
+            aliquota=Decimal(str(regra_padrao.aliquota)),
+            origem=f"padrao_uf:{regra_padrao.id}",
+            detalhe=f"Alíquota padrão da UF {clean_uf}",
         )
 
     def _nivel_padrao(
@@ -291,21 +309,9 @@ class AliquotaResolver:
                     detalhe=f"Exceção por NCM {clean_ncm} na UF {clean_uf}",
                 )
 
-        regra_padrao = (
-            self.db.query(RegraAliquotaDestino)
-            .filter(
-                RegraAliquotaDestino.perfil_regras_id == perfil_regras_id,
-                RegraAliquotaDestino.uf == clean_uf,
-                or_(RegraAliquotaDestino.ncm == None, RegraAliquotaDestino.ncm == ""),  # noqa: E711
-            )
-            .first()
-        )
-        if regra_padrao is not None:
-            return ResolucaoAliquota(
-                aliquota=Decimal(str(regra_padrao.aliquota)),
-                origem=f"padrao_uf:{regra_padrao.id}",
-                detalhe=f"Alíquota padrão da UF {clean_uf}",
-            )
+        padrao = self._buscar_regra_padrao_uf(perfil_regras_id, clean_uf)
+        if padrao is not None:
+            return padrao
 
         ncm_info = f" e NCM '{clean_ncm}'" if clean_ncm else ""
         raise RuleResolutionException(
@@ -314,21 +320,9 @@ class AliquotaResolver:
         )
 
     def _nivel_padrao_uf(self, perfil_regras_id: int, clean_uf: str) -> ResolucaoAliquota:
-        regra_padrao = (
-            self.db.query(RegraAliquotaDestino)
-            .filter(
-                RegraAliquotaDestino.perfil_regras_id == perfil_regras_id,
-                RegraAliquotaDestino.uf == clean_uf,
-                or_(RegraAliquotaDestino.ncm == None, RegraAliquotaDestino.ncm == ""),  # noqa: E711
-            )
-            .first()
-        )
-        if regra_padrao is not None:
-            return ResolucaoAliquota(
-                aliquota=Decimal(str(regra_padrao.aliquota)),
-                origem=f"padrao_uf:{regra_padrao.id}",
-                detalhe=f"Alíquota padrão da UF {clean_uf}",
-            )
+        padrao = self._buscar_regra_padrao_uf(perfil_regras_id, clean_uf)
+        if padrao is not None:
+            return padrao
 
         raise RuleResolutionException(
             f"Nenhuma regra de alíquota padrão encontrada para UF '{clean_uf}' no perfil de regras ID {perfil_regras_id}. "

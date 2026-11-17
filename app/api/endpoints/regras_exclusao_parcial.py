@@ -1,15 +1,16 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.persistence import commit_and_refresh, delete_and_commit, get_by_id_or_404
+from app.constants import MOTIVO_IMPOSTO_PAGO_ENTRADA
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.perfil_regras import PerfilRegras
 from app.models.regra_exclusao_parcial import RegraExclusaoParcial
 from app.schemas.regra_exclusao_parcial import (
+    CargaPadraoBAPayload,
     CargaPadraoBAResponse,
     RegraExclusaoParcialCreate,
     RegraExclusaoParcialOut,
@@ -29,14 +30,14 @@ REGRAS_PADRAO_BAHIA = [
         "mercadoria": "Charque",
         "ncm": "02102000",
         "termos": ["CHARQUE"],
-        "motivo": "imposto_pago_entrada",
+        "motivo": MOTIVO_IMPOSTO_PAGO_ENTRADA,
     },
     {
         "chave_origem": "padrao_ba_mistura_bolo",
         "mercadoria": "Mistura para bolo",
         "ncm": "19012090",
         "termos": ["MISTURA", "BOLO"],
-        "motivo": "imposto_pago_entrada",
+        "motivo": MOTIVO_IMPOSTO_PAGO_ENTRADA,
     },
     {
         "chave_origem": "padrao_ba_flocao_milho",
@@ -78,13 +79,9 @@ REGRAS_PADRAO_BAHIA = [
         "mercadoria": "Açúcar",
         "ncm": "17019900",
         "termos": ["ACUCAR"],
-        "motivo": "imposto_pago_entrada",
+        "motivo": MOTIVO_IMPOSTO_PAGO_ENTRADA,
     },
 ]
-
-
-class CargaPadraoBAPayload(BaseModel):
-    perfil_regras_id: int = Field(..., example=1)
 
 
 def _conflita(
@@ -115,9 +112,7 @@ def criar_regra_exclusao(
     payload: RegraExclusaoParcialCreate,
     db: Session = Depends(get_db),
 ):
-    perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-    if not perfil:
-        raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
+    get_by_id_or_404(db, PerfilRegras, payload.perfil_regras_id, "Perfil de regras não encontrado.")
 
     if _conflita(db, payload.perfil_regras_id, payload.uf, payload.ncm, payload.termos_obrigatorios):
         raise HTTPException(
@@ -211,9 +206,7 @@ def carregar_padrao_bahia(
     payload: CargaPadraoBAPayload,
     db: Session = Depends(get_db),
 ):
-    perfil = db.query(PerfilRegras).filter(PerfilRegras.id == payload.perfil_regras_id).first()
-    if not perfil:
-        raise HTTPException(status_code=404, detail="Perfil de regras não encontrado.")
+    get_by_id_or_404(db, PerfilRegras, payload.perfil_regras_id, "Perfil de regras não encontrado.")
 
     existentes_count = 0
     inseridas_count = 0

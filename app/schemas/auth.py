@@ -1,7 +1,9 @@
+from typing import Any, Optional
 from pydantic import BaseModel, Field, validator
-from typing import Optional, Any
 
 from app.constants import ROLE_OPERADOR
+from app.schemas.validators import clean_email
+
 
 class LoginRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=254)
@@ -9,10 +11,7 @@ class LoginRequest(BaseModel):
 
     @validator("email")
     def validate_email(cls, value: str) -> str:
-        clean = value.strip().lower()
-        if clean.count("@") != 1 or clean.startswith("@") or clean.endswith("@"):
-            raise ValueError("E-mail inválido")
-        return clean
+        return clean_email(value)
 
     class Config:
         extra = "forbid"

@@ -7,8 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.persistence import get_by_id_or_404
+from app.constants import (
+    ANTECIPACAO_PARCIAL,
+    ATIVIDADE_COMERCIO,
+    STATUS_CONCLUIDO,
+    TIPOS_PLANILHA,
+)
 from app.core.database import get_db
-from app.core.security import get_current_user, is_admin_or_senior
+from app.core.security import authorize_solicitacao_access, get_current_user
 from app.models.empresa import Empresa
 from app.models.nota_fiscal import NotaFiscalProcessada
 from app.models.perfil_regras import PerfilRegras
@@ -25,7 +32,6 @@ from app.schemas.local_processing import LocalProcessingContextOut, LocalProcess
 from app.schemas.solicitacao import SolicitacaoOut
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.templates_admin.template_manager import TemplateManager
-from app.constants import TIPOS_PLANILHA
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +92,6 @@ def _reject_raw_file_payload(value: Any, path: str = "payload") -> None:
         )
 
 
-def _authorize_request(solicitacao: Solicitacao, current_user: Profile) -> None:
-    if not is_admin_or_senior(current_user) and str(solicitacao.usuario_id or "") != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Você não tem permissão para acessar esta solicitação.")
-
-
 def _serialize_empresa(empresa: Empresa) -> Dict[str, Any]:
     termo = empresa.termo_acordo
     return {
@@ -101,7 +102,7 @@ def _serialize_empresa(empresa: Empresa) -> Dict[str, Any]:
         "uf": empresa.uf,
         "perfil_regras_id": empresa.perfil_regras_id,
         "optante_simples_nacional": bool(empresa.optante_simples_nacional),
-        "atividade": empresa.atividade or "comercio",
+        "atividade": empresa.atividade or ATIVIDADE_COMERCIO,
         "a_ori_fixa_parcial": _serialize_decimal(empresa.a_ori_fixa_parcial),
         "termo_acordo": (
             {
@@ -123,7 +124,7 @@ def _serialize_reducao(regra: RegraReducaoProduto) -> Dict[str, Any]:
         "termos_inclusao": regra.termos_inclusao or [],
         "termos_exclusao": regra.termos_exclusao or [],
         "aliquota": _serialize_decimal(regra.aliquota),
-        "escopo": regra.escopo or "antecipacao_parcial",
+        "escopo": regra.escopo or ANTECIPACAO_PARCIAL,
         "descricao": regra.descricao,
         "excecoes": [
             {
@@ -234,7 +235,7 @@ def _build_context_payload(
             }
             for template in templates
         ],
-        "mva_anexo": MvaResolver._load_anexo_entries(),
+        "mva_anexo": MvaResolver.get_anexo_entries(),
     }
 
 
@@ -295,12 +296,7 @@ def obter_contexto_processamento_local(
     templates = (
         db.query(TemplateXlsx)
         .filter(TemplateXlsx.ativo.is_(True))
-        .order_by(
-            TemplateXlsx.tipo,
-            TemplateXlsx.capacidade_linhas.is_(None),
-            TemplateXlsx.capacidade_linhas,
-            TemplateXlsx.versao.desc(),
-        )
+        .order_by(*TemplateManager.DEFAULT_ORDER)
         .all()
     )
 
@@ -324,10 +320,8 @@ def registrar_resultado_processamento_local(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    solicitacao = db.get(Solicitacao, id)
-    if not solicitacao:
-        raise HTTPException(status_code=404, detail="Solicitação não encontrada.")
-    _authorize_request(solicitacao, current_user)
+    solicitacao = get_by_id_or_404(db, Solicitacao, id, "Solicitação não encontrada.")
+    authorize_solicitacao_access(solicitacao, current_user)
 
     raw = payload.dict()
     if len(json.dumps(raw, ensure_ascii=False, default=str)) > 8 * 1024 * 1024:
@@ -367,7 +361,7 @@ def registrar_resultado_processamento_local(
             )
         )
 
-    solicitacao.status = "concluido"
+    solicitacao.status = STATUS_CONCLUIDO
     solicitacao.mensagem_erro = payload.mensagem
     solicitacao.arquivo_saida_path = None
     solicitacao.total_notas_processadas = len(payload.notas_processadas)

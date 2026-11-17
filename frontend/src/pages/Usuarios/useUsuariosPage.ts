@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -7,7 +7,10 @@ import { z } from 'zod';
 import { getErrorMessage } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { usuariosApi } from '../../api/usuarios';
+import { useUsuariosQuery } from '../../hooks/useApiQueries';
 import type { Usuario } from '../../types/usuario';
+
+export type StatusFiltro = 'todas' | 'ativas' | 'inativas';
 
 const usuarioSchema = z.object({
   nome: z.string().min(1, 'Informe o nome').max(255, 'Nome muito longo'),
@@ -35,10 +38,37 @@ export function useUsuariosPage() {
     defaultValues: EMPTY_USER,
   });
 
-  const usersQuery = useQuery({
-    queryKey: queryKeys.usuarios,
-    queryFn: usuariosApi.listar,
-  });
+  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>('todas');
+  const [busca, setBusca] = useState('');
+  // Desativar uma conta tira o acesso de alguém: pede confirmação. Reativar não.
+  const [usuarioParaDesativar, setUsuarioParaDesativar] = useState<Usuario | null>(null);
+  const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
+
+  const usersQuery = useUsuariosQuery();
+  const usuarios = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
+
+  const contagens = useMemo(
+    () => ({
+      todas: usuarios.length,
+      ativas: usuarios.filter((u) => u.ativo).length,
+      inativas: usuarios.filter((u) => !u.ativo).length,
+    }),
+    [usuarios],
+  );
+
+  const usuariosVisiveis = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return usuarios.filter((u) => {
+      if (statusFiltro === 'ativas' && !u.ativo) return false;
+      if (statusFiltro === 'inativas' && u.ativo) return false;
+      if (!termo) return true;
+      return (
+        u.nome.toLowerCase().includes(termo)
+        || u.email.toLowerCase().includes(termo)
+        || (u.cargo || '').toLowerCase().includes(termo)
+      );
+    });
+  }, [usuarios, statusFiltro, busca]);
 
   const createMutation = useMutation({
     mutationFn: usuariosApi.criar,
@@ -106,8 +136,27 @@ export function useUsuariosPage() {
     deleteMutation.mutate(user.id, { onSettled: () => onDone?.() });
   };
 
+  const pedirAlteracaoDeStatus = (u: Usuario) => {
+    if (u.ativo) {
+      setUsuarioParaDesativar(u);
+      return;
+    }
+    toggleStatus(u);
+  };
+
+  const confirmarDesativacao = () => {
+    if (usuarioParaDesativar) toggleStatus(usuarioParaDesativar);
+    setUsuarioParaDesativar(null);
+  };
+
+  const confirmarExclusao = () => {
+    if (usuarioParaExcluir) {
+      deleteUser(usuarioParaExcluir, () => setUsuarioParaExcluir(null));
+    }
+  };
+
   return {
-    usuarios: usersQuery.data ?? [],
+    usuarios,
     isLoading: usersQuery.isLoading,
     refetch: usersQuery.refetch,
     pageError: pageError || (usersQuery.error ? getErrorMessage(usersQuery.error) : null),
@@ -122,6 +171,19 @@ export function useUsuariosPage() {
     togglingUserId,
     deleteUser,
     deletingUserId,
+    statusFiltro,
+    setStatusFiltro,
+    busca,
+    setBusca,
+    contagens,
+    usuariosVisiveis,
+    usuarioParaDesativar,
+    setUsuarioParaDesativar,
+    usuarioParaExcluir,
+    setUsuarioParaExcluir,
+    pedirAlteracaoDeStatus,
+    confirmarDesativacao,
+    confirmarExclusao,
     register: form.register,
     control: form.control,
     errors: form.formState.errors,

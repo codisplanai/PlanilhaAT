@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,8 +10,14 @@ import { queryKeys } from '../../api/queryKeys';
 import { templatesApi } from '../../api/templates';
 import { TIPOS_PLANILHA_OPTIONS } from '../../constants/domain';
 import { useTemplatesQuery } from '../../hooks/useApiQueries';
-import type { TemplateMapping } from '../../types/template';
+import type { TemplateMapping, TemplateXlsx } from '../../types/template';
 import type { TipoPlanilha } from '../../types/solicitacao';
+
+export interface Faixa {
+  capacidade: number | null;
+  oficial: TemplateXlsx | null;
+  substituidas: TemplateXlsx[];
+}
 
 const templateUploadSchema = z.object({
   tipo: z.enum([
@@ -106,7 +112,7 @@ export function useAdminTemplatesPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const templatesQuery = useTemplatesQuery();
-  const templates = templatesQuery.data ?? [];
+  const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
   const safetyConfigQuery = useQuery({
     queryKey: queryKeys.templateSelectionConfigs,
     queryFn: templatesApi.listarConfiguracoesSelecao,
@@ -278,10 +284,43 @@ export function useAdminTemplatesPage() {
     }
   });
 
+  const filteredTemplates = useMemo(
+    () => templates.filter((template) => template.tipo === selectedType),
+    [templates, selectedType],
+  );
+
+  // O motor escolhe o menor modelo cuja capacidade cobre (linhas reais + margem).
+  // A página só é legível se as capacidades aparecerem como uma escada.
+  const faixas = useMemo<Faixa[]>(() => {
+    const porCapacidade = new Map<number | null, TemplateXlsx[]>();
+    for (const template of filteredTemplates) {
+      const chave = template.capacidade_linhas ?? null;
+      const atual = porCapacidade.get(chave);
+      if (atual) atual.push(template);
+      else porCapacidade.set(chave, [template]);
+    }
+    return [...porCapacidade.entries()]
+      .map(([capacidade, versoes]) => {
+        const ordenadas = [...versoes].sort((a, b) => b.versao - a.versao);
+        return {
+          capacidade,
+          oficial: ordenadas.find((t) => t.ativo) ?? null,
+          substituidas: ordenadas.filter((t) => !t.ativo),
+        };
+      })
+      .sort((a, b) => {
+        // Modelos legados (sem capacidade declarada) ficam no fim da escada.
+        if (a.capacidade === null) return 1;
+        if (b.capacidade === null) return -1;
+        return a.capacidade - b.capacidade;
+      });
+  }, [filteredTemplates]);
+
   return {
     templatesQuery,
     templates,
-    filteredTemplates: templates.filter((template) => template.tipo === selectedType),
+    filteredTemplates,
+    faixas,
     tiposPlanilha: TIPOS_PLANILHA_OPTIONS,
     selectedType,
     setSelectedType,

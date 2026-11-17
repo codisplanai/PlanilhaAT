@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
   UserPlus,
@@ -26,13 +26,11 @@ import { SectionEmpty } from '../../components/feedback/SectionEmpty';
 import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import type { User } from '../../types/auth';
 import type { Usuario } from '../../types/usuario';
-import { useUsuariosPage } from './useUsuariosPage';
+import { type StatusFiltro, useUsuariosPage } from './useUsuariosPage';
 
 interface UsuariosPageProps {
   user?: User | null;
 }
-
-type StatusFiltro = 'todas' | 'ativas' | 'inativas';
 
 const RoleBadge: React.FC<{ usuario: Usuario }> = ({ usuario }) =>
   usuario.role === 'admin' ? (
@@ -73,51 +71,25 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user: propUser }) =>
     openModal: abrirModal,
     closeModal: fecharModal,
     createUser: onSubmit,
-    toggleStatus: alternarStatus,
     togglingUserId,
-    deleteUser: excluirUsuario,
     deletingUserId,
+    statusFiltro,
+    setStatusFiltro,
+    busca,
+    setBusca,
+    contagens,
+    usuariosVisiveis,
+    usuarioParaDesativar,
+    setUsuarioParaDesativar,
+    usuarioParaExcluir,
+    setUsuarioParaExcluir,
+    pedirAlteracaoDeStatus,
+    confirmarDesativacao,
+    confirmarExclusao,
     register,
     errors,
     isSaving: salvando,
   } = useUsuariosPage();
-
-  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>('todas');
-  const [busca, setBusca] = useState('');
-  // Desativar uma conta tira o acesso de alguém: pede confirmação. Reativar não.
-  const [usuarioParaDesativar, setUsuarioParaDesativar] = useState<Usuario | null>(null);
-  const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
-
-  const contagens = useMemo(
-    () => ({
-      todas: usuarios.length,
-      ativas: usuarios.filter((u) => u.ativo).length,
-      inativas: usuarios.filter((u) => !u.ativo).length,
-    }),
-    [usuarios],
-  );
-
-  const usuariosVisiveis = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return usuarios.filter((u) => {
-      if (statusFiltro === 'ativas' && !u.ativo) return false;
-      if (statusFiltro === 'inativas' && u.ativo) return false;
-      if (!termo) return true;
-      return (
-        u.nome.toLowerCase().includes(termo) ||
-        u.email.toLowerCase().includes(termo) ||
-        (u.cargo || '').toLowerCase().includes(termo)
-      );
-    });
-  }, [usuarios, statusFiltro, busca]);
-
-  const pedirAlteracaoDeStatus = (u: Usuario) => {
-    if (u.ativo) {
-      setUsuarioParaDesativar(u);
-      return;
-    }
-    alternarStatus(u);
-  };
 
   const renderAcao = (u: Usuario) => {
     const isCurrentUser = u.id === user?.id;
@@ -402,10 +374,7 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user: propUser }) =>
       <ConfirmDialog
         isOpen={Boolean(usuarioParaDesativar)}
         onClose={() => setUsuarioParaDesativar(null)}
-        onConfirm={() => {
-          if (usuarioParaDesativar) alternarStatus(usuarioParaDesativar);
-          setUsuarioParaDesativar(null);
-        }}
+        onConfirm={confirmarDesativacao}
         title="Desativar conta"
         message={`${usuarioParaDesativar?.nome} perde o acesso ao sistema imediatamente. O histórico de solicitações dessa pessoa é preservado e a conta pode ser reativada depois.`}
         confirmLabel="Desativar conta"
@@ -417,11 +386,7 @@ export const UsuariosPage: React.FC<UsuariosPageProps> = ({ user: propUser }) =>
       <ConfirmDialog
         isOpen={Boolean(usuarioParaExcluir)}
         onClose={() => setUsuarioParaExcluir(null)}
-        onConfirm={() => {
-          if (usuarioParaExcluir) {
-            excluirUsuario(usuarioParaExcluir, () => setUsuarioParaExcluir(null));
-          }
-        }}
+        onConfirm={confirmarExclusao}
         title="Excluir conta"
         message={
           <>
