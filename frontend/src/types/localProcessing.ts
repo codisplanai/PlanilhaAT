@@ -20,6 +20,7 @@ import type { PerfilConfiguracoesExtras } from './perfil';
 
 export interface LocalTemplateDescriptor {
   id: number;
+  empresa_id?: number | null;
   tipo: TipoPlanilha;
   versao: number;
   capacidade_linhas?: number | null;

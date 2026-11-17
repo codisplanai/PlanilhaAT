@@ -50,12 +50,18 @@ def criar_solicitacao(
     if template_id and not payload.tipo_planilha:
         raise HTTPException(status_code=422, detail="template_id só pode ser usado junto com tipo_planilha.")
     if payload.tipo_planilha and not template_id:
-        template = TemplateManager.get_active_template(db, payload.tipo_planilha)
+        template = TemplateManager.get_active_template(
+            db,
+            payload.tipo_planilha,
+            empresa_id=empresa.id,
+        )
         template_id = template.id
     elif payload.tipo_planilha and template_id:
         template = get_by_id_or_404(db, TemplateXlsx, template_id, "Template informado não encontrado.")
         if template.tipo != payload.tipo_planilha:
             raise HTTPException(status_code=422, detail="O template não pertence ao tipo de planilha informado.")
+        if template.empresa_id not in (None, empresa.id):
+            raise HTTPException(status_code=422, detail="O template informado pertence a outra empresa.")
 
     solicitacao = Solicitacao(
         empresa_id=payload.empresa_id,

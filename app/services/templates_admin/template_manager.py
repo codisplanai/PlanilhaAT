@@ -2,12 +2,13 @@ import os
 import io
 import hashlib
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import openpyxl
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from app.models.empresa import Empresa
 from app.models.template_xlsx import TemplateXlsx
 from app.schemas.template_xlsx import TemplateMapping
 from app.core.config import settings
@@ -40,6 +41,8 @@ class TemplateManager:
     """
 
     DEFAULT_ORDER = (
+        TemplateXlsx.empresa_id.is_not(None),
+        TemplateXlsx.empresa_id,
         TemplateXlsx.tipo,
         TemplateXlsx.capacidade_linhas.is_(None),
         TemplateXlsx.capacidade_linhas,
@@ -47,8 +50,22 @@ class TemplateManager:
     )
 
     @staticmethod
-    def _family_filter(tipo: str, capacidade_linhas: Optional[int]):
+    def _scope_filter(empresa_id: Optional[int] = None):
+        return (
+            TemplateXlsx.empresa_id == empresa_id
+            if empresa_id is not None
+            else TemplateXlsx.empresa_id.is_(None)
+        )
+
+    @classmethod
+    def _family_filter(
+        cls,
+        tipo: str,
+        capacidade_linhas: Optional[int],
+        empresa_id: Optional[int] = None,
+    ):
         return [
+            cls._scope_filter(empresa_id),
             TemplateXlsx.tipo == tipo,
             (
                 TemplateXlsx.capacidade_linhas == capacidade_linhas
@@ -83,7 +100,8 @@ class TemplateManager:
         mapeamento: Dict[str, Any],
         capacidade_linhas: Optional[int] = None,
         observacoes: Optional[str] = None,
-        promover_ativo: bool = False
+        promover_ativo: bool = False,
+        empresa_id: Optional[int] = None,
     ) -> TemplateXlsx:
         valid_tipos = TIPOS_PLANILHA
         clean_tipo = tipo.strip().lower()
@@ -91,6 +109,10 @@ class TemplateManager:
             raise ValidationException(f"Tipo de planilha '{tipo}' inválido. Tipos suportados: {valid_tipos}")
         if capacidade_linhas is not None and capacidade_linhas < 1:
             raise ValidationException("A capacidade de linhas deve ser maior ou igual a 1.")
+        if empresa_id is not None:
+            empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
+            if not empresa:
+                raise NotFoundException("Empresa não encontrada.")
 
         # Validação obrigatória da estrutura de mapeamento
         try:
@@ -124,10 +146,13 @@ class TemplateManager:
 
         file_hash = cls.calculate_file_hash(file_bytes)
         
-        # Próxima versão sequencial
+        # Próxima versão sequencial no escopo (global ou da empresa)
         ultima_versao = (
             db.query(TemplateXlsx)
-            .filter(TemplateXlsx.tipo == clean_tipo)
+            .filter(
+                TemplateXlsx.tipo == clean_tipo,
+                cls._scope_filter(empresa_id),
+            )
             .order_by(desc(TemplateXlsx.versao))
             .first()
         )
@@ -135,8 +160,11 @@ class TemplateManager:
 
         # Salvar o arquivo no diretório de templates versionados
         ext = os.path.splitext(filename)[1] or ".xlsx"
+        empresa_part = f"_emp{empresa_id}" if empresa_id is not None else ""
         capacity_part = f"_cap{capacidade_linhas}" if capacidade_linhas is not None else ""
-        stored_filename = f"template_{clean_tipo}{capacity_part}_v{proxima_versao}_{file_hash[:8]}{ext}"
+        stored_filename = (
+            f"template_{clean_tipo}{empresa_part}{capacity_part}_v{proxima_versao}_{file_hash[:8]}{ext}"
+        )
         stored_path = os.path.join(settings.TEMPLATES_DIR, stored_filename)
 
         try:
@@ -158,9 +186,9 @@ class TemplateManager:
                 proxima_versao,
             )
 
-        # Cada capacidade possui sua própria versão oficial. Modelos legados
+        # Cada escopo e capacidade possui sua própria versão oficial. Modelos legados
         # (capacidade nula) permanecem isolados para compatibilidade.
-        family_filter = cls._family_filter(clean_tipo, capacidade_linhas)
+        family_filter = cls._family_filter(clean_tipo, capacidade_linhas, empresa_id)
         template_ativo_existente = (
             db.query(TemplateXlsx)
             .filter(*family_filter, TemplateXlsx.ativo == True)
@@ -182,6 +210,7 @@ class TemplateManager:
         mapping_payload["extra_options"] = extra_options
 
         novo_template = TemplateXlsx(
+            empresa_id=empresa_id,
             tipo=clean_tipo,
             versao=proxima_versao,
             capacidade_linhas=capacidade_linhas,
@@ -232,18 +261,39 @@ class TemplateManager:
             raise NotFoundException(f"Template com ID {template_id} não encontrado.")
 
         clean_tipo = target.tipo.strip().lower()
-        if clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES:
+        if clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES or target.empresa_id is not None:
             # A promoção só é permitida se a versão puder resolver exatamente
             # o arquivo correspondente ao hash registrado.
             cls.resolve_template_path(target)
 
-        # Desativa somente versões concorrentes da mesma família (tipo + capacidade).
-        family_filter = cls._family_filter(target.tipo, target.capacidade_linhas)
+        # Desativa somente versões concorrentes da mesma família (escopo + tipo + capacidade).
+        family_filter = cls._family_filter(
+            target.tipo,
+            target.capacidade_linhas,
+            target.empresa_id,
+        )
         db.query(TemplateXlsx).filter(*family_filter).update(
             {"ativo": False},
             synchronize_session=False,
         )
         target.ativo = True
+        db.commit()
+        db.refresh(target)
+        return target
+
+    @classmethod
+    def deactivate_version(cls, db: Session, template_id: int) -> TemplateXlsx:
+        """Desativa um modelo personalizado de empresa para retornar ao padrão global."""
+        target = db.query(TemplateXlsx).filter(TemplateXlsx.id == template_id).first()
+        if not target:
+            raise NotFoundException(f"Template com ID {template_id} não encontrado.")
+        if target.empresa_id is None:
+            raise ValidationException(
+                "Modelos padrão globais não podem ser desativados sem substituição. "
+                "Coloque outra versão em uso."
+            )
+
+        target.ativo = False
         db.commit()
         db.refresh(target)
         return target
@@ -318,20 +368,16 @@ class TemplateManager:
         return int(margin)
 
     @classmethod
-    def get_active_template(
+    def _select_from_scope(
         cls,
         db: Session,
-        tipo: str,
-        required_rows: Optional[int] = None,
-    ) -> TemplateXlsx:
-        """Seleciona a versão oficial adequada ao tipo e à quantidade de linhas.
-
-        Quando existem capacidades cadastradas, escolhe sempre a menor capacidade
-        ativa que comporte a quantidade solicitada. Modelos legados (capacidade
-        nula) só são usados quando ainda não existe nenhuma capacidade ativa.
-        """
-        clean_tipo = tipo.strip().lower()
+        clean_tipo: str,
+        required_rows: Optional[int],
+        safety_margin: int,
+        empresa_id: Optional[int],
+    ) -> Tuple[Optional[TemplateXlsx], Optional[int]]:
         base_query = db.query(TemplateXlsx).filter(
+            cls._scope_filter(empresa_id),
             TemplateXlsx.tipo == clean_tipo,
             TemplateXlsx.ativo == True,
         )
@@ -351,44 +397,92 @@ class TemplateManager:
                 .first()
             )
             if legacy:
-                return legacy
+                return legacy, None
             if capacity_templates:
-                return capacity_templates[0]
-        else:
-            if required_rows < 1:
-                raise ValidationException("A quantidade de linhas necessária deve ser maior ou igual a 1.")
-
-            safety_margin = cls.get_safety_margin(db, clean_tipo)
-            required_capacity = required_rows + safety_margin
-
-            if capacity_templates:
-                for template in capacity_templates:
-                    if int(template.capacidade_linhas or 0) >= required_capacity:
-                        return template
-
                 max_capacity = max(
                     int(template.capacidade_linhas or 0)
                     for template in capacity_templates
                 )
-                margin_detail = (
-                    f" + {safety_margin} linhas de segurança = {required_capacity}"
-                    if safety_margin
-                    else ""
-                )
-                raise ValidationException(
-                    f"O processamento de '{tipo}' necessita de {required_rows} linhas"
-                    f"{margin_detail}, mas o maior modelo oficial cadastrado suporta {max_capacity} linhas. "
-                    f"Cadastre um modelo com capacidade igual ou superior a {required_capacity}."
-                )
+                return capacity_templates[0], max_capacity
+            return None, None
 
-            legacy = (
-                base_query
-                .filter(TemplateXlsx.capacidade_linhas.is_(None))
-                .order_by(TemplateXlsx.versao.desc())
-                .first()
+        required_capacity = required_rows + safety_margin
+        if capacity_templates:
+            max_capacity = max(
+                int(template.capacidade_linhas or 0)
+                for template in capacity_templates
             )
-            if legacy:
-                return legacy
+            for template in capacity_templates:
+                if int(template.capacidade_linhas or 0) >= required_capacity:
+                    return template, max_capacity
+            return None, max_capacity
+
+        legacy = (
+            base_query
+            .filter(TemplateXlsx.capacidade_linhas.is_(None))
+            .order_by(TemplateXlsx.versao.desc())
+            .first()
+        )
+        return legacy, None
+
+    @classmethod
+    def get_active_template(
+        cls,
+        db: Session,
+        tipo: str,
+        required_rows: Optional[int] = None,
+        empresa_id: Optional[int] = None,
+    ) -> TemplateXlsx:
+        """Seleciona a versão oficial adequada ao escopo, tipo e quantidade de linhas.
+
+        Quando ``empresa_id`` é informado, prioriza o menor modelo ativo da empresa
+        que comporte as linhas solicitadas; se não houver ou a capacidade da empresa
+        for insuficiente, faz fallback para o padrão global.
+        """
+        clean_tipo = tipo.strip().lower()
+        if required_rows is not None and required_rows < 1:
+            raise ValidationException("A quantidade de linhas necessária deve ser maior ou igual a 1.")
+
+        safety_margin = cls.get_safety_margin(db, clean_tipo) if required_rows is not None else 0
+        required_capacity = (required_rows + safety_margin) if required_rows is not None else None
+
+        company_max_capacity: Optional[int] = None
+        if empresa_id is not None:
+            selected, company_max_capacity = cls._select_from_scope(
+                db=db,
+                clean_tipo=clean_tipo,
+                required_rows=required_rows,
+                safety_margin=safety_margin,
+                empresa_id=empresa_id,
+            )
+            if selected is not None:
+                return selected
+
+        selected, global_max_capacity = cls._select_from_scope(
+            db=db,
+            clean_tipo=clean_tipo,
+            required_rows=required_rows,
+            safety_margin=safety_margin,
+            empresa_id=None,
+        )
+        if selected is not None:
+            return selected
+
+        available_caps = [
+            cap for cap in (company_max_capacity, global_max_capacity) if cap is not None
+        ]
+        if required_rows is not None and available_caps:
+            max_capacity = max(available_caps)
+            margin_detail = (
+                f" + {safety_margin} linhas de segurança = {required_capacity}"
+                if safety_margin
+                else ""
+            )
+            raise ValidationException(
+                f"O processamento de '{tipo}' necessita de {required_rows} linhas"
+                f"{margin_detail}, mas o maior modelo oficial cadastrado suporta {max_capacity} linhas. "
+                f"Cadastre um modelo com capacidade igual ou superior a {required_capacity}."
+            )
 
         raise NotFoundException(
             f"Nenhum template ativo cadastrado para o tipo '{tipo}'. "
@@ -429,7 +523,9 @@ class TemplateManager:
         raw_path = (template.arquivo_path or "").replace("\\", "/")
         clean_tipo = template.tipo.strip().lower()
         filename = os.path.basename(raw_path) if raw_path else f"modelo_padrao_{clean_tipo}.xlsx"
-        strict_official = clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES
+        strict_official = (clean_tipo in STRICT_OFFICIAL_TEMPLATE_TYPES) or (
+            template.empresa_id is not None
+        )
 
         # 1. Caminho direto existente
         if raw_path and os.path.exists(raw_path):

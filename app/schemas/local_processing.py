@@ -178,6 +178,7 @@ class LocalTemplateMappingOut(BaseModel):
 
 class LocalTemplateDescriptorOut(BaseModel):
     id: int
+    empresa_id: Optional[int] = None
     tipo: str
     versao: int
     capacidade_linhas: Optional[int] = None

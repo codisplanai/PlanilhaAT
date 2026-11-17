@@ -78,6 +78,7 @@ class TemplateSelectionConfigOut(BaseModel):
 
 class TemplateXlsxBase(BaseModel):
     tipo: str = Field(..., example="antecipacao_parcial", description="antecipacao_parcial, antecipacao_tributaria ou difal")
+    empresa_id: Optional[int] = Field(None, description="ID da empresa dona do modelo personalizado, ou nulo para padrão global")
     versao: int = Field(..., example=1)
     capacidade_linhas: Optional[int] = Field(
         None,
@@ -99,6 +100,7 @@ class TemplateXlsxUpdate(BaseModel):
 
 class TemplateXlsxOut(BaseModel):
     id: int
+    empresa_id: Optional[int] = None
     tipo: str
     versao: int
     capacidade_linhas: Optional[int] = None
