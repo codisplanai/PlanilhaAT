@@ -268,13 +268,25 @@ test('processFiscalLocally: Armazém Comércio exclui ST mesmo abaixo do imposto
   assert.match(result.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
 });
 
-for (const company of ['Casa VIP LTDA', 'Baia Ferro FSA LTDA']) {
+for (const company of [
+  'ARMAZÉM COMÉRCIO DE MATERIAIS PARA CONSTRUÇÕES E FERRAGENS LTDA',
+  'ARMAZEM DO RECONCAVO MATERIAIS PARA CONSTRUCAO LTDA',
+  'BAHIA FERRO SALVADOR',
+  'CASA VIP COMÉRCIO DE PISOS E REVESTIMENTOS LTDA',
+  'BAHIA FERRO FSA LTDA',
+  'Bahia Ferro Industrial',
+  'Bahia Ferro Lauro',
+  'Mercal',
+  'MERCADAO SUPERMERCADO LTDA',
+  'MERCADÃO SUPERMERCADO ATACADO E VAREJO LTDA',
+  'Mercadão Supermecado',
+]) {
   test(`processFiscalLocally: ${company} exclui NF-e com ST mesmo com imposto ainda devido`, async () => {
     const context = buildContext();
     context.empresa.razao_social = company;
     const result = await processFiscalLocally(
       {
-        solicitacaoId: 'teste-st-novas-empresas',
+        solicitacaoId: 'teste-st-empresas-lista',
         periodoInicio: '2026-08-01',
         periodoFim: '2026-08-31',
         context,
