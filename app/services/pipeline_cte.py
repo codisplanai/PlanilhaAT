@@ -58,6 +58,8 @@ def get_eligible_cte_nfe_keys(
     for _filename, cte in ctes:
         if _clean_digits(cte.cnpj_tomador) != empresa_cnpj or not cte.data_emissao:
             continue
+        if not SanityChecker.is_interestadual(cte.uf_emitente, empresa.uf):
+            continue
         if SanityChecker.is_within_period(
             cte.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
         ):
@@ -459,6 +461,7 @@ def processar_ctes(
 ) -> None:
     """Processa todos os CT-es carregados, aplicando regra do tomador, rateio e cálculo."""
     empresa_cnpj = _clean_digits(empresa.cnpj)
+    uf_empresa_dest = (empresa.uf or "").strip().upper()
     tem_fonte_entradas = has_sped or bool(planilha_records)
 
     for filename, cte in ctes:
@@ -470,6 +473,20 @@ def processar_ctes(
                     filename,
                     f"CT-e desconsiderado: o tomador do serviço ({tomador or 'não identificado'}) "
                     f"não é a empresa em processamento ({empresa_cnpj}).",
+                )
+            )
+            continue
+
+        uf_emitente = (cte.uf_emitente or "").strip().upper()
+        if not SanityChecker.is_interestadual(uf_emitente, uf_empresa_dest):
+            notas_ignoradas.append(
+                _cte_ignored_record(
+                    cte,
+                    filename,
+                    f"Operação interna estadual desconsiderada: UF do "
+                    f"emitente do CT-e ({uf_emitente}) é igual à UF do "
+                    f"tomador ({uf_empresa_dest}). Antecipação e DIFAL aplicam-se "
+                    f"exclusivamente a aquisições interestaduais.",
                 )
             )
             continue

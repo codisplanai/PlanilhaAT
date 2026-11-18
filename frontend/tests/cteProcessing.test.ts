@@ -30,6 +30,10 @@ function buildCteXml(opts: {
   ano?: string;
   toma?: string;
   cnpjToma4?: string;
+  ufEmit?: string;
+  ufIni?: string;
+  cUf?: string;
+  cfop?: string;
   pIcms?: string;
   icmsTag?: string;
   crt?: string;
@@ -44,6 +48,10 @@ function buildCteXml(opts: {
     ano = '2026',
     toma = '3',
     cnpjToma4 = '',
+    ufEmit = 'SP',
+    ufIni = 'SP',
+    cUf = '35',
+    cfop = '6352',
     pIcms = '12.00',
     icmsTag = 'ICMS00',
     crt = '3',
@@ -58,18 +66,19 @@ function buildCteXml(opts: {
       ? `<${icmsTag}><CST>00</CST><vBC>${vTPrest}</vBC><pICMS>${pIcms}</pICMS><vICMS>${((Number(vTPrest) * Number(pIcms)) / 100).toFixed(2)}</vICMS></${icmsTag}>`
       : `<${icmsTag}><CST>40</CST></${icmsTag}>`;
   const nfesXml = chavesNfe.map((chv) => `<infNFe><chave>${chv}</chave></infNFe>`).join('');
+  const enderEmitXml = ufEmit ? `<enderEmit><UF>${ufEmit}</UF></enderEmit>` : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cteProc xmlns="http://www.portalfiscal.inf.br/cte" versao="4.00">
   <CTe>
     <infCte Id="CTe${chave}" versao="4.00">
       <ide>
-        <cUF>35</cUF>
+        <cUF>${cUf}</cUF>
         <nCT>${numero}</nCT>
         <serie>1</serie>
-        <CFOP>6352</CFOP>
+        <CFOP>${cfop}</CFOP>
         <dhEmi>${ano}-${mes}-${dia}T10:00:00-03:00</dhEmi>
-        <UFIni>SP</UFIni>
+        <UFIni>${ufIni}</UFIni>
         <UFFim>BA</UFFim>
         ${tomaXml}
       </ide>
@@ -77,7 +86,7 @@ function buildCteXml(opts: {
         <CNPJ>${TRANSPORTADORA_CNPJ}</CNPJ>
         <xNome>TRANSPORTADORA TESTE</xNome>
         <CRT>${crt}</CRT>
-        <enderEmit><UF>SP</UF></enderEmit>
+        ${enderEmitXml}
       </emit>
       <rem><CNPJ>${FORNECEDOR_CNPJ}</CNPJ></rem>
       <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ></dest>
@@ -352,4 +361,71 @@ test('CT-e ignora quando tomador não é a empresa e usa SPED D100 / herança da
   assert.equal(row2001.data_entrada, '2026-01-18');
   assert.equal(row2002.data_entrada, '2026-01-15');
 });
+
+test('CT-e interno (mesma UF do emitente e tomador) é ignorado na pré-análise e no processamento', async () => {
+  const ctx = buildCteContext();
+  const chvNfSp = chaveNfe('2601', 610);
+  const chvNfFaltante = chaveNfe('2601', 611);
+  const nfXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvNfSp}">
+  <ide><nNF>610</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${FORNECEDOR_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+  <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <total><ICMSTot><vNF>1000.00</vNF><vBC>1000.00</vBC></ICMSTot></total>
+  <det nItem="1"><prod><NCM>73170090</NCM><CEST>1005700</CEST><CFOP>6403</CFOP><xProd>PREGO</xProd><vProd>1000.00</vProd></prod>
+    <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>1000.00</vBC><pICMS>12.00</pICMS></ICMS00></ICMS></imposto>
+  </det>
+</infNFe></NFe></nfeProc>`;
+
+  const cteInternoFaltante = buildCteXml({
+    numero: '4401',
+    chave: `292601${TRANSPORTADORA_CNPJ}570010000044011000044010`,
+    vTPrest: '200.00',
+    toma: '3',
+    ufEmit: '',
+    ufIni: 'SP',
+    cUf: '29',
+    cfop: '5352',
+    chavesNfe: [chvNfFaltante],
+  });
+  const cteInternoComNf = buildCteXml({
+    numero: '4402',
+    chave: `292601${TRANSPORTADORA_CNPJ}570010000044021000044020`,
+    vTPrest: '300.00',
+    toma: '3',
+    ufEmit: 'BA',
+    ufIni: 'BA',
+    cUf: '29',
+    cfop: '5352',
+    chavesNfe: [chvNfSp],
+  });
+
+  const res = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-cte-interno',
+      periodoInicio: '2026-01-01',
+      periodoFim: '2026-01-31',
+      context: ctx,
+      input: {
+        xmlFiles: [
+          new File([nfXml], '610.xml', { type: 'text/xml' }),
+          new File([cteInternoFaltante], 'cte4401.xml', { type: 'text/xml' }),
+          new File([cteInternoComNf], 'cte4402.xml', { type: 'text/xml' }),
+        ],
+      },
+    },
+    new Map(),
+    loadTemplate,
+  );
+
+  assert.equal(res.preAnalysis.requer_decisao, false);
+  assert.equal(res.preAnalysis.ctes_sem_nfe?.length ?? 0, 0);
+  assert.equal(res.notasProcessadas.length, 1);
+  assert.equal(res.notasProcessadas[0].numero_nota, '610');
+
+  const ignoredByNumber = new Map(res.notasIgnoradas.map((item) => [item.numero_nota, item.motivo]));
+  assert.match(ignoredByNumber.get('4401') ?? '', /Operação interna estadual desconsiderada/);
+  assert.match(ignoredByNumber.get('4402') ?? '', /Operação interna estadual desconsiderada/);
+});
+
 
