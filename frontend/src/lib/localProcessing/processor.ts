@@ -214,6 +214,44 @@ export function groupKey(
   return JSON.stringify([destination, aOri, aDst, mva, convenio5291Applied, reducao]);
 }
 
+/**
+ * Erro do motor de alíquotas com a NF-e que o disparou, como no pipeline do
+ * servidor: um conflito de cadastro sem o documento obriga a procurar o item à mão.
+ */
+function withNoteContext<T>(note: ExtractedNote, resolve: () => T): T {
+  try {
+    return resolve();
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    throw new Error(`NF-e ${note.numeroNota} (arquivo ${note.filename}): ${error.message}`, { cause: error });
+  }
+}
+
+/** Aviso de cadastro devolvido pelo motor de reduções, já com nota e item. */
+function pushReductionWarning(
+  resolution: TaxRateResolution | null,
+  note: ExtractedNote,
+  item: ExtractedItem,
+  warnings: AvisoAvaliacao[],
+  diagnostic?: DiagnosticRecorder,
+): void {
+  if (!resolution?.aviso) return;
+  warnings.push({
+    numero_nota: note.numeroNota,
+    serie: note.serie,
+    item_numero: item.itemNumero,
+    arquivo: note.filename,
+    aviso: `Item ${item.itemNumero}: ${resolution.aviso.charAt(0).toUpperCase()}${resolution.aviso.slice(1)}`,
+  });
+  diagnostic?.event('warning', 'calculo', 'Regras de redução redundantes casaram o mesmo item.', {
+    numeroNota: note.numeroNota,
+    itemNumero: item.itemNumero,
+    ncm: item.ncm,
+    origem: resolution.origem,
+    detalhe: resolution.detalhe,
+  });
+}
+
 function resolveConvenioAndRatesForItem(params: {
   request: LocalProcessingRequest;
   note: ExtractedNote;
@@ -232,7 +270,7 @@ function resolveConvenioAndRatesForItem(params: {
     industrialDecisions, warnings, diagnostic,
   } = params;
   const { context } = request;
-  const rate = resolveDestinationRate(context, item, destination);
+  const rate = withNoteContext(note, () => resolveDestinationRate(context, item, destination));
   // Nenhuma mudança de regra para DIFAL ou Tributária/ST.
   const possivelAgricola = PARTIAL_DESTINATIONS.has(destination)
     ? resolveAnexoIIApplication(
@@ -251,8 +289,11 @@ function resolveConvenioAndRatesForItem(params: {
       ), anexo: 'I' as const }
       : null;
   const tributariaReduction = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
-    ? resolveTributariaReduction(context, item)
+    ? withNoteContext(note, () => resolveTributariaReduction(context, item))
     : null;
+  // Com o Convênio 52/91 aplicado, a A.DST da redução por produto não é usada.
+  if (!convenio?.applied) pushReductionWarning(rate, note, item, warnings, diagnostic);
+  pushReductionWarning(tributariaReduction, note, item, warnings, diagnostic);
   const itemReducao: number | null = tributariaReduction ? tributariaReduction.aliquota : null;
   const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
   const originalAOri = item.aOri;

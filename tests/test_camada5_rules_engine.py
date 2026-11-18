@@ -197,6 +197,102 @@ def test_duas_excecoes_para_a_mesma_descricao_tambem_conflitam(db_session, cenar
     assert "exceções" in str(exc_info.value)
 
 
+def test_conflito_mostra_aba_valores_e_termos_que_casaram(db_session, cenario):
+    perfil, empresa = cenario
+    regra_a = _regra_vergalhao(db_session, perfil)
+    regra_b = RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72142000",
+        termos_inclusao=["BARRA CHATA", "PERFIL"], termos_exclusao=[],
+        aliquota=Decimal("0.1800"), descricao=None)
+    db_session.add(regra_b)
+    db_session.commit()
+
+    with pytest.raises(RuleResolutionException) as exc_info:
+        AliquotaResolver(db_session).resolve_a_dst(
+            perfil.id, "BA", "72142000",
+            descricao="Vergalhão barra chata 10mm", empresa_id=empresa.id)
+
+    msg = str(exc_info.value)
+    # A descrição sai como veio na nota, não a normalizada.
+    assert msg.startswith('Conflito de regras de redução no item "Vergalhão barra chata 10mm" (NCM 72142000).')
+    assert "aba Antecipação Parcial casaram o mesmo item com valores diferentes" in msg
+    assert (f'#{regra_a.id} "Vergalhoes - Decreto 12.345" — NCM 72142000, 12,00%, '
+            'casou com o termo "VERGALH*"') in msg
+    # Só o termo que casou, não todos os termos da regra.
+    assert f'#{regra_b.id} sem descrição — NCM 72142000, 18,00%, casou com o termo "BARRA CHATA"\n' in msg
+
+
+def test_regras_redundantes_com_mesma_aliquota_aplicam_e_avisam(db_session, cenario):
+    """Caso BAHIA FERRO SALVADOR: "CANT*" e "CANTONEIRA*" a 12% casavam a mesma
+    cantoneira e travavam o processamento sem haver dúvida sobre a alíquota."""
+    perfil, empresa = cenario
+    regra_cant = RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72162100",
+        termos_inclusao=["CANT*"], termos_exclusao=[], aliquota=Decimal("0.1200"))
+    regra_cantoneira = RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72162100",
+        termos_inclusao=["CANTONEIRA*"], termos_exclusao=[], aliquota=Decimal("0.1200"))
+    db_session.add_all([regra_cant, regra_cantoneira])
+    db_session.commit()
+
+    res = AliquotaResolver(db_session).resolve_a_dst(
+        perfil.id, "BA", "72162100",
+        descricao="CANTONEIRA 1 X 1/8 6M ASTM A36", empresa_id=empresa.id)
+
+    menor, maior = sorted((regra_cant, regra_cantoneira), key=lambda r: r.id)
+    assert res.aliquota == Decimal("0.1200")
+    assert res.origem == f"reducao_produto:{menor.id}"
+    assert f"regras #{menor.id} e #{maior.id} (mesma alíquota de 12,00%)" in res.detalhe
+    assert res.aviso is not None
+    assert f'#{regra_cant.id} (termo "CANT*")' in res.aviso
+    assert f'#{regra_cantoneira.id} (termo "CANTONEIRA*")' in res.aviso
+    assert '"CANTONEIRA 1 X 1/8 6M ASTM A36" (NCM 72162100)' in res.aviso
+    assert "todas com 12,00%; a alíquota foi aplicada" in res.aviso
+
+
+def test_duas_excecoes_com_mesma_aliquota_aplicam_e_avisam(db_session, cenario):
+    perfil, empresa = cenario
+    regra_a = _regra_vergalhao(db_session, perfil)
+    regra_b = RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="72142000",
+        termos_inclusao=["BARRA CHATA"], termos_exclusao=[],
+        aliquota=Decimal("0.1200"), descricao="Barras chatas")
+    db_session.add(regra_b)
+    db_session.commit()
+    excecoes = {}
+    for regra in (regra_a, regra_b):
+        excecao = ExcecaoReducaoProduto(
+            regra_reducao_id=regra.id, descricao_exata="PECA AMBIGUA", enquadrado=True)
+        db_session.add(excecao)
+        db_session.commit()
+        excecoes[regra.id] = excecao
+
+    res = AliquotaResolver(db_session).resolve_a_dst(
+        perfil.id, "BA", "72142000", descricao="Peça ambígua", empresa_id=empresa.id)
+
+    assert res.aliquota == Decimal("0.1200")
+    assert res.origem == f"excecao:{excecoes[min(excecoes)].id}"
+    assert res.detalhe.startswith("Exceções cadastradas nas regras")
+    assert res.aviso.startswith("as exceções das reduções")
+
+
+def test_reducoes_tributarias_redundantes_usam_tres_casas(db_session, cenario):
+    perfil, _empresa = cenario
+    for termo in ("VERG*", "VERGALH*"):
+        db_session.add(RegraReducaoProduto(
+            perfil_regras_id=perfil.id, ncm="72142000", termos_inclusao=[termo],
+            termos_exclusao=[], aliquota=Decimal("0.41463"), escopo="antecipacao_tributaria"))
+    db_session.commit()
+
+    res = AliquotaResolver(db_session).resolve_reducao_tributaria(
+        perfil.id, "72142000", descricao="VERGALHAO CA50 10MM")
+
+    assert res.aliquota == Decimal("0.41463")
+    assert "mesma redução de 41,463%" in res.detalhe
+    assert "aba Antecipação Tributária" in res.aviso
+    assert "todas com 41,463%; a redução foi aplicada" in res.aviso
+
+
 def test_preload_resolve_sem_novas_consultas(db_session, cenario):
     perfil, empresa = cenario
     _regra_vergalhao(db_session, perfil)

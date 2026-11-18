@@ -292,6 +292,16 @@ carregar a mesma `descricao_exata`. Se mais de uma exceção casar, é conflito 
 inclusive quando concordam em `enquadrado`, porque a alíquota da regra pai
 seria ambígua.
 
+**Atualização (2026-11-18) — regras redundantes com o mesmo valor.** O conflito
+existe para não escolher entre alíquotas diferentes. Quando todas as regras (ou
+exceções) que casaram têm o **mesmo valor**, não há o que escolher: o valor é
+aplicado, a origem registra a regra de menor id, o detalhe lista todas, e o
+resultado ganha um aviso pedindo para unificar o cadastro. Valores diferentes
+continuam interrompendo o processamento com a mensagem acima, que agora traz a
+aba, o NCM, o valor e os termos que casaram em cada regra, e a NF-e. Caso que
+motivou: "CANTONEIRA\*" e "CANT\*", ambas a 12% no NCM 72162100, travavam o
+processamento de uma cantoneira sem haver dúvida sobre a alíquota.
+
 ### Cache por solicitação
 
 `preload(perfil_regras_id, empresa_id)` carrega as regras dos três níveis em

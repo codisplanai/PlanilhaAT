@@ -270,10 +270,122 @@ export function resolveCfop(
   };
 }
 
+type ReductionRule = LocalProcessingContext['regras_reducao'][number];
+type ReductionScope = 'antecipacao_parcial' | 'antecipacao_tributaria';
+
+/** Regra de redução que casou um item, e por quê. */
+interface ReductionMatch {
+  rule: ReductionRule;
+  /** Exceção de descrição exata (enquadrada) pela qual a regra casou. */
+  exceptionId?: number;
+  /** Termos de inclusão que casaram com a descrição; vazio em regra sem termos. */
+  terms: string[];
+}
+
+const REDUCTION_SCOPE_LABELS: Record<ReductionScope, string> = {
+  antecipacao_parcial: 'Antecipação Parcial',
+  antecipacao_tributaria: 'Antecipação Tributária',
+};
+
+/** Compara na precisão gravada no cadastro (Numeric 8,5). */
+function sameReductionValue(a: number, b: number): boolean {
+  return Math.round(a * 100000) === Math.round(b * 100000);
+}
+
+function formatReductionValue(value: number): string {
+  const pct = Math.round((value * 100 + Number.EPSILON) * 1000) / 1000;
+  const decimals = Math.abs(pct * 100 - Math.round(pct * 100)) > 1e-4 ? 3 : 2;
+  return `${pct.toFixed(decimals).replace('.', ',')}%`;
+}
+
+function quotedList(values: string[]): string {
+  return values.map((value) => `"${value}"`).join(', ');
+}
+
+function joinWithAnd(values: string[]): string {
+  if (values.length <= 1) return values.join('');
+  return `${values.slice(0, -1).join(', ')} e ${values[values.length - 1]}`;
+}
+
+function describeReductionMatch(match: ReductionMatch): string {
+  const { rule } = match;
+  const label = rule.descricao?.trim() ? `"${rule.descricao.trim()}"` : 'sem descrição';
+  const reason = match.exceptionId != null
+    ? `casou pela exceção de descrição exata #${match.exceptionId}`
+    : match.terms.length > 0
+      ? `casou com ${match.terms.length > 1 ? 'os termos' : 'o termo'} ${quotedList(match.terms)}`
+      : 'sem termos de inclusão (vale para todo o NCM)';
+  return `#${rule.id} ${label} — NCM ${rule.ncm}, ${formatReductionValue(Number(rule.aliquota))}, ${reason}`;
+}
+
+function shortReductionMatch(match: ReductionMatch): string {
+  const reason = match.exceptionId != null
+    ? `exceção #${match.exceptionId}`
+    : match.terms.length > 0
+      ? `${match.terms.length > 1 ? 'termos' : 'termo'} ${quotedList(match.terms)}`
+      : 'sem termos';
+  return `#${match.rule.id} (${reason})`;
+}
+
+/**
+ * Mais de uma regra (ou exceção) de mesma especificidade casou o item.
+ *
+ * Com o mesmo valor em todas, o resultado não é ambíguo: o valor é aplicado e
+ * a redundância vira aviso, para o cadastro ser unificado. Com valores
+ * diferentes, escolher uma regra seria adivinhar: o processamento para com as
+ * regras que colidiram e o que fazer a respeito.
+ */
+function resolveReductionCollision(
+  item: ExtractedItem,
+  ncm: string,
+  escopo: ReductionScope,
+  matches: ReductionMatch[],
+  kind: 'regras' | 'excecoes',
+): TaxRateResolution {
+  const ordered = [...matches].sort((a, b) => a.rule.id - b.rule.id);
+  const value = Number(ordered[0].rule.aliquota);
+  const itemLabel = item.descricao?.trim() || ncm;
+  const scopeLabel = REDUCTION_SCOPE_LABELS[escopo];
+  const subject = kind === 'excecoes' ? 'exceções' : 'regras';
+
+  if (!ordered.every((match) => sameReductionValue(Number(match.rule.aliquota), value))) {
+    const lines = ordered.map((match) => `  ${describeReductionMatch(match)}`).join('\n');
+    const instruction = kind === 'excecoes'
+      ? 'Mantenha a exceção com esta descrição só na regra que deve prevalecer, para que o sistema saiba qual aplicar.'
+      : 'Cadastre uma exceção com a descrição exata deste item na regra que deve prevalecer, para que o sistema saiba qual aplicar.';
+    throw new Error(
+      `Conflito de ${subject} de redução no item "${itemLabel}" (NCM ${ncm}).\n\n`
+      + `Estas ${subject} da aba ${scopeLabel} casaram o mesmo item com valores diferentes:\n${lines}\n\n`
+      + instruction,
+    );
+  }
+
+  const first = ordered[0];
+  const ids = joinWithAnd(ordered.map((match) => `#${match.rule.id}`));
+  const valueLabel = formatReductionValue(value);
+  const noun = escopo === 'antecipacao_tributaria' ? 'redução' : 'alíquota';
+  return {
+    aliquota: value,
+    origem: first.exceptionId != null ? `excecao:${first.exceptionId}` : `reducao_produto:${first.rule.id}`,
+    detalhe: kind === 'excecoes'
+      ? `Exceções cadastradas nas regras ${ids} (mesma ${noun} de ${valueLabel})`
+      : `Redução por produto: regras ${ids} (mesma ${noun} de ${valueLabel})`,
+    aviso: `${kind === 'excecoes' ? 'as exceções das reduções' : 'as reduções por produto'} `
+      + `${joinWithAnd(ordered.map(shortReductionMatch))} da aba ${scopeLabel} casaram com `
+      + `"${itemLabel}" (NCM ${ncm}), todas com ${valueLabel}; a ${noun} foi aplicada. `
+      + 'Unifique essas regras no perfil: se os valores passarem a divergir, o processamento '
+      + 'será interrompido por conflito.',
+  };
+}
+
+function matchedTerms(desc: string, terms?: string[] | null): string[] {
+  return (terms ?? []).filter((term) => termMatches(desc, term));
+}
+
 function matchProductReductionRule(
   context: LocalProcessingContext,
   item: ExtractedItem,
-  escopo: 'antecipacao_parcial' | 'antecipacao_tributaria',
+  escopo: ReductionScope,
 ): TaxRateResolution | null {
   const ncm = item.ncm.trim();
   const cleanNcm = ncm.replace(/\D/g, '');
@@ -300,7 +412,13 @@ function matchProductReductionRule(
     );
     const positiveExact = exact.filter((entry) => entry.exception.enquadrado);
     if (positiveExact.length > 1) {
-      throw new Error(`Conflito de exceções de redução no item "${item.descricao}" (NCM ${ncm}).`);
+      return resolveReductionCollision(
+        item,
+        ncm,
+        escopo,
+        positiveExact.map((entry) => ({ rule: entry.rule, exceptionId: entry.exception.id, terms: [] })),
+        'excecoes',
+      );
     }
     if (positiveExact.length === 1) {
       return {
@@ -326,7 +444,13 @@ function matchProductReductionRule(
       const maxLen = Math.max(...matched.map((rule) => rule.ncm.length));
       const mostSpecific = matched.filter((rule) => rule.ncm.length === maxLen);
       if (mostSpecific.length > 1) {
-        throw new Error(`Conflito de regras de redução no item "${item.descricao}" (NCM ${ncm}).`);
+        return resolveReductionCollision(
+          item,
+          ncm,
+          escopo,
+          mostSpecific.map((rule) => ({ rule, terms: matchedTerms(desc, rule.termos_inclusao) })),
+          'regras',
+        );
       }
       return {
         aliquota: Number(mostSpecific[0].aliquota),
@@ -345,7 +469,13 @@ function matchProductReductionRule(
       const maxLen = Math.max(...matchedGeneric.map((rule) => rule.ncm.length));
       const mostSpecific = matchedGeneric.filter((rule) => rule.ncm.length === maxLen);
       if (mostSpecific.length > 1) {
-        throw new Error(`Conflito de regras de redução no item "${item.descricao || ncm}" (NCM ${ncm}).`);
+        return resolveReductionCollision(
+          item,
+          ncm,
+          escopo,
+          mostSpecific.map((rule) => ({ rule, terms: [] })),
+          'regras',
+        );
       }
       return {
         aliquota: Number(mostSpecific[0].aliquota),
