@@ -747,6 +747,7 @@ export async function processFiscalLocally(
     periodoInicio,
     periodoFim,
     context.empresa.cnpj,
+    context.empresa.uf,
   );
   if (pendingCtes.length > 0 && !request.ignoreMissingCteNotes) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
@@ -772,7 +773,13 @@ export async function processFiscalLocally(
 
   const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
   const isIndustryCompany = isIndustria(context);
-  const referencedNfeKeys = eligibleCteNfeKeys(ctes, periodoInicio, periodoFim, context.empresa.cnpj);
+  const referencedNfeKeys = eligibleCteNfeKeys(
+    ctes,
+    periodoInicio,
+    periodoFim,
+    context.empresa.cnpj,
+    context.empresa.uf,
+  );
   const pending = bonusPreAnalysis(
     sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany, referencedNfeKeys,
   );

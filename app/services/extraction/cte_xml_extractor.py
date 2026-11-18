@@ -134,9 +134,11 @@ class CTeXMLExtractor:
         ender_emit = find_elem(emit, "enderEmit")
         uf_emitente = get_text(ender_emit, "UF").upper() if ender_emit is not None else ""
         if not uf_emitente:
-            uf_emitente = uf_inicio or IBGE_UF_MAP.get(get_text(ide, "cUF"), "")
+            uf_emitente = IBGE_UF_MAP.get(get_text(ide, "cUF"), "")
         if not uf_emitente and len(chave_acesso) >= 2:
             uf_emitente = IBGE_UF_MAP.get(chave_acesso[:2], "")
+        if not uf_emitente:
+            uf_emitente = uf_inicio
 
         v_prest = find_elem(inf_cte, "vPrest")
         v_total_cte = get_decimal(v_prest, "vTPrest")

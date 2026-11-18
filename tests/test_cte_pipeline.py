@@ -43,6 +43,10 @@ def build_xml_cte(
     cnpj_tomador_toma4: str = "",
     cnpj_rem: str = CNPJ_FORNECEDOR,
     cnpj_dest: str = CNPJ_EMPRESA,
+    uf_emit: str = "SP",
+    uf_ini: str = "SP",
+    c_uf: str = "35",
+    cfop: str = "6352",
     p_icms: str = "12.00",
     icms_tag: str = "ICMS00",
     crt: str = "3",
@@ -66,18 +70,19 @@ def build_xml_cte(
     nfes_xml = "".join(
         f"<infNFe><chave>{chv}</chave></infNFe>" for chv in (chaves_nfe or [])
     )
+    ender_emit_xml = f"<enderEmit><UF>{uf_emit}</UF></enderEmit>" if uf_emit else ""
 
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <cteProc xmlns="http://www.portalfiscal.inf.br/cte" versao="4.00">
   <CTe>
     <infCte Id="CTe{chave}" versao="4.00">
       <ide>
-        <cUF>35</cUF>
+        <cUF>{c_uf}</cUF>
         <nCT>{numero}</nCT>
         <serie>1</serie>
-        <CFOP>6352</CFOP>
+        <CFOP>{cfop}</CFOP>
         <dhEmi>{ano}-{mes}-{dia}T10:00:00-03:00</dhEmi>
-        <UFIni>SP</UFIni>
+        <UFIni>{uf_ini}</UFIni>
         <UFFim>BA</UFFim>
         {toma_xml}
       </ide>
@@ -85,9 +90,9 @@ def build_xml_cte(
         <CNPJ>{CNPJ_TRANSPORTADORA}</CNPJ>
         <xNome>TRANSPORTADORA TESTE LTDA</xNome>
         <CRT>{crt}</CRT>
-        <enderEmit><UF>SP</UF></enderEmit>
+        {ender_emit_xml}
       </emit>
-      <rem><CNPJ>{cnpj_rem}</CNPJ><enderReme><UF>SP</UF></enderReme></rem>
+      <rem><CNPJ>{cnpj_rem}</CNPJ><enderReme><UF>{uf_ini}</UF></enderReme></rem>
       <dest><CNPJ>{cnpj_dest}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
       <vPrest><vTPrest>{v_tprest}</vTPrest><vRec>{v_tprest}</vRec></vPrest>
       <imp><ICMS>{icms_inner}</ICMS></imp>
@@ -533,4 +538,64 @@ def test_cte_100_por_cento_difal_simples_sem_picms_celula_aori_vazia(db_session)
     assert ws[f"E{cte_row}"].value == 250.00
     assert ws[f"G{cte_row}"].value == "S"
     assert ws[f"J{cte_row}"].value is None
+
+
+def test_cte_interno_mesma_uf_emitente_tomador_ignorado_na_pre_analise_e_processamento(db_session):
+    sol, _emp, _perfil = _setup_cenario_oficial(db_session)
+    chv_nf_sp = chave_nfe("2601", 610)
+    chv_nf_faltante = chave_nfe("2601", 611)
+    xml_nf_sp = build_xml_nfe("610", chv_nf_sp, "1000.00", "12", cfop="6403", ncm="73170090")
+
+    # CT-e emitido na BA (mesma UF do tomador BA), mesmo que UFIni seja SP ou BA e mesmo com NF-e faltante
+    xml_cte_interno_faltante = build_xml_cte(
+        numero="4401",
+        chave=f"292601{CNPJ_TRANSPORTADORA}570010000044011000044010",
+        v_tprest="200.00",
+        toma="3",
+        uf_emit="",
+        uf_ini="SP",
+        c_uf="29",
+        cfop="5352",
+        chaves_nfe=[chv_nf_faltante],
+    )
+    xml_cte_interno_com_nf = build_xml_cte(
+        numero="4402",
+        chave=f"292601{CNPJ_TRANSPORTADORA}570010000044021000044020",
+        v_tprest="300.00",
+        toma="3",
+        uf_emit="BA",
+        uf_ini="BA",
+        c_uf="29",
+        cfop="5352",
+        chaves_nfe=[chv_nf_sp],
+    )
+
+    service = ProcessingPipelineService(db_session)
+    pre = service.pre_analisar(
+        solicitacao_id=sol.id,
+        xml_files_bytes=[
+            ("610.xml", xml_nf_sp),
+            ("cte4401.xml", xml_cte_interno_faltante),
+            ("cte4402.xml", xml_cte_interno_com_nf),
+        ],
+    )
+    assert pre["requer_decisao"] is False
+    assert pre["ctes_sem_nfe"] == []
+
+    res = service.process_solicitacao(
+        sol.id,
+        xml_files_bytes=[
+            ("610.xml", xml_nf_sp),
+            ("cte4401.xml", xml_cte_interno_faltante),
+            ("cte4402.xml", xml_cte_interno_com_nf),
+        ],
+    )
+    db_session.refresh(res)
+
+    assert len(res.notas_processadas) == 1
+    assert res.notas_processadas[0].numero_nota == "610"
+    ignoradas_por_num = {n["numero_nota"]: n["motivo"] for n in (res.notas_ignoradas or [])}
+    assert "Operação interna estadual desconsiderada" in ignoradas_por_num["4401"]
+    assert "Operação interna estadual desconsiderada" in ignoradas_por_num["4402"]
+
 

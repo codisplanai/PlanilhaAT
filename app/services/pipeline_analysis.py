@@ -61,6 +61,8 @@ class PipelinePreAnalyzer:
             tomador = re.sub(r"\D", "", cte.cnpj_tomador or "")
             if tomador != empresa_cnpj or not cte.data_emissao:
                 continue
+            if not SanityChecker.is_interestadual(cte.uf_emitente, empresa.uf):
+                continue
             if SanityChecker.is_within_period(
                 cte.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
             ):
@@ -88,6 +90,8 @@ class PipelinePreAnalyzer:
         for _filename, cte in ctes:
             tomador = re.sub(r"\D", "", cte.cnpj_tomador or "")
             if tomador != empresa_cnpj or not cte.data_emissao:
+                continue
+            if not SanityChecker.is_interestadual(cte.uf_emitente, empresa.uf):
                 continue
             if not SanityChecker.is_within_period(
                 cte.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
