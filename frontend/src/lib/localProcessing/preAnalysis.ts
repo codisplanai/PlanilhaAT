@@ -49,7 +49,7 @@ export function isOwnEmissionNote(note: ExtractedNote, companyCnpj?: string): bo
     || note.rawMetadata?.ind_emit === '0';
 }
 
-export function isSameUfNote(note: ExtractedNote, companyUf: string): boolean {
+export function isSameUfNote(note: { ufEmitente: string }, companyUf: string): boolean {
   return Boolean(note.ufEmitente && companyUf && note.ufEmitente.toUpperCase() === companyUf.toUpperCase());
 }
 
@@ -65,12 +65,14 @@ export function eligibleCteNfeKeys(
   start: string,
   end: string,
   companyCnpj?: string,
+  companyUf = '',
 ): Set<string> {
   const cleanEmpresa = cleanDigits(companyCnpj ?? '');
   if (!cleanEmpresa) return new Set();
   const keys = new Set<string>();
   for (const cte of ctes) {
     if (cleanDigits(cte.cnpjTomador) !== cleanEmpresa) continue;
+    if (isSameUfNote(cte, companyUf)) continue;
     const date = cte.dataEmissao.slice(0, 10);
     if (date >= start && date <= end) {
       for (const chv of cte.chavesNfe) keys.add(chv);
@@ -85,6 +87,7 @@ export function cteMissingNfePreAnalysis(
   start: string,
   end: string,
   companyCnpj?: string,
+  companyUf = '',
 ): CteSemNfePendencia[] {
   const cleanEmpresa = cleanDigits(companyCnpj ?? '');
   if (!cleanEmpresa || ctes.length === 0) return [];
@@ -96,6 +99,7 @@ export function cteMissingNfePreAnalysis(
   const pending: CteSemNfePendencia[] = [];
   for (const cte of ctes) {
     if (cleanDigits(cte.cnpjTomador) !== cleanEmpresa) continue;
+    if (isSameUfNote(cte, companyUf)) continue;
     const date = cte.dataEmissao.slice(0, 10);
     if (date < start || date > end) continue;
     const missing = cte.chavesNfe.filter((chv) => !availableChaves.has(chv));

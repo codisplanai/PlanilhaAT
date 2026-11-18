@@ -410,6 +410,16 @@ export function processCtesLocally(params: {
       continue;
     }
 
+    if (isSameUfNote(cte, context.empresa.uf)) {
+      ignored.push(
+        cteIgnoredRecord(
+          cte,
+          `Operação interna estadual desconsiderada: UF do emitente do CT-e (${cte.ufEmitente}) é igual à UF do tomador (${context.empresa.uf}).`,
+        ),
+      );
+      continue;
+    }
+
     const issueDate = cte.dataEmissao.slice(0, 10);
     if (issueDate < periodoInicio || issueDate > periodoFim) {
       ignored.push(

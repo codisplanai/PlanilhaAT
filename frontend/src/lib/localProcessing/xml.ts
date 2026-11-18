@@ -122,7 +122,7 @@ export function parseCteXmlFromDoc(doc: XMLDocument, filename: string): Extracte
   const enderEmit = child(emit, 'enderEmit');
   let ufEmitente = text(enderEmit, 'UF').toUpperCase();
   if (!ufEmitente) {
-    ufEmitente = ufInicio || IBGE_UF_MAP[text(ide, 'cUF')] || IBGE_UF_MAP[chaveAcesso.slice(0, 2)] || '';
+    ufEmitente = IBGE_UF_MAP[text(ide, 'cUF')] || IBGE_UF_MAP[chaveAcesso.slice(0, 2)] || ufInicio || '';
   }
 
   const vPrest = child(infCte, 'vPrest');
