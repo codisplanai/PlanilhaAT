@@ -28,6 +28,28 @@ def test_st_total_exclui_casa_vip_e_baia_ferro_fsa():
         assert should_exclude_st_from_tributaria(name, nf)
 
 
+def test_st_total_exclui_todas_empresas_e_nomes_reais():
+    nf = NFeXMLExtractor().extract_from_xml(_xml(st_total="0.01"))
+    for name in (
+        "ARMAZÉM COMÉRCIO DE MATERIAIS PARA CONSTRUÇÕES E FERRAGENS LTDA",
+        "Armazém Recôncavo",
+        "ARMAZEM DO RECONCAVO MATERIAIS PARA CONSTRUCAO LTDA",
+        "BAHIA FERRO SALVADOR",
+        "Baia Ferro Salvador",
+        "CASA VIP COMÉRCIO DE PISOS E REVESTIMENTOS LTDA",
+        "BAHIA FERRO FSA LTDA",
+        "BAIA FERRO FSA LTDA",
+        "Bahia Ferro Industrial",
+        "Baia Ferro Industrial",
+        "Bahia Ferro Lauro",
+        "Mercal",
+        "MERCADAO SUPERMERCADO LTDA",
+        "MERCADÃO SUPERMERCADO ATACADO E VAREJO LTDA",
+        "Mercadão Supermecado",
+    ):
+        assert should_exclude_st_from_tributaria(name, nf)
+
+
 def test_st_no_item_tambem_exclui():
     nf = NFeXMLExtractor().extract_from_xml(_xml(st_item="0.02"))
     assert should_exclude_st_from_tributaria("Armazém Comércio", nf)
@@ -35,7 +57,15 @@ def test_st_no_item_tambem_exclui():
 
 def test_st_no_item_exclui_novas_empresas():
     nf = NFeXMLExtractor().extract_from_xml(_xml(st_item="0.02"))
-    for name in ("Casa VIP", "Baia Ferro FSA"):
+    for name in (
+        "ARMAZEM DO RECONCAVO MATERIAIS PARA CONSTRUCAO LTDA",
+        "Casa VIP",
+        "BAHIA FERRO FSA LTDA",
+        "Bahia Ferro Industrial",
+        "Bahia Ferro Lauro",
+        "Mercal",
+        "MERCADAO SUPERMERCADO LTDA",
+    ):
         assert should_exclude_st_from_tributaria(name, nf)
 
 
@@ -46,16 +76,33 @@ def test_sped_enriquecido_mantem_evidencia_st_do_xml():
     sped_note = NFeXMLExtractor().extract_from_xml(_xml())
     sped_note.origem_extracao = "sped"
     enrich_sped_with_xml(sped_note, xml_note)
-    assert should_exclude_st_from_tributaria("Baia Ferro Salvador", sped_note)
+    assert should_exclude_st_from_tributaria("Bahia Ferro Salvador", sped_note)
 
 
 def test_sem_st_nao_exclui():
     nf = NFeXMLExtractor().extract_from_xml(_xml())
-    for name in ("Armazém Comércio", "Casa VIP", "Baia Ferro FSA"):
+    for name in (
+        "Armazém Comércio",
+        "ARMAZEM DO RECONCAVO MATERIAIS PARA CONSTRUCAO LTDA",
+        "Casa VIP",
+        "BAHIA FERRO FSA LTDA",
+        "Bahia Ferro Industrial",
+        "Bahia Ferro Lauro",
+        "Mercal",
+        "MERCADAO SUPERMERCADO LTDA",
+    ):
         assert not should_exclude_st_from_tributaria(name, nf)
 
 
 def test_outras_empresas_nao_sao_afetadas():
     nf = NFeXMLExtractor().extract_from_xml(_xml(st_total="90.00"))
-    for name in ("COMAPEL", "Armazém Outros", "Baia Ferro Feira", "Casa Vipera", "Baia Ferro FS"):
+    for name in (
+        "COMAPEL",
+        "Armazém Outros",
+        "Baia Ferro Feira",
+        "Casa Vipera",
+        "Baia Ferro FS",
+        "Bahia Ferro FS",
+        "MERCADÃO DE CARNES CARMO LTDA",
+    ):
         assert not should_exclude_st_from_tributaria(name, nf)
