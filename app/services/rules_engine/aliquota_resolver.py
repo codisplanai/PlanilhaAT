@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -11,7 +11,7 @@ from app.core.exceptions import RuleResolutionException
 from app.models.regra_aliquota import RegraAliquotaDestino
 from app.models.regra_aliquota_empresa import RegraAliquotaEmpresa
 from app.models.regra_reducao_produto import RegraReducaoProduto
-from app.services.rules_engine.descricao_matcher import casa_algum, normalizar
+from app.services.rules_engine.descricao_matcher import casa_algum, casa_termo, normalizar
 
 
 @dataclass(frozen=True)
@@ -21,11 +21,56 @@ class ResolucaoAliquota:
     Com três níveis de precedência, saber qual alíquota saiu sem saber de onde
     inviabiliza a conferência fiscal. A origem é gravada em ``metadados_extras``
     da nota processada.
+
+    ``aviso`` é um alerta de cadastro para o resultado, sem o prefixo do item:
+    hoje, regras de redução redundantes (mais de uma casou o item, todas com o
+    mesmo valor).
     """
 
     aliquota: Decimal
     origem: str
     detalhe: str
+    aviso: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _CasamentoReducao:
+    """Regra de redução que casou um item, e por quê."""
+
+    regra: RegraReducaoProduto
+    termos: Tuple[str, ...] = ()
+    excecao_id: Optional[int] = None
+
+
+_ROTULOS_ESCOPO = {
+    ANTECIPACAO_PARCIAL: "Antecipação Parcial",
+    ANTECIPACAO_TRIBUTARIA: "Antecipação Tributária",
+}
+
+_PRECISAO_CADASTRO = Decimal("0.00001")  # Numeric(8, 5) em regras_reducao_produto
+
+
+def _mesmo_valor(a, b) -> bool:
+    return (
+        Decimal(str(a)).quantize(_PRECISAO_CADASTRO, rounding=ROUND_HALF_UP)
+        == Decimal(str(b)).quantize(_PRECISAO_CADASTRO, rounding=ROUND_HALF_UP)
+    )
+
+
+def _formatar_valor(valor) -> str:
+    pct = (Decimal(str(valor)) * 100).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    casas = 2 if pct == pct.quantize(Decimal("0.01")) else 3
+    return f"{pct:.{casas}f}".replace(".", ",") + "%"
+
+
+def _lista_entre_aspas(valores) -> str:
+    return ", ".join(f'"{valor}"' for valor in valores)
+
+
+def _juntar_com_e(valores: List[str]) -> str:
+    if len(valores) <= 1:
+        return "".join(valores)
+    return f"{', '.join(valores[:-1])} e {valores[-1]}"
 
 
 class AliquotaResolver:
@@ -183,16 +228,78 @@ class AliquotaResolver:
         candidatas: List[RegraReducaoProduto],
         rotulo_item: str,
         ncm: str,
+        escopo: str = ANTECIPACAO_PARCIAL,
+        desc: str = "",
     ) -> ResolucaoAliquota:
         max_len = max(len(regra.ncm) for regra in candidatas)
         especificas = [regra for regra in candidatas if len(regra.ncm) == max_len]
         if len(especificas) > 1:
-            raise RuleResolutionException(self._msg_conflito(rotulo_item, ncm, especificas, "regras"))
+            casamentos = [
+                _CasamentoReducao(
+                    regra=regra,
+                    termos=tuple(
+                        termo for termo in (regra.termos_inclusao or [])
+                        if desc and casa_termo(desc, termo)
+                    ),
+                )
+                for regra in especificas
+            ]
+            return self._resolver_colisao(rotulo_item, ncm, escopo, casamentos, "regras")
         regra = especificas[0]
         return ResolucaoAliquota(
             aliquota=Decimal(str(regra.aliquota)),
             origem=f"reducao_produto:{regra.id}",
             detalhe=f"Redução por produto: {regra.descricao or f'regra #{regra.id}'}",
+        )
+
+    def _resolver_colisao(
+        self,
+        rotulo_item: str,
+        ncm: str,
+        escopo: str,
+        casamentos: List[_CasamentoReducao],
+        especie: str,
+    ) -> ResolucaoAliquota:
+        """Mais de uma regra (ou exceção) de mesma especificidade casou o item.
+
+        Com o mesmo valor em todas, o resultado não é ambíguo: o valor é aplicado
+        e a redundância vira aviso, para o cadastro ser unificado. Com valores
+        diferentes, escolher uma regra seria adivinhar: o processamento falha com
+        as regras que colidiram e o que fazer a respeito.
+        """
+        ordenados = sorted(casamentos, key=lambda c: c.regra.id)
+        valor = Decimal(str(ordenados[0].regra.aliquota))
+        rotulo_escopo = _ROTULOS_ESCOPO.get(escopo, escopo)
+        if not all(_mesmo_valor(c.regra.aliquota, valor) for c in ordenados):
+            raise RuleResolutionException(
+                self._msg_conflito(rotulo_item, ncm, ordenados, especie, rotulo_escopo)
+            )
+
+        primeiro = ordenados[0]
+        ids = _juntar_com_e([f"#{c.regra.id}" for c in ordenados])
+        valor_txt = _formatar_valor(valor)
+        nome = "redução" if escopo == ANTECIPACAO_TRIBUTARIA else "alíquota"
+        excecoes = especie == "exceções"
+        return ResolucaoAliquota(
+            aliquota=valor,
+            origem=(
+                f"excecao:{primeiro.excecao_id}"
+                if primeiro.excecao_id is not None
+                else f"reducao_produto:{primeiro.regra.id}"
+            ),
+            detalhe=(
+                f"Exceções cadastradas nas regras {ids} (mesma {nome} de {valor_txt})"
+                if excecoes
+                else f"Redução por produto: regras {ids} (mesma {nome} de {valor_txt})"
+            ),
+            aviso=(
+                f"{'as exceções das reduções' if excecoes else 'as reduções por produto'} "
+                f"{_juntar_com_e([self._rotulo_curto(c) for c in ordenados])} da aba "
+                f'{rotulo_escopo} casaram com "{rotulo_item}" (NCM {ncm}), todas com '
+                f"{valor_txt}; a {nome} foi aplicada. Unifique essas regras no perfil: "
+                "se os valores passarem a divergir, o processamento será interrompido "
+                "por conflito."
+            ),
         )
 
     def _nivel_reducao_produto(
@@ -208,6 +315,8 @@ class AliquotaResolver:
         if not regras:
             return None
         desc = normalizar(descricao) if descricao else ""
+        # A mensagem mostra a descrição como veio na nota, não a normalizada.
+        rotulo_item = (descricao or "").strip() or ncm
 
         if desc:
             casadas = [
@@ -218,8 +327,12 @@ class AliquotaResolver:
             ]
             positivas = [(regra, exc) for regra, exc in casadas if exc.enquadrado]
             if len(positivas) > 1:
-                raise RuleResolutionException(
-                    self._msg_conflito(desc, ncm, [regra for regra, _ in positivas], "exceções")
+                return self._resolver_colisao(
+                    rotulo_item,
+                    ncm,
+                    escopo,
+                    [_CasamentoReducao(regra=regra, excecao_id=exc.id) for regra, exc in positivas],
+                    "exceções",
                 )
             if positivas:
                 regra, excecao = positivas[0]
@@ -243,7 +356,9 @@ class AliquotaResolver:
                 and not casa_algum(desc, regra.termos_exclusao)
             ]
             if candidatas:
-                return self._selecionar_regra_mais_especifica(candidatas, desc, ncm)
+                return self._selecionar_regra_mais_especifica(
+                    candidatas, rotulo_item, ncm, escopo=escopo, desc=desc
+                )
 
         regras_genericas = [regra for regra in regras if not regra.termos_inclusao]
         if regras_genericas:
@@ -253,7 +368,9 @@ class AliquotaResolver:
                 if not (desc and regra.termos_exclusao and casa_algum(desc, regra.termos_exclusao))
             ]
             if candidatas_genericas:
-                return self._selecionar_regra_mais_especifica(candidatas_genericas, desc or ncm, ncm)
+                return self._selecionar_regra_mais_especifica(
+                    candidatas_genericas, rotulo_item, ncm, escopo=escopo
+                )
 
         return None
 
@@ -338,23 +455,55 @@ class AliquotaResolver:
     def _rotulo(regra: RegraReducaoProduto) -> str:
         return f'#{regra.id} "{regra.descricao or "sem rótulo"}"'
 
+    @staticmethod
+    def _descrever_casamento(casamento: _CasamentoReducao) -> str:
+        regra = casamento.regra
+        descricao = (regra.descricao or "").strip()
+        rotulo = f'"{descricao}"' if descricao else "sem descrição"
+        if casamento.excecao_id is not None:
+            motivo = f"casou pela exceção de descrição exata #{casamento.excecao_id}"
+        elif casamento.termos:
+            palavra = "os termos" if len(casamento.termos) > 1 else "o termo"
+            motivo = f"casou com {palavra} {_lista_entre_aspas(casamento.termos)}"
+        else:
+            motivo = "sem termos de inclusão (vale para todo o NCM)"
+        return f"#{regra.id} {rotulo} — NCM {regra.ncm}, {_formatar_valor(regra.aliquota)}, {motivo}"
+
+    @staticmethod
+    def _rotulo_curto(casamento: _CasamentoReducao) -> str:
+        if casamento.excecao_id is not None:
+            motivo = f"exceção #{casamento.excecao_id}"
+        elif casamento.termos:
+            palavra = "termos" if len(casamento.termos) > 1 else "termo"
+            motivo = f"{palavra} {_lista_entre_aspas(casamento.termos)}"
+        else:
+            motivo = "sem termos"
+        return f"#{casamento.regra.id} ({motivo})"
+
     @classmethod
     def _msg_conflito(
-        cls, desc: str, ncm: str, regras: List[RegraReducaoProduto], especie: str
+        cls,
+        rotulo_item: str,
+        ncm: str,
+        casamentos: List[_CasamentoReducao],
+        especie: str,
+        rotulo_escopo: str,
     ) -> str:
         """Aponta o item, as regras que colidiram e o que fazer a respeito.
 
         Falhar em vez de escolher é deliberado: aplicar a alíquota errada em
         silêncio gera passivo que só aparece em fiscalização.
         """
-        linhas = "\n".join(
-            f"  {cls._rotulo(r)} ({Decimal(str(r.aliquota)) * 100:.2f}%) "
-            f"— termos de inclusão: {', '.join(r.termos_inclusao)}"
-            for r in regras
+        linhas = "\n".join(f"  {cls._descrever_casamento(c)}" for c in casamentos)
+        instrucao = (
+            "Mantenha a exceção com esta descrição só na regra que deve prevalecer, "
+            "para que o sistema saiba qual aplicar."
+            if especie == "exceções"
+            else "Cadastre uma exceção com a descrição exata deste item na regra que "
+            "deve prevalecer, para que o sistema saiba qual aplicar."
         )
         return (
-            f'Conflito de regras de redução no item "{desc}" (NCM {ncm}).\n\n'
-            f"Estas {especie} casaram o mesmo item:\n{linhas}\n\n"
-            "Cadastre uma exceção com a descrição exata deste item na regra que "
-            "deve prevalecer, para que o sistema saiba qual aplicar."
+            f'Conflito de {especie} de redução no item "{rotulo_item}" (NCM {ncm}).\n\n'
+            f"Estas {especie} da aba {rotulo_escopo} casaram o mesmo item com valores "
+            f"diferentes:\n{linhas}\n\n{instrucao}"
         )

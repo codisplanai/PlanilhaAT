@@ -932,6 +932,19 @@ class ProcessingPipelineService:
                 f"NF-e {nf_data.numero_nota} (arquivo {filename}): {err.message}"
             ) from err
 
+        # Regras de redução redundantes (mesmo valor) não param o processamento,
+        # mas o cadastro precisa ser unificado: o aviso vai para o resultado.
+        for resolucao_com_aviso in (resolucao, resolucao_red_trib):
+            if resolucao_com_aviso is not None and resolucao_com_aviso.aviso:
+                aviso = resolucao_com_aviso.aviso
+                avisos_avaliacao.append({
+                    "numero_nota": nf_data.numero_nota,
+                    "serie": nf_data.serie,
+                    "item_numero": item.item_numero,
+                    "arquivo": filename,
+                    "aviso": f"Item {item.item_numero}: {aviso[:1].upper()}{aviso[1:]}",
+                })
+
         a_dst = resolucao.aliquota
         reducao_item: Optional[Decimal] = (
             resolucao_red_trib.aliquota if resolucao_red_trib is not None else None

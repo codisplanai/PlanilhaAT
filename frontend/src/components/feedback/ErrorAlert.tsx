@@ -36,7 +36,7 @@ export const ErrorAlert: React.FC<ErrorAlertProps> = ({
       </div>
       <div className="flex-1 text-xs">
         <h4 className="font-bold text-rose-900 mb-0.5 tracking-tight">{title}</h4>
-        <p className="text-rose-700 leading-relaxed break-words">{message}</p>
+        <p className="text-rose-700 leading-relaxed break-words whitespace-pre-line">{message}</p>
         {handleAction && (
           <div className="mt-2.5">
             <button

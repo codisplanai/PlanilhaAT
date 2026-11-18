@@ -173,6 +173,11 @@ export interface TaxRateResolution {
   aliquota: number;
   origem: string;
   detalhe: string;
+  /**
+   * Aviso de cadastro para o resultado, sem o prefixo do item: hoje, regras de
+   * redução redundantes (mais de uma casou o item, todas com o mesmo valor).
+   */
+  aviso?: string;
 }
 
 export interface CalculationResult {
