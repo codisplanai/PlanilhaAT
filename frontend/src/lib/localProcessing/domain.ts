@@ -108,6 +108,31 @@ export interface ExtractedNote {
   itens: ExtractedItem[];
 }
 
+export interface ExtractedCTe {
+  filename: string;
+  chaveAcesso: string;
+  numeroCte: string;
+  serie: string;
+  cfop: string;
+  cnpjEmitente: string;
+  nomeEmitente: string;
+  ufEmitente: string;
+  ufInicio: string;
+  ufFim: string;
+  cnpjTomador: string;
+  tomaCodigo: string;
+  dataEmissao: string;
+  dataEntrada?: string | null;
+  vTotalCte: number;
+  vBcCte: number;
+  aOri: number;
+  aOriHighlighted: boolean;
+  vIcmsCte: number;
+  fornecedorSimplesNacional: boolean;
+  chavesNfe: string[];
+  rawMetadata: Record<string, string | number | boolean | null>;
+}
+
 export interface EntrySheetRecord {
   numeroNormalizado: string;
   serieNormalizada: string;
@@ -119,7 +144,9 @@ export interface EntrySheetRecord {
 
 export interface ParsedFiscalSources {
   notes: ExtractedNote[];
+  ctes?: ExtractedCTe[];
   entryRecords: EntrySheetRecord[];
+  spedCteRecords?: EntrySheetRecord[];
   spedCompanyInfo: {
     cnpj?: string;
     uf?: string;

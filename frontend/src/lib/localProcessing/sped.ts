@@ -1,4 +1,4 @@
-import type { ExtractedItem, ExtractedNote } from './domain';
+import type { EntrySheetRecord, ExtractedItem, ExtractedNote } from './domain';
 import { IBGE_UF_MAP } from './domain.ts';
 import { parseSpedTaxCode } from './interstateRate.ts';
 
@@ -66,6 +66,7 @@ interface C190State {
 
 export interface SpedParseResult {
   notes: ExtractedNote[];
+  cteEntryRecords: EntrySheetRecord[];
   companyInfo: {
     nome: string;
     cnpj: string;
@@ -85,6 +86,7 @@ export function parseSped(text: string, filename: string): SpedParseResult {
   const participants = new Map<string, Participant>();
   const itemRegistry = new Map<string, ItemRegistry>();
   const notes: ExtractedNote[] = [];
+  const cteEntryRecords: EntrySheetRecord[] = [];
 
   let current: C100State | null = null;
   let currentItems: ExtractedItem[] = [];
@@ -348,6 +350,29 @@ export function parseSped(text: string, filename: string): SpedParseResult {
         vIpi,
         cstIcms,
       });
+      continue;
+    }
+
+    if (reg === 'D100') {
+      const indOper = (fields[2] ?? '').trim();
+      const codSit = (fields[6] ?? '00').trim();
+      if (indOper !== '0' || !['00', '01'].includes(codSit)) continue;
+      const indEmit = (fields[3] ?? '1').trim();
+      const codPart = (fields[4] ?? '').trim();
+      const serie = (fields[7] ?? '').trim();
+      const numDoc = (fields[9] ?? '').trim();
+      const chvCte = digits(fields[10]);
+      const dataEntrada = parseSpedDate(fields[12]) ?? parseSpedDate(fields[11]);
+      const cnpjEmit = indEmit === '0' ? destCnpj : (participants.get(codPart)?.cnpj ?? '');
+      if (!chvCte && !numDoc) continue;
+      cteEntryRecords.push({
+        numeroNormalizado: numDoc.replace(/^0+(?=\d)/, ''),
+        serieNormalizada: serie,
+        cnpjEmitenteNormalizado: cnpjEmit,
+        chaveAcessoNormalizada: chvCte,
+        dataEntrada,
+        cfopNormalizado: '',
+      });
     }
   }
 
@@ -363,12 +388,13 @@ export function parseSped(text: string, filename: string): SpedParseResult {
       note.rawMetadata.fornecedor_simples_nacional = true;
     }
   }
-  if (notes.length === 0) {
+  if (notes.length === 0 && cteEntryRecords.length === 0) {
     throw new Error('Nenhum documento fiscal de entrada (Registro C100, IND_OPER=0) válido foi encontrado no SPED Fiscal.');
   }
 
   return {
     notes,
+    cteEntryRecords,
     companyInfo: { nome: destNome, cnpj: destCnpj, uf: destUf, ie: destIe },
   };
 }

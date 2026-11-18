@@ -171,10 +171,27 @@ export interface Convenio5291Pendencia {
   sugestao_aplicar: boolean;
 }
 
+export interface NfeFaltanteCte {
+  chave_acesso: string;
+  numero_nota: string;
+  serie: string;
+}
+
+export interface CteSemNfePendencia {
+  cte_chave_acesso: string;
+  cte_numero: string;
+  cte_serie?: string;
+  cnpj_emitente?: string;
+  nome_emitente?: string;
+  valor_total: number;
+  nfes_faltantes: NfeFaltanteCte[];
+}
+
 export interface PreAnaliseSolicitacao {
   requer_decisao: boolean;
   notas_bonificacao: NotaBonificacaoPendencia[];
   itens_convenio_52_91?: Convenio5291Pendencia[];
+  ctes_sem_nfe?: CteSemNfePendencia[];
 }
 
 export interface SolicitacoesBatchDeleteRequest {

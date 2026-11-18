@@ -396,9 +396,17 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {resultadoSolicitacao.notas_processadas.map((nota, i) => (
+                  {resultadoSolicitacao.notas_processadas.map((nota, i) => {
+                    const isCte = nota.metadados_extras?.tipo_documento === 'cte';
+                    const aOriOculta = isCte && nota.metadados_extras?.a_ori_destacada === false;
+                    return (
                     <tr key={i} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-2.5 px-3 font-semibold text-slate-900">{nota.numero_nota}</td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-900">
+                        <div className="flex items-center gap-1.5">
+                          <span>{nota.numero_nota}</span>
+                          {isCte && <Badge variant="info" size="sm">CT-e</Badge>}
+                        </div>
+                      </td>
                       <td className="py-2.5 px-3">
                         {nota.destino_planilha ? (
                           <PlanilhaBadge tipo={nota.destino_planilha} detailed />
@@ -422,16 +430,17 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
                           <Badge variant="warning" size="sm" dot>Pendente</Badge>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-slate-700">{nota.ncm}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-700">{nota.ncm || '-'}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(nota.v_total)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(nota.base_calculo)}</td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{formatPercent(nota.a_ori)}</td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{aOriOculta ? '-' : formatPercent(nota.a_ori)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-blue-900">{formatPercent(nota.a_dst_resolvida)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-emerald-800">
                         {formatCurrency(nota.valor_devido)}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

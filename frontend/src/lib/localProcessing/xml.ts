@@ -1,4 +1,4 @@
-import type { ExtractedItem, ExtractedNote } from './domain';
+import type { ExtractedCTe, ExtractedItem, ExtractedNote } from './domain';
 import { IBGE_UF_MAP } from './domain.ts';
 
 function onlyDigits(value: string | null | undefined): string {
@@ -36,9 +36,9 @@ export function extractCreditRateFromInfCpl(infCpl: string | null | undefined): 
   return Number((percent / 100).toFixed(6));
 }
 
-function normalizeIssueDate(value: string): string {
+function normalizeIssueDate(value: string, docLabel = 'NF-e'): string {
   const trimmed = value.trim();
-  if (!trimmed) throw new Error('O XML da NF-e não informa a data de emissão obrigatória.');
+  if (!trimmed) throw new Error(`O XML da ${docLabel} não informa a data de emissão obrigatória.`);
   const datePart = trimmed.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
     throw new Error(`Data de emissão inválida no XML: "${value}".`);
@@ -52,12 +52,152 @@ function findFirst(root: ParentNode, localName: string): Element | null {
   return nodes.find((node) => node.localName === localName) ?? null;
 }
 
-export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
+export function extractNfeNumberAndSeriesFromKey(chave: string): { numeroNota: string; serie: string } {
+  const clean = onlyDigits(chave);
+  if (clean.length !== 44) return { numeroNota: '', serie: '' };
+  const serie = clean.slice(22, 25).replace(/^0+/, '') || '0';
+  const numeroNota = clean.slice(25, 34).replace(/^0+/, '') || '0';
+  return { numeroNota, serie };
+}
+
+export function parseXmlDocument(xmlText: string, filename: string, docLabel = 'NF-e'): XMLDocument {
   const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
   if (doc.querySelector('parsererror')) {
-    throw new Error(`Arquivo XML de NF-e inválido ou corrompido: ${filename}.`);
+    throw new Error(`Arquivo XML de ${docLabel} inválido ou corrompido: ${filename}.`);
+  }
+  return doc;
+}
+
+export function isCteXmlDoc(doc: Document): boolean {
+  return findFirst(doc, 'infCte') !== null;
+}
+
+const TOMA_TAG_MAP: Readonly<Record<string, string>> = {
+  '0': 'rem',
+  '1': 'exped',
+  '2': 'receb',
+  '3': 'dest',
+};
+
+export function parseCteXmlFromDoc(doc: XMLDocument, filename: string): ExtractedCTe {
+  const infCte = findFirst(doc, 'infCte');
+  if (!infCte) throw new Error(`Estrutura do XML sem <infCte>: ${filename}.`);
+
+  let chaveAcesso = onlyDigits(infCte.getAttribute('Id') ?? '');
+  if (chaveAcesso.length !== 44) {
+    const chCte = onlyDigits(text(findFirst(doc, 'infProt'), 'chCTe'));
+    if (chCte.length === 44) chaveAcesso = chCte;
   }
 
+  const ide = child(infCte, 'ide');
+  if (!ide) throw new Error(`Estrutura do XML do CT-e sem <ide>: ${filename}.`);
+
+  const numeroCte = text(ide, 'nCT');
+  const serie = text(ide, 'serie');
+  const cfop = text(ide, 'CFOP');
+  const ufInicio = text(ide, 'UFIni').toUpperCase();
+  const ufFim = text(ide, 'UFFim').toUpperCase();
+  const dataEmissao = normalizeIssueDate(text(ide, 'dhEmi') || text(ide, 'dEmi'), 'CT-e');
+
+  let tomaCodigo = '';
+  let cnpjTomador = '';
+  const toma4 = child(ide, 'toma4') ?? child(ide, 'toma04');
+  if (toma4) {
+    tomaCodigo = text(toma4, 'toma') || '4';
+    cnpjTomador = onlyDigits(text(toma4, 'CNPJ') || text(toma4, 'CPF'));
+  } else {
+    const toma3 = child(ide, 'toma3') ?? child(ide, 'toma03');
+    tomaCodigo = toma3 ? text(toma3, 'toma') : text(ide, 'toma');
+    const papelTag = TOMA_TAG_MAP[tomaCodigo];
+    if (papelTag) {
+      const papelElem = child(infCte, papelTag);
+      cnpjTomador = onlyDigits(text(papelElem, 'CNPJ') || text(papelElem, 'CPF'));
+    }
+  }
+
+  const emit = child(infCte, 'emit');
+  const cnpjEmitente = onlyDigits(text(emit, 'CNPJ') || text(emit, 'CPF'));
+  const nomeEmitente = text(emit, 'xNome');
+  const crt = text(emit, 'CRT');
+  const enderEmit = child(emit, 'enderEmit');
+  let ufEmitente = text(enderEmit, 'UF').toUpperCase();
+  if (!ufEmitente) {
+    ufEmitente = ufInicio || IBGE_UF_MAP[text(ide, 'cUF')] || IBGE_UF_MAP[chaveAcesso.slice(0, 2)] || '';
+  }
+
+  const vPrest = child(infCte, 'vPrest');
+  let vTotalCte = number(vPrest, 'vTPrest');
+  if (vTotalCte <= 0) vTotalCte = number(vPrest, 'vRec');
+
+  const imp = child(infCte, 'imp');
+  const icms = child(imp, 'ICMS');
+  let vBcCte = 0;
+  let pIcms = 0;
+  let vIcmsCte = 0;
+  let isSimples = ['1', '2', '4'].includes(crt);
+  if (icms) {
+    for (const group of Array.from(icms.children)) {
+      if (group.localName === 'ICMSSN' || text(group, 'indSN') === '1') {
+        isSimples = true;
+      }
+      vBcCte = number(group, 'vBC') || number(group, 'vBCOutraUF');
+      pIcms = number(group, 'pICMS') || number(group, 'pICMSOutraUF');
+      vIcmsCte = number(group, 'vICMS') || number(group, 'vICMSOutraUF');
+      break;
+    }
+  }
+
+  const aOriHighlighted = pIcms > 0;
+  const aOri = aOriHighlighted ? (pIcms > 1 ? pIcms / 100 : pIcms) : 0;
+
+  const chavesNfe: string[] = [];
+  const seenChaves = new Set<string>();
+  for (const node of Array.from(infCte.querySelectorAll('*'))) {
+    if (node.localName !== 'infNFe') continue;
+    const chv = onlyDigits(text(node, 'chave'));
+    if (chv.length === 44 && !seenChaves.has(chv)) {
+      seenChaves.add(chv);
+      chavesNfe.push(chv);
+    }
+  }
+
+  return {
+    filename,
+    chaveAcesso,
+    numeroCte,
+    serie,
+    cfop,
+    cnpjEmitente,
+    nomeEmitente,
+    ufEmitente,
+    ufInicio,
+    ufFim,
+    cnpjTomador,
+    tomaCodigo,
+    dataEmissao,
+    dataEntrada: null,
+    vTotalCte,
+    vBcCte,
+    aOri,
+    aOriHighlighted,
+    vIcmsCte,
+    fornecedorSimplesNacional: isSimples,
+    chavesNfe,
+    rawMetadata: {
+      crt,
+      emit_nome: nomeEmitente,
+      toma_codigo: tomaCodigo,
+      qtd_nfes_vinculadas: chavesNfe.length,
+    },
+  };
+}
+
+export function parseCteXml(xmlText: string, filename: string): ExtractedCTe {
+  const doc = parseXmlDocument(xmlText, filename, 'CT-e');
+  return parseCteXmlFromDoc(doc, filename);
+}
+
+export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): ExtractedNote {
   const infNFe = findFirst(doc, 'infNFe');
   if (!infNFe) throw new Error(`Estrutura do XML sem <infNFe>: ${filename}.`);
 
@@ -224,4 +364,9 @@ export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
     },
     itens,
   };
+}
+
+export function parseNfeXml(xmlText: string, filename: string): ExtractedNote {
+  const doc = parseXmlDocument(xmlText, filename, 'NF-e');
+  return parseNfeXmlFromDoc(doc, filename);
 }

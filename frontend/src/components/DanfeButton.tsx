@@ -17,7 +17,7 @@ export const DanfeButton: React.FC<DanfeButtonProps> = ({
   chaveAcesso, xmlFiles = [], numeroNota, className,
 }) => {
   const chave = (chaveAcesso ?? '').replace(/\D/g, '');
-  const valid = chave.length === 44;
+  const valid = chave.length === 44 && chave.slice(20, 22) !== '57';
   // Cache apenas desta instância; é descartado quando a tela de revisão desmonta.
   const cachedPdf = useRef<{ chave: string; pdf: Blob } | null>(null);
   const [loading, setLoading] = useState(false);

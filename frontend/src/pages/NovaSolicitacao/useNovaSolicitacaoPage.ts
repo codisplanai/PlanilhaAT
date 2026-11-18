@@ -15,6 +15,7 @@ import type {
 import type {
   Convenio5291Pendencia,
   Convenio5291Decision,
+  CteSemNfePendencia,
   NotaBonificacaoPendencia,
   Solicitacao,
   TipoPlanilha,
@@ -142,6 +143,10 @@ export function useNovaSolicitacaoPage() {
     periodoInicio: string;
     periodoFim: string;
   } | null>(null);
+  const [pendenciasCteNfe, setPendenciasCteNfe] = useState<CteSemNfePendencia[]>([]);
+  const [showModalCteNfe, setShowModalCteNfe] = useState(false);
+  const ignoreMissingCteNotesRef = useRef(false);
+  const xmlFilesOverrideRef = useRef<File[] | undefined>(undefined);
   const [pendenciasBonificacao, setPendenciasBonificacao] = useState<NotaBonificacaoPendencia[]>([]);
   const [showModalBonificacao, setShowModalBonificacao] = useState(false);
   const [pendenciasConvenio5291, setPendenciasConvenio5291] = useState<Convenio5291Pendencia[]>([]);
@@ -190,6 +195,10 @@ export function useNovaSolicitacaoPage() {
     bonusDecisions?: Record<string, boolean>,
     convenio5291Decisions?: Record<string, Convenio5291Decision>,
     diagnostic: DiagnosticRecorder | null = activeDiagnosticRef.current,
+    options?: {
+      overrideXmlFiles?: File[];
+      ignoreMissingCteNotes?: boolean;
+    },
   ): Promise<void> => {
     if (!selectedEmpresa) return;
 
@@ -209,6 +218,8 @@ export function useNovaSolicitacaoPage() {
     // produzir linhas para aquele destino. Um modelo ativo não utilizado não pode
     // bloquear a leitura/transformação dos arquivos da solicitação.
     const templateBytes = new Map<number, ArrayBuffer>();
+    const effectiveXmlFiles = options?.overrideXmlFiles ?? xmlFilesOverrideRef.current ?? files.xmlFiles;
+    const ignoreMissingCteNotes = options?.ignoreMissingCteNotes ?? ignoreMissingCteNotesRef.current;
 
     const localResult = await processFiscalLocally(
       {
@@ -217,12 +228,13 @@ export function useNovaSolicitacaoPage() {
         periodoFim,
         context,
         input: {
-          xmlFiles: files.xmlFiles,
+          xmlFiles: effectiveXmlFiles,
           spedFiles: files.spedFiles,
           entrySheet: files.planilhaEntradaFile,
         },
         bonusDecisions,
         convenio5291Decisions,
+        ignoreMissingCteNotes,
         diagnostic: diagnostic ?? undefined,
       },
       templateBytes,
@@ -245,6 +257,12 @@ export function useNovaSolicitacaoPage() {
         return bytes;
       },
     );
+
+    if (localResult.preAnalysis.requer_decisao && (localResult.preAnalysis.ctes_sem_nfe?.length ?? 0) > 0) {
+      setPendenciasCteNfe(localResult.preAnalysis.ctes_sem_nfe ?? []);
+      setShowModalCteNfe(true);
+      return;
+    }
 
     if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.notas_bonificacao.length > 0) {
       setPendenciasBonificacao(localResult.preAnalysis.notas_bonificacao);
@@ -300,6 +318,10 @@ export function useNovaSolicitacaoPage() {
       );
     }
 
+    setShowModalCteNfe(false);
+    setPendenciasCteNfe([]);
+    ignoreMissingCteNotesRef.current = false;
+    xmlFilesOverrideRef.current = undefined;
     setShowModalBonificacao(false);
     setPendenciasBonificacao([]);
     setShowModalConvenio5291(false);
@@ -420,8 +442,53 @@ export function useNovaSolicitacaoPage() {
       diagnostic.attempt.requestId = requestId;
       diagnostic.event('info', 'solicitacao', 'Solicitação criada.', { solicitacaoId: requestId });
       bonusDecisionsRef.current = undefined;
+      ignoreMissingCteNotesRef.current = false;
+      xmlFilesOverrideRef.current = undefined;
       await executeLocalProcessing(requestId, undefined, undefined, diagnostic);
     });
+  };
+
+  const anexarNfesFaltantesEProcessar = async (novosArquivos: File[]) => {
+    if (!solicitacaoIdAtiva || novosArquivos.length === 0) return;
+    const diagnostic = activeDiagnosticRef.current;
+    await runGuardedProcessing(
+      diagnostic,
+      'O processamento não pôde ser concluído após anexar as NF-es.',
+      async () => {
+        const keyOf = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
+        const existingFiles = xmlFilesOverrideRef.current ?? files.xmlFiles;
+        const existingKeys = new Set(existingFiles.map(keyOf));
+        const added = novosArquivos.filter((file) => !existingKeys.has(keyOf(file)));
+        const merged = [...existingFiles, ...added];
+        xmlFilesOverrideRef.current = merged;
+        files.setXmlFiles(merged);
+        diagnostic?.event('info', 'validacao', 'NF-es complementares anexadas para CT-e; processamento retomado.', {
+          arquivosAdicionados: added.length,
+        });
+        setShowModalCteNfe(false);
+        await executeLocalProcessing(solicitacaoIdAtiva, undefined, undefined, diagnostic, {
+          overrideXmlFiles: merged,
+          ignoreMissingCteNotes: false,
+        });
+      },
+    );
+  };
+
+  const ignorarCtesSemNfeEProcessar = async () => {
+    if (!solicitacaoIdAtiva) return;
+    const diagnostic = activeDiagnosticRef.current;
+    await runGuardedProcessing(
+      diagnostic,
+      'O processamento não pôde ser concluído após ignorar os CT-es pendentes.',
+      async () => {
+        ignoreMissingCteNotesRef.current = true;
+        diagnostic?.event('info', 'validacao', 'Usuário optou por continuar sem as NF-es originárias faltantes dos CT-es.');
+        setShowModalCteNfe(false);
+        await executeLocalProcessing(solicitacaoIdAtiva, undefined, undefined, diagnostic, {
+          ignoreMissingCteNotes: true,
+        });
+      },
+    );
   };
 
   const confirmarBonificacoesEProcessar = async (decisoes: Record<string, boolean>) => {
@@ -498,6 +565,18 @@ export function useNovaSolicitacaoPage() {
     );
   };
 
+  const cancelarModalCteNfe = () => {
+    cancelDecisionModal(
+      'Processamento cancelado durante o envio das NF-es originárias dos CT-es.',
+      () => {
+        setShowModalCteNfe(false);
+        setPendenciasCteNfe([]);
+        ignoreMissingCteNotesRef.current = false;
+        xmlFilesOverrideRef.current = undefined;
+      },
+    );
+  };
+
   const downloadSpreadsheet = async (tipo?: TipoPlanilha) => {
     if (!resultadoSolicitacao) return;
     setDownloadError(null);
@@ -520,6 +599,10 @@ export function useNovaSolicitacaoPage() {
     setDownloadError(null);
     setErrorMessage(null);
     setSolicitacaoIdAtiva(null);
+    setPendenciasCteNfe([]);
+    setShowModalCteNfe(false);
+    ignoreMissingCteNotesRef.current = false;
+    xmlFilesOverrideRef.current = undefined;
     setPendenciasBonificacao([]);
     setShowModalBonificacao(false);
     setPendenciasConvenio5291([]);
@@ -568,6 +651,11 @@ export function useNovaSolicitacaoPage() {
     localArtifactTypes,
     hasLocalArtifact: (tipo: TipoPlanilha) => localArtifactTypes.includes(tipo),
     hasAnyLocalArtifact: localArtifactTypes.length > 0,
+    pendenciasCteNfe,
+    showModalCteNfe,
+    anexarNfesFaltantesEProcessar,
+    ignorarCtesSemNfeEProcessar,
+    cancelarModalCteNfe,
     pendenciasBonificacao,
     showModalBonificacao,
     confirmarBonificacoesEProcessar,

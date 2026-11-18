@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, date
 from decimal import Decimal
+import re
 from pydantic import BaseModel, Field
 
 IBGE_UF_MAP: Dict[str, str] = {
@@ -51,6 +52,40 @@ class ExtractedNFData(BaseModel):
     itens: List[ExtractedItemNF]
     raw_metadata: Dict[str, Any] = Field(default_factory=dict)
     origem_extracao: str = "xml"  # "xml" ou "sped"
+
+class ExtractedCTeData(BaseModel):
+    chave_acesso: str = ""
+    numero_cte: str
+    serie: str = ""
+    cfop: str = ""
+    cnpj_emitente: str = ""
+    nome_emitente: str = ""
+    uf_emitente: str = ""
+    uf_inicio: str = ""
+    uf_fim: str = ""
+    cnpj_tomador: str = ""
+    toma_codigo: str = ""
+    data_emissao: Optional[datetime] = None
+    data_entrada: Optional[date] = None
+    v_total_cte: Decimal
+    v_bc_cte: Decimal = Decimal("0.00")
+    a_ori: Decimal = Decimal("0.00")
+    a_ori_destacada: bool = False
+    v_icms_cte: Decimal = Decimal("0.00")
+    fornecedor_simples_nacional: bool = False
+    chaves_nfe: List[str] = Field(default_factory=list)
+    raw_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+def extrair_numero_serie_chave_nfe(chave: str) -> Tuple[str, str]:
+    """Extrai (numero_nota, serie) de uma chave de acesso NF-e de 44 dígitos."""
+    clean = re.sub(r"\D", "", chave or "")
+    if len(clean) != 44:
+        return "", ""
+    serie = clean[22:25].lstrip("0") or "0"
+    numero = clean[25:34].lstrip("0") or "0"
+    return numero, serie
+
 
 class BaseNFEExtractor(ABC):
     """Interface abstrata para extração de dados de NF-e (desacoplada para permitir múltiplos formatos no futuro)"""

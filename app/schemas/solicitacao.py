@@ -178,9 +178,26 @@ class NotaBonificacaoPendenciaOut(BaseModel):
     motivo_sugestao: str
 
 
+class NfeFaltanteCteOut(BaseModel):
+    chave_acesso: str
+    numero_nota: str
+    serie: str = ""
+
+
+class CteSemNfePendenciaOut(BaseModel):
+    cte_chave_acesso: str
+    cte_numero: str
+    cte_serie: Optional[str] = ""
+    cnpj_emitente: Optional[str] = ""
+    nome_emitente: Optional[str] = ""
+    valor_total: Decimal
+    nfes_faltantes: List[NfeFaltanteCteOut] = Field(default_factory=list)
+
+
 class PreAnaliseSolicitacaoOut(BaseModel):
     requer_decisao: bool
     notas_bonificacao: List[NotaBonificacaoPendenciaOut] = Field(default_factory=list)
+    ctes_sem_nfe: List[CteSemNfePendenciaOut] = Field(default_factory=list)
 
 
 class SolicitacoesBatchDeleteRequest(BaseModel):

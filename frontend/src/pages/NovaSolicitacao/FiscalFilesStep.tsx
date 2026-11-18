@@ -164,7 +164,7 @@ export const FiscalFilesStep: React.FC<FiscalFilesStepProps> = ({
                 <span className="text-blue-700 underline font-bold">clique para selecionar</span>
               </p>
               <p className="text-[11px] text-slate-500">
-                NF-e modelo 55 da competência
+                NF-e (modelo 55) e CT-e (modelo 57) da competência
               </p>
             </div>
           </div>

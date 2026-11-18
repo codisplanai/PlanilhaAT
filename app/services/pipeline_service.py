@@ -39,6 +39,12 @@ from app.services.pipeline_lifecycle import PipelineLifecycle
 from app.services.pipeline_analysis import (
     CFOP_SUFFIXES_REQUIRING_DESTINATION,
     PipelinePreAnalyzer,
+    _nfe_disponivel_para_cte,
+)
+from app.services.pipeline_cte import (
+    avaliar_nfe_para_cte,
+    get_eligible_cte_nfe_keys,
+    processar_ctes,
 )
 from app.services.pipeline_sources import PipelineSourceLoader
 from app.constants import (
@@ -144,7 +150,9 @@ class ProcessingPipelineService:
             entry_sheet_filename=planilha_entradas_filename,
         )
 
-        return PipelinePreAnalyzer.analyze(sources.notes, empresa, solicitacao)
+        return PipelinePreAnalyzer.analyze(
+            sources.notes, empresa, solicitacao, ctes=getattr(sources, "ctes", None) or []
+        )
 
     def process_solicitacao(
         self,
@@ -197,6 +205,8 @@ class ProcessingPipelineService:
             entry_sheet_filename=planilha_entradas_filename,
         )
         raw_nfs = sources.notes
+        raw_ctes = getattr(sources, "ctes", None) or []
+        sped_cte_records = getattr(sources, "sped_cte_records", None) or {}
         planilha_records = sources.entry_records
         sped_empresa_info = sources.sped_company_info
 
@@ -224,14 +234,38 @@ class ProcessingPipelineService:
                 empresa.cnpj,
             )
             is_industria = empresa.atividade == ATIVIDADE_INDUSTRIA
+            referenced_nfe_chaves = get_eligible_cte_nfe_keys(
+                raw_ctes, empresa, solicitacao
+            )
+            nfe_context_by_chave: Dict[str, Dict[str, Any]] = {}
 
             for filename, nf_data in raw_nfs:
+                clean_chave = re.sub(r"\D", "", nf_data.chave_acesso or "")
+                is_referenced_by_cte = bool(
+                    clean_chave and clean_chave in referenced_nfe_chaves
+                )
+                if is_referenced_by_cte and _nfe_disponivel_para_cte(nf_data):
+                    nfe_context_by_chave[clean_chave] = avaliar_nfe_para_cte(
+                        pipeline=self,
+                        nf_data=nf_data,
+                        filename=filename,
+                        empresa=empresa,
+                        planilha_records=planilha_records,
+                        has_sped=has_sped,
+                        modo_legado=modo_legado,
+                        configuracoes_perfil=configuracoes_perfil,
+                        revenda_tributaria_config=revenda_tributaria_config,
+                        is_industria=is_industria,
+                        decisoes_bonificacao=decisoes_bonificacao,
+                    )
+
                 eligibilidade = self._validar_elegibilidade_nota(
                     nf_data=nf_data,
                     filename=filename,
                     empresa=empresa,
                     solicitacao=solicitacao,
                     notas_ignoradas=notas_ignoradas,
+                    is_referenced_by_cte=is_referenced_by_cte,
                 )
                 if eligibilidade is None:
                     continue
@@ -575,6 +609,24 @@ class ProcessingPipelineService:
                     rows_por_destino=rows_por_destino,
                 )
 
+            if raw_ctes:
+                processar_ctes(
+                    pipeline=self,
+                    ctes=raw_ctes,
+                    nfe_context_by_chave=nfe_context_by_chave,
+                    solicitacao=solicitacao,
+                    empresa=empresa,
+                    planilha_records=planilha_records,
+                    sped_cte_records=sped_cte_records,
+                    has_sped=has_sped,
+                    modo_legado=modo_legado,
+                    notas_criadas=notas_criadas,
+                    notas_ignoradas=notas_ignoradas,
+                    avisos_avaliacao=avisos_avaliacao,
+                    erros_validacao=erros_validacao,
+                    rows_por_destino=rows_por_destino,
+                )
+
             if rows_por_destino.get(CONTROLE_IMPOSTO_PAGO_ENTRADA):
                 rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA] = consolidar_linhas_controle(
                     rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA]
@@ -649,6 +701,7 @@ class ProcessingPipelineService:
         empresa: Empresa,
         solicitacao: Solicitacao,
         notas_ignoradas: List[Dict[str, Any]],
+        is_referenced_by_cte: bool = False,
     ) -> Optional[Tuple[bool, str]]:
         if is_emissao_propria(nf_data, empresa.cnpj):
             notas_ignoradas.append(
@@ -660,26 +713,28 @@ class ProcessingPipelineService:
             )
             return None
 
-        SanityChecker.validate_nf_destinatario(nf_data, empresa.cnpj)
+        dentro_do_periodo = SanityChecker.is_within_period(
+            nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
+        )
+        if not (is_referenced_by_cte and not dentro_do_periodo):
+            SanityChecker.validate_nf_destinatario(nf_data, empresa.cnpj)
 
         uf_fornecedor = (nf_data.uf_emitente or "").strip().upper()
         uf_empresa_dest = (empresa.uf or "").strip().upper()
         if not SanityChecker.is_interestadual(uf_fornecedor, uf_empresa_dest):
-            notas_ignoradas.append(
-                ignored_note(
-                    nf_data,
-                    filename,
-                    f"Operação interna estadual desconsiderada: UF do "
-                    f"fornecedor/emitente ({uf_fornecedor}) é igual à UF da "
-                    f"empresa ({uf_empresa_dest}). Antecipação e DIFAL aplicam-se "
-                    f"exclusivamente a aquisições interestaduais.",
+            if not (is_referenced_by_cte and not dentro_do_periodo):
+                notas_ignoradas.append(
+                    ignored_note(
+                        nf_data,
+                        filename,
+                        f"Operação interna estadual desconsiderada: UF do "
+                        f"fornecedor/emitente ({uf_fornecedor}) é igual à UF da "
+                        f"empresa ({uf_empresa_dest}). Antecipação e DIFAL aplicam-se "
+                        f"exclusivamente a aquisições interestaduais.",
+                    )
                 )
-            )
             return None
 
-        dentro_do_periodo = SanityChecker.is_within_period(
-            nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
-        )
         retroativa = (not dentro_do_periodo) and aceita_difal_retroativa(
             nf_data, empresa.optante_simples_nacional, solicitacao.periodo_inicio
         )
@@ -689,7 +744,8 @@ class ProcessingPipelineService:
             f"{solicitacao.periodo_fim.strftime('%d/%m/%Y')})."
         )
         if not dentro_do_periodo and not retroativa:
-            notas_ignoradas.append(ignored_note(nf_data, filename, motivo_fora_periodo))
+            if not is_referenced_by_cte:
+                notas_ignoradas.append(ignored_note(nf_data, filename, motivo_fora_periodo))
             return None
         return retroativa, motivo_fora_periodo
 
@@ -1267,6 +1323,14 @@ class ProcessingPipelineService:
         total_ign = len(notas_ignoradas)
         p_ini_str = solicitacao.periodo_inicio.strftime('%d/%m/%Y')
         p_fim_str = solicitacao.periodo_fim.strftime('%d/%m/%Y')
+        cte_faltante = next(
+            (n for n in notas_ignoradas if "NF-e(s) originária(s) não localizada(s)" in str(n.get("motivo", ""))),
+            None,
+        )
+        if cte_faltante is not None:
+            raise ValidationException(
+                f"Nenhum documento gerou apuração. {cte_faltante.get('motivo')}"
+            )
         if total_ign > 0:
             raise ValidationException(
                 f"Nenhuma NF-e válida para apuração interestadual encontrada dentro do período informado ({p_ini_str} a {p_fim_str}). "
