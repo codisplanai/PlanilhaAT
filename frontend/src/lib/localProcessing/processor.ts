@@ -38,10 +38,18 @@ import {
   bonusPreAnalysis,
   cleanDigits,
   convenio5291PreAnalysis,
+  cteMissingNfePreAnalysis,
+  eligibleCteNfeKeys,
+  isNfeAvailableForCte,
   isOwnEmissionNote,
   isSameUfNote,
   withinPeriod,
 } from './preAnalysis.ts';
+import {
+  evaluateNfeForCte,
+  processCtesLocally,
+} from './cteProcessing.ts';
+import type { NfeCteContext } from './cteProcessing.ts';
 import {
   acceptsRetroactiveDifal,
   classifyRevendaMva,
@@ -691,10 +699,41 @@ export async function processFiscalLocally(
       referenciaArquivo: ignoredEntry.arquivo ? 'disponível na interface' : 'não disponível',
     });
   }
+  const ctes = sources.ctes ?? [];
+  const pendingCtes = cteMissingNfePreAnalysis(
+    ctes,
+    sources.notes,
+    periodoInicio,
+    periodoFim,
+    context.empresa.cnpj,
+  );
+  if (pendingCtes.length > 0 && !request.ignoreMissingCteNotes) {
+    if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
+    diagnostic?.stage('validacao', 'Processamento pausado para envio de NF-e(s) originária(s) de CT-e.', {
+      pendencias: pendingCtes.length,
+    });
+    return {
+      preAnalysis: {
+        requer_decisao: true,
+        notas_bonificacao: [],
+        itens_convenio_52_91: [],
+        ctes_sem_nfe: pendingCtes,
+      },
+      notasProcessadas: [],
+      notasIgnoradas: sources.ignoredNotes,
+      itensExcluidos: [],
+      avisosAvaliacao: [],
+      cfopsSemRegra: {},
+      rowsByDestination: {},
+      artifacts: [],
+    };
+  }
+
   const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
   const isIndustryCompany = isIndustria(context);
+  const referencedNfeKeys = eligibleCteNfeKeys(ctes, periodoInicio, periodoFim, context.empresa.cnpj);
   const pending = bonusPreAnalysis(
-    sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany,
+    sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany, referencedNfeKeys,
   );
   if (pending.length > 0 && !request.bonusDecisions) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
@@ -723,6 +762,7 @@ export async function processFiscalLocally(
   diagnostic?.stage('transformacao', 'Validação fiscal, aplicação de regras e cálculos iniciados.');
 
   const hasEntrySource = hasSped || Boolean(request.input.entrySheet) || sources.entryRecords.length > 0;
+  const nfeContextByKey = new Map<string, NfeCteContext>();
   const revendaAntecipacaoConfig = getRevendaAntecipacaoConfig(context);
   const convenio5291SavedIndustrialConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
   const convenio5291Config = effectiveConvenio5291PartialConfig(convenio5291SavedIndustrialConfig);
@@ -760,6 +800,21 @@ export async function processFiscalLocally(
   }
 
   for (const note of sources.notes) {
+    const cleanChave = cleanDigits(note.chaveAcesso);
+    const isReferencedByCte = Boolean(cleanChave && referencedNfeKeys.has(cleanChave));
+    if (isReferencedByCte && isNfeAvailableForCte(note)) {
+      nfeContextByKey.set(
+        cleanChave,
+        evaluateNfeForCte({
+          note,
+          context,
+          entryRecords: sources.entryRecords,
+          hasEntrySource,
+          bonusDecisions: request.bonusDecisions,
+        }),
+      );
+    }
+
     if (isOwnEmissionNote(note, context.empresa.cnpj)) {
       ignored.push(
         ignoredNote(note, 'Nota fiscal de emissão própria desconsiderada: emitente é a própria empresa.'),
@@ -767,25 +822,27 @@ export async function processFiscalLocally(
       continue;
     }
 
-    if (cleanDigits(note.cnpjDestinatario) !== cleanDigits(context.empresa.cnpj)) {
+    const periodReason = `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`;
+    const inPeriod = withinPeriod(note, periodoInicio, periodoFim);
+    if (!(isReferencedByCte && !inPeriod) && cleanDigits(note.cnpjDestinatario) !== cleanDigits(context.empresa.cnpj)) {
       throw new Error(
         `NF-e ${note.numeroNota} possui CNPJ destinatário ${note.cnpjDestinatario}, diferente da empresa selecionada.`,
       );
     }
 
     if (isSameUfNote(note, context.empresa.uf)) {
-      ignored.push(ignoredNote(
-        note,
-        `Operação interna estadual desconsiderada: UF do fornecedor (${note.ufEmitente}) é igual à UF da empresa (${context.empresa.uf}).`,
-      ));
+      if (!(isReferencedByCte && !inPeriod)) {
+        ignored.push(ignoredNote(
+          note,
+          `Operação interna estadual desconsiderada: UF do fornecedor (${note.ufEmitente}) é igual à UF da empresa (${context.empresa.uf}).`,
+        ));
+      }
       continue;
     }
 
-    const periodReason = `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`;
-    const inPeriod = withinPeriod(note, periodoInicio, periodoFim);
     const retroactive = !inPeriod && acceptsRetroactiveDifal(note, periodoInicio, isSimplesCompany);
     if (!inPeriod && !retroactive) {
-      ignored.push(ignoredNote(note, periodReason));
+      if (!isReferencedByCte) ignored.push(ignoredNote(note, periodReason));
       continue;
     }
     let retroactiveSkipped = 0;
@@ -1124,6 +1181,24 @@ export async function processFiscalLocally(
     });
   }
 
+  if (ctes.length > 0) {
+    processCtesLocally({
+      ctes,
+      nfeContextByKey,
+      context,
+      periodoInicio,
+      periodoFim,
+      entryRecords: sources.entryRecords,
+      spedCteRecords: sources.spedCteRecords ?? [],
+      hasEntrySource,
+      processed,
+      rowsByDestination,
+      ignored,
+      warnings,
+      diagnostic,
+    });
+  }
+
   if (rowsByDestination[CONTROLE_DESTINATION]?.length) {
     rowsByDestination[CONTROLE_DESTINATION] = consolidateControlRows(rowsByDestination[CONTROLE_DESTINATION]);
   }
@@ -1138,6 +1213,10 @@ export async function processFiscalLocally(
       throw new Error(
         `Nenhum item correspondeu a um CFOP com regra de roteamento cadastrada (${Object.keys(missingCfops).sort().join(', ')}).`,
       );
+    }
+    const cteFaltante = ignored.find((item) => item.motivo.includes('NF-e(s) originária(s) não localizada(s)'));
+    if (cteFaltante) {
+      throw new Error(`Nenhum documento gerou apuração. ${cteFaltante.motivo}`);
     }
     if (excluded.length > 0) message = noOutputMessage(excluded);
     else if (ignored.length > 0) {

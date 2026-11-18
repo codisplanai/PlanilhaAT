@@ -6,8 +6,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.core.exceptions import ValidationException
 from app.models.empresa import Empresa
 from app.models.solicitacao import Solicitacao
-from app.services.extraction.base import BaseNFEExtractor, ExtractedNFData
+from app.services.extraction.base import BaseNFEExtractor, ExtractedCTeData, ExtractedNFData
+from app.services.extraction.cte_xml_extractor import CTeXMLExtractor
 from app.services.extraction.data_entrada_matcher import (
+    DataEntradaNormalizer,
     PlanilhaEntradaParser,
     PlanilhaEntradaRecord,
 )
@@ -18,7 +20,9 @@ from app.services.pipeline_helpers import crossing_keys, enrich_sped_with_xml
 @dataclass
 class PipelineSources:
     notes: List[Tuple[str, ExtractedNFData]]
+    ctes: List[Tuple[str, ExtractedCTeData]] = field(default_factory=list)
     entry_records: List[PlanilhaEntradaRecord] = field(default_factory=list)
+    sped_cte_records: List[PlanilhaEntradaRecord] = field(default_factory=list)
     ignored_notes: List[Dict[str, Any]] = field(default_factory=list)
     sped_company_info: Dict[str, str] = field(default_factory=dict)
 
@@ -28,9 +32,11 @@ class PipelineSourceLoader:
         self,
         xml_extractor: BaseNFEExtractor,
         sped_extractor: SpedFiscalExtractor,
+        cte_extractor: Optional[CTeXMLExtractor] = None,
     ):
         self.xml_extractor = xml_extractor
         self.sped_extractor = sped_extractor
+        self.cte_extractor = cte_extractor or CTeXMLExtractor()
 
     def load(
         self,
@@ -58,18 +64,20 @@ class PipelineSourceLoader:
             entry_sheet_content,
             entry_sheet_filename,
         )
-        notes, ignored_notes = self._extract_notes(
+        notes, ctes, ignored_notes, sped_cte_records = self._extract_notes(
             xml_files,
             normalized_speds,
         )
-        if not notes:
+        if not notes and not ctes:
             raise ValidationException(
-                "Nenhum arquivo XML de NF-e ou SPED Fiscal válido foi encontrado "
+                "Nenhum arquivo XML de NF-e, CT-e ou SPED Fiscal válido foi encontrado "
                 "para processamento."
             )
         return PipelineSources(
             notes=self._deduplicate(notes),
+            ctes=self._deduplicate_ctes(ctes),
             entry_records=entry_records,
+            sped_cte_records=sped_cte_records,
             ignored_notes=ignored_notes,
             sped_company_info=sped_company_info,
         )
@@ -151,13 +159,28 @@ class PipelineSourceLoader:
         self,
         xml_files: Optional[List[Tuple[str, bytes]]],
         sped_files: List[Tuple[str, bytes]],
-    ) -> Tuple[List[Tuple[str, ExtractedNFData]], List[Dict[str, Any]]]:
+    ) -> Tuple[
+        List[Tuple[str, ExtractedNFData]],
+        List[Tuple[str, ExtractedCTeData]],
+        List[Dict[str, Any]],
+        List[PlanilhaEntradaRecord],
+    ]:
         notes: List[Tuple[str, ExtractedNFData]] = []
+        ctes: List[Tuple[str, ExtractedCTeData]] = []
         ignored_notes: List[Dict[str, Any]] = []
+        sped_cte_records: List[PlanilhaEntradaRecord] = []
         sped_by_key: Dict[str, ExtractedNFData] = {}
 
         for sped_filename, sped_content in sped_files:
-            for note in self.sped_extractor.extract_from_sped(sped_content):
+            cte_entries = self.sped_extractor.extract_cte_entries_from_sped(sped_content)
+            sped_cte_records.extend(cte_entries)
+            try:
+                sped_notes = self.sped_extractor.extract_from_sped(sped_content)
+            except ValidationException as exc:
+                if "Nenhum documento fiscal de entrada" in str(exc) and (cte_entries or xml_files):
+                    continue
+                raise
+            for note in sped_notes:
                 keys = crossing_keys(note)
                 if any(key in sped_by_key for key in keys):
                     continue
@@ -165,6 +188,23 @@ class PipelineSourceLoader:
                 for key in keys:
                     sped_by_key[key] = note
         for filename, xml_content in xml_files or []:
+            if self.cte_extractor.is_cte_xml(xml_content):
+                try:
+                    cte_data = self.cte_extractor.extract_from_xml(xml_content)
+                    ctes.append((filename, cte_data))
+                except ValidationException as exc:
+                    ignored_notes.append(
+                        {
+                            "numero_nota": "Não identificado",
+                            "serie": None,
+                            "chave_acesso": None,
+                            "data_emissao": None,
+                            "motivo": str(exc),
+                            "arquivo": filename,
+                        }
+                    )
+                continue
+
             try:
                 xml_note = self.xml_extractor.extract_from_xml(xml_content)
             except ValidationException as exc:
@@ -194,7 +234,26 @@ class PipelineSourceLoader:
             else:
                 notes.append((filename, xml_note))
 
-        return notes, ignored_notes
+        return notes, ctes, ignored_notes, sped_cte_records
+
+    @staticmethod
+    def _deduplicate_ctes(
+        ctes: List[Tuple[str, ExtractedCTeData]],
+    ) -> List[Tuple[str, ExtractedCTeData]]:
+        unique_ctes: List[Tuple[str, ExtractedCTeData]] = []
+        seen: set[str] = set()
+        for source_name, cte in ctes:
+            chave = DataEntradaNormalizer.normalize_chave(cte.chave_acesso)
+            identity = (
+                f"chave:{chave}"
+                if chave
+                else f"{cte.numero_cte}|{cte.serie}|{cte.cnpj_emitente}"
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            unique_ctes.append((source_name, cte))
+        return unique_ctes
 
     @staticmethod
     def _deduplicate(

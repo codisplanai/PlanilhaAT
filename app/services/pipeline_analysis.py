@@ -2,16 +2,29 @@
 
 import re
 from decimal import Decimal
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.models.empresa import Empresa
 from app.models.solicitacao import Solicitacao
-from app.services.extraction.base import ExtractedNFData
+from app.services.extraction.base import (
+    ExtractedCTeData,
+    ExtractedNFData,
+    extrair_numero_serie_chave_nfe,
+)
 from app.services.pipeline_helpers import aceita_difal_retroativa, is_emissao_propria
 from app.services.validation.sanity_checker import SanityChecker
 
 
 CFOP_SUFFIXES_REQUIRING_DESTINATION = frozenset({"910", "911", "949"})
+
+
+def _nfe_disponivel_para_cte(note: ExtractedNFData) -> bool:
+    chave = re.sub(r"\D", "", note.chave_acesso or "")
+    if len(chave) != 44:
+        return False
+    if note.origem_extracao == "xml":
+        return True
+    return len(note.itens) > 0 and any(bool((it.cfop or "").strip()) for it in note.itens)
 
 
 class PipelinePreAnalyzer:
@@ -21,20 +34,99 @@ class PipelinePreAnalyzer:
         notes: List[Tuple[str, ExtractedNFData]],
         empresa: Empresa,
         solicitacao: Solicitacao,
+        ctes: Optional[List[Tuple[str, ExtractedCTeData]]] = None,
     ) -> Dict[str, Any]:
-        eligible_notes = cls._eligible_notes(notes, empresa, solicitacao)
+        ctes_list = ctes or []
+        pending_ctes = cls.detect_missing_cte_nfes(ctes_list, notes, empresa, solicitacao)
+        referenced_chaves = cls._eligible_cte_nfe_keys(ctes_list, empresa, solicitacao)
+        eligible_notes = cls._eligible_notes(notes, empresa, solicitacao, referenced_chaves)
         pending = cls.detect_destination_decisions(eligible_notes)
         return {
-            "requer_decisao": bool(pending),
+            "requer_decisao": bool(pending or pending_ctes),
             "notas_bonificacao": pending,
+            "ctes_sem_nfe": pending_ctes,
         }
+
+    @staticmethod
+    def _eligible_cte_nfe_keys(
+        ctes: List[Tuple[str, ExtractedCTeData]],
+        empresa: Empresa,
+        solicitacao: Solicitacao,
+    ) -> Set[str]:
+        empresa_cnpj = re.sub(r"\D", "", empresa.cnpj or "")
+        if not empresa_cnpj:
+            return set()
+        keys: Set[str] = set()
+        for _filename, cte in ctes:
+            tomador = re.sub(r"\D", "", cte.cnpj_tomador or "")
+            if tomador != empresa_cnpj or not cte.data_emissao:
+                continue
+            if SanityChecker.is_within_period(
+                cte.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
+            ):
+                keys.update(cte.chaves_nfe)
+        return keys
+
+    @staticmethod
+    def detect_missing_cte_nfes(
+        ctes: List[Tuple[str, ExtractedCTeData]],
+        notes: List[Tuple[str, ExtractedNFData]],
+        empresa: Empresa,
+        solicitacao: Solicitacao,
+    ) -> List[Dict[str, Any]]:
+        empresa_cnpj = re.sub(r"\D", "", empresa.cnpj or "")
+        if not empresa_cnpj or not ctes:
+            return []
+
+        available_chaves = {
+            re.sub(r"\D", "", note.chave_acesso or "")
+            for _filename, note in notes
+            if _nfe_disponivel_para_cte(note)
+        }
+
+        pending: List[Dict[str, Any]] = []
+        for _filename, cte in ctes:
+            tomador = re.sub(r"\D", "", cte.cnpj_tomador or "")
+            if tomador != empresa_cnpj or not cte.data_emissao:
+                continue
+            if not SanityChecker.is_within_period(
+                cte.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
+            ):
+                continue
+            missing = [chv for chv in cte.chaves_nfe if chv not in available_chaves]
+            if not missing:
+                continue
+            nfes_faltantes = []
+            for chv in missing:
+                numero_nfe, serie_nfe = extrair_numero_serie_chave_nfe(chv)
+                nfes_faltantes.append(
+                    {
+                        "chave_acesso": chv,
+                        "numero_nota": numero_nfe,
+                        "serie": serie_nfe,
+                    }
+                )
+            pending.append(
+                {
+                    "cte_chave_acesso": cte.chave_acesso,
+                    "cte_numero": cte.numero_cte,
+                    "cte_serie": cte.serie or "",
+                    "cnpj_emitente": cte.cnpj_emitente or "",
+                    "nome_emitente": cte.nome_emitente or "",
+                    "valor_total": cte.v_total_cte,
+                    "nfes_faltantes": nfes_faltantes,
+                }
+            )
+        return pending
 
     @staticmethod
     def _eligible_notes(
         notes: List[Tuple[str, ExtractedNFData]],
         empresa: Empresa,
         solicitacao: Solicitacao,
+        referenced_chaves: Optional[Set[str]] = None,
     ) -> List[Tuple[str, ExtractedNFData]]:
+        ref_set = referenced_chaves or set()
         return [
             (filename, note)
             for filename, note in notes
@@ -51,6 +143,7 @@ class PipelinePreAnalyzer:
                 or aceita_difal_retroativa(
                     note, bool(empresa.optante_simples_nacional), solicitacao.periodo_inicio
                 )
+                or re.sub(r"\D", "", note.chave_acesso or "") in ref_set
             )
         ]
 
