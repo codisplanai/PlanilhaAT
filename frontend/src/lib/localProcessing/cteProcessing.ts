@@ -36,7 +36,6 @@ import {
   resolveCfop,
 } from './rules.ts';
 import { isUsoConsumoAtivo, matchEntryCfop, matchEntryDate } from './sources.ts';
-import { shouldExcludeStFromTributaria } from './stTributariaExclusion.ts';
 import { extractNfeNumberAndSeriesFromKey } from './xml.ts';
 
 export interface TribCandidateForCte {
@@ -105,7 +104,6 @@ export function evaluateNfeForCte(params: {
   }
 
   const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
-  const excludeStTributariaNote = shouldExcludeStFromTributaria(context.empresa.razao_social, note);
   const supplierIsSimples = isSimplesSupplier(note);
   const mvaColumn = mvaColumnForNote(note);
   const revendaConfig = getRevendaAntecipacaoConfig(context);
@@ -166,11 +164,6 @@ export function evaluateNfeForCte(params: {
     }
 
     if (isIndustryCompany && !isDifalDestination(destination)) {
-      hasOtherOrExcluded = true;
-      continue;
-    }
-
-    if (excludeStTributariaNote && TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
       hasOtherOrExcluded = true;
       continue;
     }

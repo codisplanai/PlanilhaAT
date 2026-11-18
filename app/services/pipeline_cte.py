@@ -38,7 +38,6 @@ from app.services.pipeline_helpers import is_cfop_uso_consumo_ativo
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.rules_engine.parcial_decision import DESTINOS_PARCIAL
 from app.services.rules_engine.revenda_antecipacao_policy import RevendaAntecipacaoTributariaPolicy
-from app.services.rules_engine.st_tributaria_exclusion import should_exclude_st_from_tributaria
 from app.services.validation.sanity_checker import SanityChecker
 
 
@@ -128,9 +127,6 @@ def avaliar_nfe_para_cte(
         crt_fornecedor,
         evidencia_csosn=evidencia_csosn,
     )
-    exclude_st_tributaria_note = should_exclude_st_from_tributaria(
-        empresa.razao_social, nf_data
-    )
 
     soma_trib = Decimal("0.00")
     soma_difal = Decimal("0.00")
@@ -211,10 +207,6 @@ def avaliar_nfe_para_cte(
                 destino_item = ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES
 
         if is_industria and destino_item not in DESTINOS_DIFAL:
-            has_other_or_excluded = True
-            continue
-
-        if exclude_st_tributaria_note and destino_item in DESTINOS_TRIBUTARIA:
             has_other_or_excluded = True
             continue
 
