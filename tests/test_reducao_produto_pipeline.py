@@ -117,6 +117,34 @@ def test_conflito_interrompe_com_mensagem_que_chega_ao_usuario(db_session, cenar
     assert "Falha interna" not in (sol.mensagem_erro or "")
 
 
+def test_regras_redundantes_com_mesma_aliquota_nao_interrompem_e_viram_aviso(
+        db_session, cenario_janeiro):
+    """Duas regras casando o mesmo item com a mesma alíquota não deixam dúvida
+    sobre o valor: o item sai com 12% e o cadastro redundante vira aviso."""
+    sol = cenario_janeiro()
+    empresa = _preparar(db_session, sol)
+    redundante = RegraReducaoProduto(
+        perfil_regras_id=empresa.perfil_regras_id, ncm="72142000",
+        termos_inclusao=["VERGALHAO"], termos_exclusao=[],
+        aliquota=Decimal("0.1200"), descricao="Vergalhões (duplicada)")
+    db_session.add(redundante)
+    db_session.commit()
+
+    res = ProcessingPipelineService(db_session).process_solicitacao(
+        sol.id, xml_files_bytes=[("901.xml", _xml_dois_itens_mesmo_ncm())])
+    db_session.refresh(res)
+
+    assert res.status == "concluido"
+    aliquotas = sorted(Decimal(str(n.a_dst_resolvida)) for n in res.notas_processadas)
+    assert aliquotas == [Decimal("0.1200"), Decimal("0.1206")]
+    avisos = [a for a in (res.avisos_avaliacao or []) if "reduções por produto" in a["aviso"]]
+    assert len(avisos) == 1
+    assert avisos[0]["numero_nota"] == "901"
+    assert avisos[0]["item_numero"] == 1
+    assert avisos[0]["aviso"].startswith("Item 1: As reduções por produto #")
+    assert f"#{redundante.id} (termo \"VERGALHAO\")" in avisos[0]["aviso"]
+
+
 def test_limitar_a_ori_reducoes_a_10_quando_ativo(db_session, cenario_janeiro):
     """Quando o perfil de regras possui 'limitar_a_ori_reducoes: True' e o item recebe
     redução ou termo de acordo, a A.ORI de 12% é limitada a 10%, recalculando crédito e valor devido."""
