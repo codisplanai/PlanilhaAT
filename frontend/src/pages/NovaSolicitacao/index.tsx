@@ -7,6 +7,7 @@ import { ErrorAlert } from '../../components/feedback/ErrorAlert';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { ModalConfirmacaoBonificacao } from '../../components/ModalConfirmacaoBonificacao';
 import { ModalConfirmacaoConvenio5291 } from '../../components/ModalConfirmacaoConvenio5291';
+import { ModalPendenciaCteNfe } from '../../components/ModalPendenciaCteNfe';
 import { CompanySelectionStep } from './CompanySelectionStep';
 import { PeriodSelectionStep } from './PeriodSelectionStep';
 import { FiscalFilesStep } from './FiscalFilesStep';
@@ -56,6 +57,11 @@ export const NovaSolicitacaoPage: React.FC = () => {
     generateSpreadsheet: handleGerarPlanilha,
     downloadSpreadsheet: handleDownload,
     startNewRequest,
+    pendenciasCteNfe,
+    showModalCteNfe,
+    anexarNfesFaltantesEProcessar,
+    ignorarCtesSemNfeEProcessar,
+    cancelarModalCteNfe,
     pendenciasBonificacao,
     showModalBonificacao,
     confirmarBonificacoesEProcessar,
@@ -162,6 +168,15 @@ export const NovaSolicitacaoPage: React.FC = () => {
           />
         )}
       </Card>
+
+      <ModalPendenciaCteNfe
+        isOpen={showModalCteNfe}
+        onClose={cancelarModalCteNfe}
+        pendencias={pendenciasCteNfe}
+        onAttachFiles={anexarNfesFaltantesEProcessar}
+        onIgnorePending={ignorarCtesSemNfeEProcessar}
+        isProcessing={isProcessing}
+      />
 
       <ModalConfirmacaoBonificacao
         isOpen={showModalBonificacao}

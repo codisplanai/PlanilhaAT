@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from app.core.exceptions import ValidationException
 from app.services.extraction.base import ExtractedNFData, ExtractedItemNF, IBGE_UF_MAP
+from app.services.extraction.data_entrada_matcher import DataEntradaNormalizer, PlanilhaEntradaRecord
 from app.constants import CSOSNS_SIMPLES, NCM_SENTINELA
 
 class SpedFiscalExtractor:
@@ -79,6 +80,77 @@ class SpedFiscalExtractor:
             "uf": IBGE_UF_MAP.get(uf_raw, uf_raw),
             "ie": fields[10].strip() if len(fields) > 10 else "",
         }
+
+    @staticmethod
+    def _parse_reg_0150(fields: List[str]) -> Tuple[str, Dict[str, str]]:
+        cod_part = fields[2].strip()
+        nome = fields[3].strip() if len(fields) > 3 else ""
+        cnpj_part = (
+            fields[5].strip()
+            if len(fields) > 5 and fields[5].strip()
+            else (fields[6].strip() if len(fields) > 6 else "")
+        )
+        uf_part = ""
+        if len(fields) > 8 and fields[8].strip():
+            cod_mun = re.sub(r"\D", "", fields[8].strip())
+            if len(cod_mun) >= 2 and cod_mun[:2] in IBGE_UF_MAP:
+                uf_part = IBGE_UF_MAP[cod_mun[:2]]
+        if not uf_part and len(fields) > 7 and len(fields[7].strip()) == 2 and fields[7].strip().isalpha():
+            uf_part = fields[7].strip().upper()
+        return cod_part, {
+            "cnpj": re.sub(r"\D", "", cnpj_part),
+            "nome": nome,
+            "uf": uf_part,
+        }
+
+    def extract_cte_entries_from_sped(self, sped_content: bytes) -> List[PlanilhaEntradaRecord]:
+        """Extrai registros D100 de aquisição de transporte (IND_OPER=0, COD_SIT 00/01) para cruzamento de datas de CT-e."""
+        text = self._decode_content(sped_content)
+        dest_cnpj = ""
+        participantes: Dict[str, Dict[str, str]] = {}
+        records: List[PlanilhaEntradaRecord] = []
+
+        for line in text.splitlines():
+            line_str = line.strip()
+            if not line_str.startswith("|"):
+                continue
+            fields = line_str.split("|")
+            if len(fields) < 3:
+                continue
+            reg = fields[1].strip().upper()
+            if reg == "0000":
+                dest_cnpj = self._parse_reg_0000(fields)["cnpj"]
+            elif reg == "0150" and len(fields) > 5:
+                cod_part, part_data = self._parse_reg_0150(fields)
+                participantes[cod_part] = part_data
+            elif reg == "D100":
+                ind_oper = fields[2].strip() if len(fields) > 2 else ""
+                cod_sit = fields[6].strip() if len(fields) > 6 else "00"
+                if ind_oper != "0" or cod_sit not in ("00", "01"):
+                    continue
+                ind_emit = fields[3].strip() if len(fields) > 3 else "1"
+                cod_part = fields[4].strip() if len(fields) > 4 else ""
+                serie = fields[7].strip() if len(fields) > 7 else ""
+                num_doc = fields[9].strip() if len(fields) > 9 else ""
+                chv_cte = re.sub(r"\D", "", fields[10] if len(fields) > 10 else "")
+                dt_doc = fields[11].strip() if len(fields) > 11 else ""
+                dt_a_p = fields[12].strip() if len(fields) > 12 else ""
+                data_entrada = self._parse_sped_date(dt_a_p) or self._parse_sped_date(dt_doc)
+                cnpj_emit = dest_cnpj if ind_emit == "0" else participantes.get(cod_part, {}).get("cnpj", "")
+                if not chv_cte and not num_doc:
+                    continue
+                records.append(
+                    PlanilhaEntradaRecord(
+                        numero_raw=num_doc,
+                        numero_normalizado=DataEntradaNormalizer.normalize_numero(num_doc),
+                        serie_normalizada=DataEntradaNormalizer.normalize_serie(serie),
+                        cnpj_emitente_normalizado=DataEntradaNormalizer.normalize_cnpj(cnpj_emit),
+                        chave_acesso_normalizada=DataEntradaNormalizer.normalize_chave(chv_cte),
+                        data_entrada=data_entrada,
+                        cfop_normalizado="",
+                    )
+                )
+        return records
 
     @staticmethod
     def extract_empresa_info(sped_content: bytes) -> Dict[str, str]:
@@ -250,25 +322,8 @@ class SpedFiscalExtractor:
             elif reg == "0150":
                 # Campo 2: COD_PART, Campo 3: NOME, Campo 5: CNPJ, Campo 6: CPF, Campo 8: COD_MUN
                 if len(fields) > 5:
-                    cod_part = fields[2].strip()
-                    nome = fields[3].strip() if len(fields) > 3 else ""
-                    cnpj_part = fields[5].strip() if len(fields) > 5 and fields[5].strip() else (fields[6].strip() if len(fields) > 6 else "")
-                    
-                    # UF do participante: extrair do COD_MUN (código IBGE) ou de campos adicionais
-                    uf_part = ""
-                    if len(fields) > 8 and fields[8].strip():
-                        cod_mun = re.sub(r"\D", "", fields[8].strip())
-                        if len(cod_mun) >= 2 and cod_mun[:2] in IBGE_UF_MAP:
-                            uf_part = IBGE_UF_MAP[cod_mun[:2]]
-                    
-                    if not uf_part and len(fields) > 7 and len(fields[7].strip()) == 2 and fields[7].strip().isalpha():
-                        uf_part = fields[7].strip().upper()
-
-                    participantes[cod_part] = {
-                        "cnpj": re.sub(r"\D", "", cnpj_part),
-                        "nome": nome,
-                        "uf": uf_part
-                    }
+                    cod_part, part_data = self._parse_reg_0150(fields)
+                    participantes[cod_part] = part_data
 
             # 3. Registro 0200: Cadastro de Itens e NCM
             elif reg == "0200":

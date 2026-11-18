@@ -1,12 +1,18 @@
-import xml.etree.ElementTree as ET
-from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 import re
 
 from app.core.exceptions import ValidationException
 from app.services.extraction.base import BaseNFEExtractor, ExtractedNFData, ExtractedItemNF, IBGE_UF_MAP
 from app.services.extraction.inf_compl import extrair_aliquota_credito_icms
+from app.services.extraction.xml_utils import (
+    find_elem,
+    find_first_descendant,
+    get_decimal,
+    get_text,
+    parse_sefaz_datetime,
+    parse_xml_root,
+    strip_tag,
+)
 
 class NFeXMLExtractor(BaseNFEExtractor):
     """
@@ -14,71 +20,19 @@ class NFeXMLExtractor(BaseNFEExtractor):
     Não utiliza IA/LLM, processa a estrutura oficial da SEFAZ (Schema NF-e v4.00 / v3.10).
     """
 
-    def _strip_tag(self, tag: str) -> str:
-        """Remove namespace da tag XML"""
-        if "}" in tag:
-            return tag.split("}", 1)[1]
-        return tag
+    _strip_tag = staticmethod(strip_tag)
+    _find_elem = staticmethod(find_elem)
+    _get_text = staticmethod(get_text)
+    _get_decimal = staticmethod(get_decimal)
 
-    def _find_elem(self, parent: Optional[ET.Element], name: str) -> Optional[ET.Element]:
-        """Busca elemento filho ignorando namespace"""
-        if parent is None:
-            return None
-        for child in parent:
-            if self._strip_tag(child.tag) == name:
-                return child
-        return None
-
-    def _get_text(self, parent: Optional[ET.Element], name: str, default: str = "") -> str:
-        elem = self._find_elem(parent, name)
-        if elem is not None and elem.text is not None:
-            return elem.text.strip()
-        return default
-
-    def _get_decimal(self, parent: Optional[ET.Element], name: str, default: str = "0.00") -> Decimal:
-        txt = self._get_text(parent, name, default)
-        try:
-            return Decimal(txt)
-        except Exception:
-            return Decimal(default)
-
-    def _parse_datetime(self, date_str: str) -> datetime:
-        """Parse de dhEmi (ISO com fuso) ou dEmi (YYYY-MM-DD)"""
-        if not date_str:
-            raise ValidationException("O XML da NF-e não informa a data de emissão obrigatória.")
-        try:
-            # dhEmi ex: 2026-01-15T14:30:00-03:00 ou 2026-01-15T14:30:00Z
-            # Limpar fuso horário se necessário para datetime nativo
-            clean_str = date_str.replace("Z", "")
-            if "+" in clean_str:
-                clean_str = clean_str.split("+")[0]
-            elif "-" in clean_str and clean_str.count("-") > 2:
-                # Caso com timezone negativo ex: 2026-01-15T14:30:00-03:00
-                parts = clean_str.rsplit("-", 1)
-                clean_str = parts[0]
-            
-            if "T" in clean_str:
-                return datetime.fromisoformat(clean_str)
-            else:
-                return datetime.strptime(clean_str, "%Y-%m-%d")
-        except (TypeError, ValueError):
-            try:
-                return datetime.strptime(date_str[:10], "%Y-%m-%d")
-            except (TypeError, ValueError) as exc:
-                raise ValidationException(f"Data de emissão inválida no XML: '{date_str}'.") from exc
+    def _parse_datetime(self, date_str: str):
+        return parse_sefaz_datetime(date_str, "NF-e")
 
     def extract_from_xml(self, xml_content: bytes) -> ExtractedNFData:
-        try:
-            root = ET.fromstring(xml_content)
-        except Exception as e:
-            raise ValidationException(f"Arquivo XML de NF-e inválido ou corrompido: {str(e)}")
+        root = parse_xml_root(xml_content, "NF-e")
 
         # Localizar infNFe (pode estar dentro de NFe ou nfeProc)
-        inf_nfe = None
-        for elem in root.iter():
-            if self._strip_tag(elem.tag) == "infNFe":
-                inf_nfe = elem
-                break
+        inf_nfe = find_first_descendant(root, "infNFe")
 
         if inf_nfe is None:
             raise ValidationException("Estrutura do XML não contém a tag obrigatória <infNFe>.")

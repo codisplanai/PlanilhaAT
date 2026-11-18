@@ -2,6 +2,7 @@ import type { LocalProcessingRequest } from '../../types/localProcessing';
 import type {
   Convenio5291Decision,
   Convenio5291Pendencia,
+  CteSemNfePendencia,
   NotaBonificacaoPendencia,
   TipoPlanilha,
 } from '../../types/solicitacao';
@@ -11,7 +12,8 @@ import {
   SUL_SUDESTE_EXCETO_ES,
   normalizeDescription,
 } from './domain.ts';
-import type { EntrySheetRecord, ExtractedNote } from './domain.ts';
+import type { EntrySheetRecord, ExtractedCTe, ExtractedNote } from './domain.ts';
+import { extractNfeNumberAndSeriesFromKey } from './xml.ts';
 import { classifyConvenio5291, convenioDecisionKey, fullIcmsCode } from './convenio5291.ts';
 import { classifyAnexoII } from './convenio5291Agricola.ts';
 import { effectiveConvenio5291PartialConfig } from './convenio5291Global.ts';
@@ -51,6 +53,74 @@ export function isSameUfNote(note: ExtractedNote, companyUf: string): boolean {
   return Boolean(note.ufEmitente && companyUf && note.ufEmitente.toUpperCase() === companyUf.toUpperCase());
 }
 
+export function isNfeAvailableForCte(note: ExtractedNote): boolean {
+  const chave = cleanDigits(note.chaveAcesso);
+  if (chave.length !== 44) return false;
+  if (note.origemExtracao === 'xml') return true;
+  return note.itens.length > 0 && note.itens.some((item) => Boolean(item.cfop?.trim()));
+}
+
+export function eligibleCteNfeKeys(
+  ctes: ExtractedCTe[],
+  start: string,
+  end: string,
+  companyCnpj?: string,
+): Set<string> {
+  const cleanEmpresa = cleanDigits(companyCnpj ?? '');
+  if (!cleanEmpresa) return new Set();
+  const keys = new Set<string>();
+  for (const cte of ctes) {
+    if (cleanDigits(cte.cnpjTomador) !== cleanEmpresa) continue;
+    const date = cte.dataEmissao.slice(0, 10);
+    if (date >= start && date <= end) {
+      for (const chv of cte.chavesNfe) keys.add(chv);
+    }
+  }
+  return keys;
+}
+
+export function cteMissingNfePreAnalysis(
+  ctes: ExtractedCTe[],
+  notes: ExtractedNote[],
+  start: string,
+  end: string,
+  companyCnpj?: string,
+): CteSemNfePendencia[] {
+  const cleanEmpresa = cleanDigits(companyCnpj ?? '');
+  if (!cleanEmpresa || ctes.length === 0) return [];
+
+  const availableChaves = new Set(
+    notes.filter(isNfeAvailableForCte).map((note) => cleanDigits(note.chaveAcesso)),
+  );
+
+  const pending: CteSemNfePendencia[] = [];
+  for (const cte of ctes) {
+    if (cleanDigits(cte.cnpjTomador) !== cleanEmpresa) continue;
+    const date = cte.dataEmissao.slice(0, 10);
+    if (date < start || date > end) continue;
+    const missing = cte.chavesNfe.filter((chv) => !availableChaves.has(chv));
+    if (missing.length === 0) continue;
+
+    pending.push({
+      cte_chave_acesso: cte.chaveAcesso,
+      cte_numero: cte.numeroCte,
+      cte_serie: cte.serie,
+      cnpj_emitente: cte.cnpjEmitente,
+      nome_emitente: cte.nomeEmitente,
+      valor_total: cte.vTotalCte,
+      nfes_faltantes: missing.map((chv) => {
+        const { numeroNota, serie } = extractNfeNumberAndSeriesFromKey(chv);
+        return {
+          chave_acesso: chv,
+          numero_nota: numeroNota,
+          serie,
+        };
+      }),
+    });
+  }
+  return pending;
+}
+
 export function bonusPreAnalysis(
   notes: ExtractedNote[],
   start: string,
@@ -58,11 +128,13 @@ export function bonusPreAnalysis(
   companyUf: string,
   companyCnpj?: string,
   isSimples = false,
+  referencedNfeKeys?: ReadonlySet<string>,
 ): NotaBonificacaoPendencia[] {
   const pending: NotaBonificacaoPendencia[] = [];
   for (const note of notes) {
     if (isOwnEmissionNote(note, companyCnpj) || isSameUfNote(note, companyUf)) continue;
-    if (!withinPeriod(note, start, end) && !acceptsRetroactiveDifal(note, start, isSimples)) continue;
+    const referenced = Boolean(referencedNfeKeys?.has(cleanDigits(note.chaveAcesso)));
+    if (!withinPeriod(note, start, end) && !acceptsRetroactiveDifal(note, start, isSimples) && !referenced) continue;
     const bonus = note.itens.filter((item) => BONUS_SUFFIXES.has(cleanDigits(item.cfop).slice(-3)));
     if (bonus.length === 0) continue;
     const total = bonus.reduce((sum, item) => sum + item.vTotal, 0);

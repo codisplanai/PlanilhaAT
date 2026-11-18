@@ -1,8 +1,8 @@
 import type { LocalFiscalInput } from '../../types/localProcessing';
 import type { NotaIgnorada } from '../../types/solicitacao';
-import type { EntrySheetRecord, ExtractedNote, ParsedFiscalSources } from './domain';
+import type { EntrySheetRecord, ExtractedCTe, ExtractedNote, ParsedFiscalSources } from './domain';
 import { decodeUtf8OrWindows1252 } from './domain.ts';
-import { parseNfeXml } from './xml.ts';
+import { isCteXmlDoc, parseCteXmlFromDoc, parseNfeXmlFromDoc, parseXmlDocument } from './xml.ts';
 import { parseSped } from './sped.ts';
 import { parseEntrySheet } from './xlsx.ts';
 import { readZip } from './zip.ts';
@@ -147,6 +147,7 @@ export async function loadLocalFiscalSources(
     : [];
 
   const spedNotes: ExtractedNote[] = [];
+  const spedCteRecords: EntrySheetRecord[] = [];
   const spedByKey = new Map<string, ExtractedNote>();
   let spedCompanyInfo: ParsedFiscalSources['spedCompanyInfo'] = {};
   const spedCompanyInfos: NonNullable<ParsedFiscalSources['spedCompanyInfos']> = [];
@@ -165,6 +166,7 @@ export async function loadLocalFiscalSources(
 
   for (const spedFile of decodedSpeds) {
     const parsed = parseSped(spedFile.text, spedFile.name);
+    spedCteRecords.push(...parsed.cteEntryRecords);
     const info = {
       cnpj: parsed.companyInfo.cnpj,
       uf: parsed.companyInfo.uf,
@@ -188,12 +190,44 @@ export async function loadLocalFiscalSources(
   }
 
   const notes: ExtractedNote[] = [...spedNotes];
+  const ctes: ExtractedCTe[] = [];
   const ignoredNotes: NotaIgnorada[] = [];
 
   for (const source of await xmlSources(input.xmlFiles)) {
+    let doc: XMLDocument;
+    try {
+      doc = parseXmlDocument(source.text, source.filename);
+    } catch (error) {
+      ignoredNotes.push({
+        numero_nota: 'Não identificado',
+        serie: null,
+        chave_acesso: null,
+        data_emissao: null,
+        motivo: error instanceof Error ? error.message : 'XML inválido.',
+        arquivo: source.filename,
+      });
+      continue;
+    }
+
+    if (isCteXmlDoc(doc)) {
+      try {
+        ctes.push(parseCteXmlFromDoc(doc, source.filename));
+      } catch (error) {
+        ignoredNotes.push({
+          numero_nota: 'Não identificado',
+          serie: null,
+          chave_acesso: null,
+          data_emissao: null,
+          motivo: error instanceof Error ? error.message : 'XML de CT-e inválido.',
+          arquivo: source.filename,
+        });
+      }
+      continue;
+    }
+
     let xmlNote: ExtractedNote;
     try {
-      xmlNote = parseNfeXml(source.text, source.filename);
+      xmlNote = parseNfeXmlFromDoc(doc, source.filename);
     } catch (error) {
       ignoredNotes.push({
         numero_nota: 'Não identificado',
@@ -223,13 +257,27 @@ export async function loadLocalFiscalSources(
     unique.push(note);
   }
 
-  if (unique.length === 0) {
-    throw new Error('Nenhum XML de NF-e ou SPED Fiscal válido foi encontrado para processamento.');
+  const uniqueCtes: ExtractedCTe[] = [];
+  const seenCtes = new Set<string>();
+  for (const cte of ctes) {
+    const access = cte.chaveAcesso.replace(/\D/g, '');
+    const identity = access.length === 44
+      ? `chave:${access}`
+      : `${cte.numeroCte}|${cte.serie}|${cte.cnpjEmitente}`;
+    if (seenCtes.has(identity)) continue;
+    seenCtes.add(identity);
+    uniqueCtes.push(cte);
+  }
+
+  if (unique.length === 0 && uniqueCtes.length === 0) {
+    throw new Error('Nenhum XML de NF-e, CT-e ou SPED Fiscal válido foi encontrado para processamento.');
   }
 
   return {
     notes: unique,
+    ctes: uniqueCtes,
     entryRecords,
+    spedCteRecords,
     spedCompanyInfo,
     spedCompanyInfos,
     ignoredNotes,

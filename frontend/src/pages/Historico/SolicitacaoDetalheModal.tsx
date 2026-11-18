@@ -174,11 +174,19 @@ export const SolicitacaoDetalheModal: React.FC<SolicitacaoDetalheModalProps> = (
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {solicitacaoDetalhada.notas_processadas.map((item, idx) => (
+                  {solicitacaoDetalhada.notas_processadas.map((item, idx) => {
+                    const isCte = item.metadados_extras?.tipo_documento === 'cte';
+                    const aOriOculta = isCte && item.metadados_extras?.a_ori_destacada === false;
+                    return (
                     <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2.5 px-3 font-semibold text-slate-900">
-                        {item.numero_nota}
-                        <div className="mt-1.5"><DanfeButton chaveAcesso={item.chave_acesso} numeroNota={item.numero_nota} /></div>
+                        <div className="flex items-center gap-1.5">
+                          <span>{item.numero_nota}</span>
+                          {isCte && <Badge variant="info" size="sm">CT-e</Badge>}
+                        </div>
+                        {!isCte && (
+                          <div className="mt-1.5"><DanfeButton chaveAcesso={item.chave_acesso} numeroNota={item.numero_nota} /></div>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-center">
                         <span className="inline-flex items-center justify-center font-bold text-[10px] bg-blue-50 text-blue-900 px-2 py-0.5 rounded border border-blue-200/80">
@@ -217,10 +225,10 @@ export const SolicitacaoDetalheModal: React.FC<SolicitacaoDetalheModalProps> = (
                         </div>
                       </td>
 
-                      <td className="py-2.5 px-3 font-mono text-slate-800">{item.ncm}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-800">{item.ncm || '-'}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(item.v_total)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(item.base_calculo)}</td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{formatPercent(item.a_ori)}</td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{aOriOculta ? '-' : formatPercent(item.a_ori)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-blue-900">{formatPercent(item.a_dst_resolvida)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums text-blue-950">{formatCurrency(item.debito)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{formatCurrency(item.credito)}</td>
@@ -228,7 +236,8 @@ export const SolicitacaoDetalheModal: React.FC<SolicitacaoDetalheModalProps> = (
                         {formatCurrency(item.valor_devido)}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

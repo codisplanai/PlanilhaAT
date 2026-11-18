@@ -1,5 +1,6 @@
 import type {
   AvisoAvaliacao,
+  CteSemNfePendencia,
   ItemExcluido,
   NotaBonificacaoPendencia,
   Convenio5291Pendencia,
@@ -100,6 +101,7 @@ export interface LocalProcessingRequest {
   input: LocalFiscalInput;
   bonusDecisions?: Record<string, boolean>;
   convenio5291Decisions?: Record<string, Convenio5291Decision>;
+  ignoreMissingCteNotes?: boolean;
   diagnostic?: DiagnosticRecorder;
 }
 
@@ -147,6 +149,7 @@ export interface LocalProcessingResult {
     requer_decisao: boolean;
     notas_bonificacao: NotaBonificacaoPendencia[];
     itens_convenio_52_91: Convenio5291Pendencia[];
+    ctes_sem_nfe?: CteSemNfePendencia[];
   };
   solicitacao?: Solicitacao;
   notasProcessadas: Omit<NotaFiscalProcessada, 'id' | 'solicitacao_id' | 'criado_em'>[];

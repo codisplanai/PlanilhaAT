@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Mapping, Optional
 
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.constants import (
     ANTECIPACAO_TRIBUTARIA_ANTECIPADO,
     CONTROLE_IMPOSTO_PAGO_ENTRADA,
     DESTINOS_ANTECIPADOS,
+    DESTINOS_TRIBUTARIA,
     DIFAL,
     DIFAL_ANTECIPADO,
 )
@@ -57,6 +58,18 @@ class _OutputBackup:
     cloud_content: Optional[bytes]
 
 
+def _parse_optional_decimal(value: Any) -> Optional[Decimal]:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return Decimal(raw)
+    except (InvalidOperation, ValueError):
+        return None
+
+
 def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
     """Converte a entidade persistida no contrato de entrada do TemplateFiller."""
     metadata = note.metadados_extras or {}
@@ -89,13 +102,24 @@ def processed_note_to_row(note: NotaFiscalProcessada) -> Dict[str, Any]:
         "base_calculo": note.base_calculo,
         "ipi_despesas": note.ipi_despesas,
         "mva": Decimal(str(metadata.get("mva") or "0")),
-        "reducao": None,
+        "reducao": (
+            _parse_optional_decimal(
+                metadata.get("reducao")
+                if metadata.get("reducao") is not None
+                else metadata.get("reducao_aplicada")
+            )
+            if note.destino_planilha in DESTINOS_TRIBUTARIA
+            else None
+        ),
         "red": "",
         "aliq_simples": metadata.get("aliq_simples") or "N",
         "a_ori": (
             None
             if (
-                note.destino_planilha in (DIFAL, DIFAL_ANTECIPADO)
+                (
+                    note.destino_planilha in (DIFAL, DIFAL_ANTECIPADO)
+                    or metadata.get("tipo_documento") == "cte"
+                )
                 and (not metadata.get("a_ori_destacada", True) or note.a_ori == Decimal("0.00"))
             )
             else note.a_ori

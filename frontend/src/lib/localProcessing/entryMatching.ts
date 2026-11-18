@@ -89,8 +89,13 @@ function getEntryRecordIndex(records: EntrySheetRecord[]): EntryRecordIndex {
   return index;
 }
 
+export type EntryMatchKeySource = Pick<
+  ExtractedNote,
+  'chaveAcesso' | 'cnpjEmitente' | 'numeroNota' | 'serie'
+>;
+
 export function matchEntryRecords(
-  note: ExtractedNote,
+  note: EntryMatchKeySource,
   records: EntrySheetRecord[],
 ): EntrySheetRecord[] {
   if (records.length === 0) return [];
@@ -120,7 +125,7 @@ export function matchEntryRecords(
 }
 
 /** A data só é adotada quando a planilha é unânime sobre ela. */
-export function matchEntryDate(note: ExtractedNote, records: EntrySheetRecord[]): string | null {
+export function matchEntryDate(note: EntryMatchKeySource, records: EntrySheetRecord[]): string | null {
   const dates = new Set(
     matchEntryRecords(note, records).map((record) => record.dataEntrada).filter(Boolean),
   );
@@ -128,7 +133,7 @@ export function matchEntryDate(note: ExtractedNote, records: EntrySheetRecord[])
 }
 
 /** O CFOP auxiliar só é adotado quando a planilha é unânime sobre ele. */
-export function matchEntryCfop(note: ExtractedNote, records: EntrySheetRecord[]): string | null {
+export function matchEntryCfop(note: EntryMatchKeySource, records: EntrySheetRecord[]): string | null {
   const cfops = new Set(
     matchEntryRecords(note, records).map((record) => record.cfopNormalizado).filter(Boolean),
   );
