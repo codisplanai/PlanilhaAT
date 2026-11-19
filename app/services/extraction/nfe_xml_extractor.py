@@ -142,6 +142,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
             p_icms_item = Decimal("0.00")
             p_cred_sn_item = Decimal("0.00")
             v_icms_item = Decimal("0.00")
+            v_icms_st_item = Decimal("0.00")
             origem_mercadoria = None
             csosn_item = None
             icms_elem = self._find_elem(imposto, "ICMS")
@@ -171,9 +172,10 @@ class NFeXMLExtractor(BaseNFEExtractor):
                     p_icms_item = self._get_decimal(icms_group, "pICMS")
                     p_cred_sn_item = self._get_decimal(icms_group, "pCredSN")
 
-                    v_icms_st_itens += max(
+                    v_icms_st_item = max(
                         Decimal("0.00"), self._get_decimal(icms_group, "vICMSST")
                     )
+                    v_icms_st_itens += v_icms_st_item
                     v_icms_val = self._get_decimal(icms_group, "vICMS")
                     if v_icms_val > 0:
                         v_icms_item = v_icms_val
@@ -215,6 +217,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 a_ori=a_ori,
                 p_cred_sn=p_cred_sn_item / Decimal("100.0") if p_cred_sn_item > 1 else p_cred_sn_item,
                 v_icms=v_icms_item,
+                v_icms_st=v_icms_st_item,
                 origem_mercadoria=origem_mercadoria,
                 csosn=csosn_item,
                 v_desc=v_desc,
@@ -231,6 +234,11 @@ class NFeXMLExtractor(BaseNFEExtractor):
                     itens[0].base_calculo = v_bc_nota
             elif itens[0].base_calculo <= 0:
                 itens[0].base_calculo = max_base_nota
+
+        # O vST do total só é atribuível a um item quando existe apenas um.
+        # Em NF-e mista, não distribuir imposto retido de um produto a outro.
+        if len(itens) == 1 and itens[0].v_icms_st <= 0 and v_st_nota > 0:
+            itens[0].v_icms_st = v_st_nota
 
         fornecedor_simples = crt_emitente in ("1", "2", "4") or any(bool(it.csosn) for it in itens)
 
