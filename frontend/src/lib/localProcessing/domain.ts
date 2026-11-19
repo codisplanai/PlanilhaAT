@@ -103,6 +103,9 @@ export interface ExtractedNote {
   vStNota?: number;
   /** Alíquota de crédito de ICMS autorizada em Informações Complementares (ex: 0.0359); null se ausente. */
   aliqCreditoIcmsInfCompl?: number | null;
+  /** Situação no protocolo de autorização (protNFe/infProt): cStat 100/150 = autorizada. */
+  cStatProtocolo?: string | null;
+  protocoloAutorizacao?: string | null;
   origemExtracao: 'xml' | 'sped';
   rawMetadata: Record<string, string | number | boolean | null>;
   itens: ExtractedItem[];

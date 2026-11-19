@@ -13,6 +13,14 @@ from app.services.extraction.data_entrada_matcher import (
     PlanilhaEntradaParser,
     PlanilhaEntradaRecord,
 )
+from app.services.extraction.nfe_eventos import (
+    RegistroEventos,
+    is_evento_nfe_xml,
+    is_inutilizacao_xml,
+    motivo_protocolo_nao_autorizado,
+    parse_evento_nfe,
+    parse_inutilizacao_nfe,
+)
 from app.services.extraction.sped_fiscal_extractor import SpedFiscalExtractor
 from app.services.pipeline_helpers import crossing_keys, enrich_sped_with_xml
 
@@ -64,10 +72,16 @@ class PipelineSourceLoader:
             entry_sheet_content,
             entry_sheet_filename,
         )
-        notes, ctes, ignored_notes, sped_cte_records = self._extract_notes(
+        notes, ctes, ignored_notes, sped_cte_records, qtd_invalidadas = self._extract_notes(
             xml_files,
             normalized_speds,
         )
+        if not notes and not ctes and qtd_invalidadas:
+            raise ValidationException(
+                f"Todas as {qtd_invalidadas} NF-e(s) enviada(s) foram desconsideradas por estarem "
+                "canceladas, inutilizadas ou não autorizadas. Apenas notas autorizadas "
+                "(com ou sem carta de correção) entram na apuração."
+            )
         if not notes and not ctes:
             raise ValidationException(
                 "Nenhum arquivo XML de NF-e, CT-e ou SPED Fiscal válido foi encontrado "
@@ -164,7 +178,10 @@ class PipelineSourceLoader:
         List[Tuple[str, ExtractedCTeData]],
         List[Dict[str, Any]],
         List[PlanilhaEntradaRecord],
+        int,
     ]:
+        eventos = RegistroEventos()
+        chaves_nao_autorizadas: Dict[str, str] = {}
         notes: List[Tuple[str, ExtractedNFData]] = []
         ctes: List[Tuple[str, ExtractedCTeData]] = []
         ignored_notes: List[Dict[str, Any]] = []
@@ -188,6 +205,21 @@ class PipelineSourceLoader:
                 for key in keys:
                     sped_by_key[key] = note
         for filename, xml_content in xml_files or []:
+            # Eventos (cancelamento, carta de correção) e inutilizações não são notas:
+            # apenas alimentam o registro usado para descartar notas inválidas.
+            if isinstance(xml_content, str):
+                xml_content = xml_content.encode("utf-8")
+            if b"infInut" in xml_content and is_inutilizacao_xml(xml_content):
+                inutilizacao = parse_inutilizacao_nfe(xml_content)
+                if inutilizacao is not None:
+                    eventos.adicionar_inutilizacao(inutilizacao)
+                continue
+            if b"infEvento" in xml_content and is_evento_nfe_xml(xml_content):
+                evento = parse_evento_nfe(xml_content)
+                if evento is not None:
+                    eventos.adicionar_evento(evento)
+                continue
+
             if self.cte_extractor.is_cte_xml(xml_content):
                 try:
                     cte_data = self.cte_extractor.extract_from_xml(xml_content)
@@ -221,6 +253,13 @@ class PipelineSourceLoader:
                     )
                 continue
 
+            motivo_protocolo = motivo_protocolo_nao_autorizado(
+                xml_note.c_stat_protocolo, xml_note.protocolo_autorizacao
+            )
+            if motivo_protocolo:
+                for key in crossing_keys(xml_note):
+                    chaves_nao_autorizadas.setdefault(key, motivo_protocolo)
+
             sped_match = next(
                 (
                     sped_by_key[key]
@@ -234,7 +273,52 @@ class PipelineSourceLoader:
             else:
                 notes.append((filename, xml_note))
 
-        return notes, ctes, ignored_notes, sped_cte_records
+        notes, qtd_invalidadas = self._descartar_notas_invalidas(
+            notes, ignored_notes, eventos, chaves_nao_autorizadas
+        )
+        return notes, ctes, ignored_notes, sped_cte_records, qtd_invalidadas
+
+    @staticmethod
+    def _descartar_notas_invalidas(
+        notes: List[Tuple[str, ExtractedNFData]],
+        ignored_notes: List[Dict[str, Any]],
+        eventos: RegistroEventos,
+        chaves_nao_autorizadas: Dict[str, str],
+    ) -> Tuple[List[Tuple[str, ExtractedNFData]], int]:
+        """Remove notas canceladas, inutilizadas ou não autorizadas (inclusive as vindas do SPED)."""
+        validas: List[Tuple[str, ExtractedNFData]] = []
+        descartadas = 0
+        for source_name, note in notes:
+            motivo = next(
+                (
+                    chaves_nao_autorizadas[key]
+                    for key in crossing_keys(note)
+                    if key in chaves_nao_autorizadas
+                ),
+                None,
+            ) or eventos.motivo_invalidade(
+                chave=note.chave_acesso,
+                cnpj_emitente=note.cnpj_emitente,
+                serie=note.serie,
+                numero=note.numero_nota,
+            )
+            if not motivo:
+                validas.append((source_name, note))
+                continue
+            descartadas += 1
+            ignored_notes.append(
+                {
+                    "numero_nota": note.numero_nota,
+                    "serie": note.serie,
+                    "chave_acesso": note.chave_acesso,
+                    "data_emissao": (
+                        note.data_emissao.strftime("%d/%m/%Y") if note.data_emissao else None
+                    ),
+                    "motivo": motivo,
+                    "arquivo": source_name,
+                }
+            )
+        return validas, descartadas
 
     @staticmethod
     def _deduplicate_ctes(
