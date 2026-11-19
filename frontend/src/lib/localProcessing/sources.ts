@@ -52,6 +52,9 @@ function cloneNote(note: ExtractedNote): ExtractedNote {
 
 export function enrichSpedWithXml(sped: ExtractedNote, xml: ExtractedNote): void {
   if (!sped.chaveAcesso && xml.chaveAcesso) sped.chaveAcesso = xml.chaveAcesso;
+  if (Object.prototype.hasOwnProperty.call(xml.rawMetadata, 'icms_st_xml')) {
+    sped.rawMetadata.icms_st_xml = xml.rawMetadata.icms_st_xml;
+  }
   if (xml.rawMetadata.crt) sped.rawMetadata.crt = xml.rawMetadata.crt;
   if (xml.rawMetadata.fornecedor_simples_nacional === true) sped.rawMetadata.fornecedor_simples_nacional = true;
   if (!sped.rawMetadata.emit_nome && xml.rawMetadata.emit_nome) {

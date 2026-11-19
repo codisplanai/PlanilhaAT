@@ -363,6 +363,8 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
     origemExtracao: 'xml',
     rawMetadata: {
       qtd_itens: itens.length,
+      // Evidência de ST obtida do XML, mesmo quando igual a zero.
+      icms_st_xml: Math.max(vStNota, ...itens.map((item) => Number(item.vIcmsSt ?? 0))),
       crt: text(emit, 'CRT'),
       fornecedor_simples_nacional: ['1', '2', '4'].includes(text(emit, 'CRT')) || itens.some((item) => Boolean(item.csosn)),
       emit_nome: text(emit, 'xNome'),

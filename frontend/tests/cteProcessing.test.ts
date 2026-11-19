@@ -428,7 +428,7 @@ test('CT-e interno (mesma UF do emitente e tomador) é ignorado na pré-análise
   assert.match(ignoredByNumber.get('4402') ?? '', /Operação interna estadual desconsiderada/);
 });
 
-test('CT-e vinculado a NF-e excluída por ST pago continua entrando na Antecipação Tributária', async () => {
+test('CT-e integralmente vinculado a item com ST paga não gera antecipação tributária duplicada', async () => {
   const ctx = buildCteContext();
   ctx.empresa.razao_social = 'Armazém Comércio LTDA';
   const chvNfSt = chaveNfe('2601', 701);
@@ -472,12 +472,10 @@ test('CT-e vinculado a NF-e excluída por ST pago continua entrando na Antecipa�
   assert.equal(res.itensExcluidos[0].numero_nota, '701');
   assert.match(res.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
 
-  const trib = res.rowsByDestination.antecipacao_tributaria!;
-  assert.equal(trib.length, 1);
-  assert.equal(trib[0].numero_nota, '3001');
-  assert.equal(trib[0].v_total, 200);
-  assert.equal(trib[0].mva, 45);
-  assert.equal(res.notasIgnoradas.length, 0);
+  // Se a única mercadoria vinculada já teve ST retida, o frete deste
+  // CT-e não deve gerar nova antecipação tributária.
+  assert.equal(res.rowsByDestination.antecipacao_tributaria?.length ?? 0, 0);
+  assert.equal(res.notasProcessadas.length, 0);
 });
 
 

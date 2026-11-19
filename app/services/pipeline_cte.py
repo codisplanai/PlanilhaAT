@@ -38,6 +38,7 @@ from app.services.pipeline_analysis import (
 from app.services.pipeline_helpers import is_cfop_uso_consumo_ativo
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.rules_engine.parcial_decision import DESTINOS_PARCIAL
+from app.services.rules_engine.st_tributaria_exclusion import should_exclude_st_item_from_tributaria
 from app.services.rules_engine.revenda_antecipacao_policy import RevendaAntecipacaoTributariaPolicy
 from app.services.validation.sanity_checker import SanityChecker
 
@@ -212,6 +213,14 @@ def avaliar_nfe_para_cte(
             continue
 
         if destino_item in DESTINOS_PARCIAL:
+            has_other_or_excluded = True
+            continue
+
+        # Excluir do rateio da Tributária a parcela de CT-e vinculada a
+        # mercadorias já tributadas na origem; o denominador é a NF-e inteira.
+        if destino_item in DESTINOS_TRIBUTARIA and should_exclude_st_item_from_tributaria(
+            empresa.razao_social, nf_data, orig_item
+        ):
             has_other_or_excluded = True
             continue
 

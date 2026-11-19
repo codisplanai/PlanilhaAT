@@ -93,7 +93,7 @@ import {
 import { selectTemplateForRows } from './templateSelection.ts';
 import { fillTemplateLocally } from './xlsx.ts';
 import { buildSpreadsheetFilename } from './filename.ts';
-import { shouldExcludeStFromTributaria, ST_TRIBUTARIA_EXCLUSION_REASON } from './stTributariaExclusion.ts';
+import { shouldExcludeStItemFromTributaria, ST_TRIBUTARIA_EXCLUSION_REASON } from './stTributariaExclusion.ts';
 
 // Planilha de controle (sem apuração) das mercadorias excluídas por imposto pago na entrada.
 const CONTROLE_DESTINATION: TipoPlanilha = 'controle_imposto_pago_entrada';
@@ -478,7 +478,12 @@ function consolidateNoteGroups(params: {
       const itemStSum = group.items.reduce((sum, item) => sum + Number(item.vIcmsSt ?? 0), 0);
       if (itemStSum > 0) {
         valorPago = roundCurrency(itemStSum);
-      } else if ((note.vStNota ?? 0) > 0) {
+      } else if (
+        (note.vStNota ?? 0) > 0
+        && !Object.prototype.hasOwnProperty.call(note.rawMetadata, 'icms_st_xml')
+      ) {
+        // Fallback legado para SPED sem XML: em NF-e mista com XML,
+        // nunca redistribuir vST total a produtos que não tiveram retenção.
         const allStGroupsTotal = Array.from(groups.values())
           .filter((g) => TAX_SUBSTITUTION_DESTINATIONS.has(g.destination))
           .reduce((sum, g) => sum + g.items.reduce((s, it) => s + it.vTotal, 0), 0);
@@ -1001,7 +1006,6 @@ export async function processFiscalLocally(
     const paidEarly = hasEntrySource && !confirmedEntry;
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, sources.entryRecords) : null;
 
-    const excludeStTributariaNote = shouldExcludeStFromTributaria(context.empresa.razao_social, note);
     const supplierIsSimples = isSimplesSupplier(note);
     // Coluna da MVA no fluxo geral da Tributária: decidida pelo CRT, e não por
     // supplierIsSimples (o CRT 2 conta como Simples para A.ORI e DIFAL, mas usa a
@@ -1088,10 +1092,12 @@ export async function processFiscalLocally(
         continue;
       }
 
-      // ST positiva em qualquer item/total do XML retira a NF-e inteira da
-      // Tributária destas empresas, ainda que reste imposto a recolher.
-      // DIFAL e Parcial não são afetadas.
-      if (excludeStTributariaNote && TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
+      // Só o item efetivamente retido no XML sai da Tributária.
+      // CFOP 6.102 -> 6.403 sem vICMSST é tributável, com sua parcela de frete.
+      if (
+        TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+        && shouldExcludeStItemFromTributaria(context.empresa.razao_social, note, originalItem)
+      ) {
         excluded.push(buildExcludedItem(
           note, item, destination, ST_TRIBUTARIA_EXCLUSION_REASON, 'mercadoria',
           { base_calculo: item.baseCalculo },
