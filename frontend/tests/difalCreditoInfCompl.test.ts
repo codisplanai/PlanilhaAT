@@ -16,7 +16,7 @@ const INF_CPL_SEM_CREDITO =
 const CHAVE = chave('2601', 901);
 const NOTA = { numero: '901', chave: CHAVE, dtDoc: '10012026', dtEntrada: '20012026', itens: [['2556', '1000,00']] as Array<[string, string]> };
 
-function xmlSimples(infCpl: string | null, pIcms = ''): string {
+function xmlSimples(infCpl: string | null, pIcms = '', cfop = '6556'): string {
   const info = infCpl === null ? '' : `<infAdic><infCpl>${infCpl}</infCpl></infAdic>`;
   const icms = pIcms
     ? `<ICMSSN101><orig>0</orig><CSOSN>101</CSOSN><pICMS>${pIcms}</pICMS></ICMSSN101>`
@@ -27,7 +27,7 @@ function xmlSimples(infCpl: string | null, pIcms = ''): string {
     <emit><CNPJ>98765432000180</CNPJ><CRT>1</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
     <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
     <total><ICMSTot><vProd>1000.00</vProd><vBC>0.00</vBC><vNF>1000.00</vNF></ICMSTot></total>
-    <det nItem="1"><prod><cProd>P1</cProd><xProd>PRODUTO</xProd><NCM>21069090</NCM><CFOP>6556</CFOP><vProd>1000.00</vProd></prod>
+    <det nItem="1"><prod><cProd>P1</cProd><xProd>PRODUTO</xProd><NCM>21069090</NCM><CFOP>${cfop}</CFOP><vProd>1000.00</vProd></prod>
     <imposto><ICMS>${icms}</ICMS></imposto></det>
     ${info}
   </infNFe></NFe></nfeProc>`;
@@ -79,4 +79,28 @@ test('pICMS destacado prevalece sobre o crédito do infCpl', async () => {
   const row = result.rowsByDestination.difal?.[0];
   assert.equal(row?.a_ori, 0.12);
   assert.equal(result.notasProcessadas[0].metadados_extras.a_ori_inf_compl, false);
+});
+
+test('Parcial do Simples usa o crédito autorizado em Informações Complementares', async () => {
+  const notaParcial = { ...NOTA, itens: [['2102', '1000,00']] as Array<[string, string]> };
+  const result = await processar(buildContext(), {
+    sped: spedJaneiro([notaParcial]),
+    xmls: [['901.xml', xmlSimples(INF_CPL_COM_CREDITO, '', '6102')]],
+  });
+  const nota = result.notasProcessadas[0];
+  assert.equal(nota.destino_planilha, 'antecipacao_parcial');
+  assert.equal(nota.a_ori, 0.0359);
+  assert.equal(nota.metadados_extras.a_ori_inf_compl, true);
+  assert.equal(nota.metadados_extras.a_ori_inferida_simples, false);
+});
+
+test('Parcial do Simples sem a frase de crédito mantém a referência interestadual', async () => {
+  const notaParcial = { ...NOTA, itens: [['2102', '1000,00']] as Array<[string, string]> };
+  const result = await processar(buildContext(), {
+    sped: spedJaneiro([notaParcial]),
+    xmls: [['901.xml', xmlSimples(INF_CPL_SEM_CREDITO, '', '6102')]],
+  });
+  const nota = result.notasProcessadas[0];
+  assert.equal(nota.a_ori, 0.07);
+  assert.equal(nota.metadados_extras.a_ori_inf_compl, false);
 });

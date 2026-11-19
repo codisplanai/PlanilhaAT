@@ -134,7 +134,7 @@ def test_difal_picms_destacado_prevalece_sobre_inf_cpl(db_session, create_sample
     assert nota.metadados_extras["a_ori_inf_compl"] is False
 
 
-def test_parcial_nao_usa_credito_do_inf_cpl(db_session, create_sample_excel_template):
+def test_parcial_usa_credito_autorizado_em_inf_cpl(db_session, create_sample_excel_template):
     _, solicitacao = _setup_pipeline_env(db_session, create_sample_excel_template)
     xml = _com_inf_cpl(
         _build_nfe_xml(numero="206", uf_emit="SP", crt="1", orig="0", csosn="102", cfop="6102"),
@@ -149,7 +149,27 @@ def test_parcial_nao_usa_credito_do_inf_cpl(db_session, create_sample_excel_temp
 
     nota = resultado.notas_processadas[0]
     assert nota.destino_planilha == ANTECIPACAO_PARCIAL
-    # Antecipação mantém a tabela interestadual (SP -> BA = 7%)
+    # Crédito autorizado no infCpl prevalece sobre a tabela interestadual (SP -> BA = 7%)
+    assert nota.a_ori == Decimal("0.0359")
+    assert nota.metadados_extras["a_ori_inf_compl"] is True
+    assert nota.metadados_extras["a_ori_inferida_simples"] is False
+    assert processed_note_to_row(nota)["a_ori"] == Decimal("0.0359")
+
+
+def test_parcial_sem_frase_de_credito_mantem_tabela_interestadual(db_session, create_sample_excel_template):
+    _, solicitacao = _setup_pipeline_env(db_session, create_sample_excel_template)
+    xml = _com_inf_cpl(
+        _build_nfe_xml(numero="208", uf_emit="SP", crt="1", orig="0", csosn="102", cfop="6102"),
+        INF_CPL_SEM_CREDITO,
+    )
+
+    resultado = ProcessingPipelineService(db_session).process_solicitacao(
+        solicitacao_id=solicitacao.id,
+        xml_files_bytes=[("nfe_208.xml", xml)],
+        sped_file_bytes=None,
+    )
+
+    nota = resultado.notas_processadas[0]
     assert nota.a_ori == Decimal("0.07")
     assert nota.metadados_extras["a_ori_inf_compl"] is False
 
