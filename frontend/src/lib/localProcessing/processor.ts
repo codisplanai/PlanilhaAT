@@ -203,17 +203,6 @@ interface Group {
   convenio5291Anexo: 'I' | 'II' | '';
 }
 
-const PARCIAL_DESTINATIONS = new Set<string>([
-  'antecipacao_parcial',
-  'antecipacao_parcial_antecipado',
-  'antecipacao_parcial_simples',
-  'antecipacao_parcial_antecipado_simples',
-]);
-
-function isParcialDestination(destination: string): boolean {
-  return PARCIAL_DESTINATIONS.has(destination);
-}
-
 export function groupKey(
   destination: TipoPlanilha,
   aOri: number,
@@ -432,13 +421,11 @@ function consolidateNoteGroups(params: {
       (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
     );
 
-    if (isParcialDestination(group.destination)) {
-      // Antecipação Parcial: apenas o IPI é abatido da base; o desconto comercial não reduz a base.
-      const descTotal = useNoteTotal
-        ? (note.vDescNota ?? 0)
-        : group.items.reduce((sum, item) => sum + Number(item.vDesc ?? 0), 0);
-      if (descTotal > 0) base = Math.max(0, vTotal + descTotal - ipi);
-    }
+    // Todas as planilhas: apenas o IPI é abatido da base; o desconto comercial não reduz a base.
+    const descTotal = useNoteTotal
+      ? (note.vDescNota ?? 0)
+      : group.items.reduce((sum, item) => sum + Number(item.vDesc ?? 0), 0);
+    if (descTotal > 0) base = Math.max(0, vTotal + descTotal - ipi);
 
     if (base <= 0) base = vTotal - ipi;
 
