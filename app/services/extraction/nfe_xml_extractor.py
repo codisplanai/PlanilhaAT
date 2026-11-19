@@ -37,6 +37,9 @@ class NFeXMLExtractor(BaseNFEExtractor):
         if inf_nfe is None:
             raise ValidationException("Estrutura do XML não contém a tag obrigatória <infNFe>.")
 
+        # Protocolo de autorização (protNFe/infProt), presente no nfeProc
+        inf_prot = find_first_descendant(root, "infProt")
+
         # Chave de Acesso
         raw_id = inf_nfe.attrib.get("Id", "")
         chave_acesso = re.sub(r"\D", "", raw_id)
@@ -246,6 +249,8 @@ class NFeXMLExtractor(BaseNFEExtractor):
             v_icms_nota=v_icms_nota,
             v_desc_nota=v_desc_nota,
             aliq_credito_icms_inf_compl=aliq_credito_icms_inf_compl,
+            c_stat_protocolo=self._get_text(inf_prot, "cStat") or None,
+            protocolo_autorizacao=self._get_text(inf_prot, "nProt") or None,
             itens=itens,
             raw_metadata={
                 "qtd_itens": len(itens),

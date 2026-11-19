@@ -201,6 +201,9 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
   const infNFe = findFirst(doc, 'infNFe');
   if (!infNFe) throw new Error(`Estrutura do XML sem <infNFe>: ${filename}.`);
 
+  // Protocolo de autorização (protNFe/infProt), presente no nfeProc.
+  const infProt = findFirst(doc, 'infProt');
+
   const rawId = infNFe.getAttribute('Id') ?? '';
   const chaveAcesso = onlyDigits(rawId);
   const ide = child(infNFe, 'ide');
@@ -355,6 +358,8 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
     vDescNota,
     vStNota: vStNota > 0 ? vStNota : 0,
     aliqCreditoIcmsInfCompl,
+    cStatProtocolo: text(infProt, 'cStat') || null,
+    protocoloAutorizacao: text(infProt, 'nProt') || null,
     origemExtracao: 'xml',
     rawMetadata: {
       qtd_itens: itens.length,
