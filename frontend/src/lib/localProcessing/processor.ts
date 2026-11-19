@@ -325,9 +325,10 @@ function resolveConvenioAndRatesForItem(params: {
   // A taxa é referência de origem, e não um crédito destacado no XML.
   // Não se aplica à planilha de DIFAL.
   const isDifal = isDifalDestination(destination);
-  // No DIFAL, sem pICMS destacado, a alíquota de crédito autorizada nas
-  // Informações Complementares (fornecedor do Simples) vale como A.ORI.
-  const infComplRate = isDifal && !(originalAOri && originalAOri > 0)
+  // Sem pICMS destacado, a alíquota de crédito autorizada nas Informações
+  // Complementares (fornecedor do Simples) vale como A.ORI em todas as planilhas
+  // e tem prioridade sobre a alíquota interestadual de referência.
+  const infComplRate = !(originalAOri && originalAOri > 0) && !convenio?.applied
     ? (note.aliqCreditoIcmsInfCompl ?? 0)
     : 0;
   const aOriInfCompl = infComplRate > 0;
@@ -343,13 +344,13 @@ function resolveConvenioAndRatesForItem(params: {
       aviso: `Item ${item.itemNumero}: A.ORI de ${ratePct}% obtida das Informações Complementares da NF-e (crédito de ICMS autorizado pelo fornecedor), sem pICMS destacado no item.`,
     });
   }
-  const reference = isDifal
+  const reference = isDifal || aOriInfCompl
     ? { rate: 0, inferred: false }
     : resolveSimpleOriginReference(note, item, context.empresa.uf, Boolean(convenio?.applied));
   const referenceRate = isDifal ? 0 : reference.rate;
   const resolvedAOri = isDifal
     ? (aOriHighlighted ? documentAOri : 0)
-    : (convenio?.applied ? Number(convenio.aOri) : referenceRate);
+    : (convenio?.applied ? Number(convenio.aOri) : (aOriInfCompl ? infComplRate : referenceRate));
   const originRate = resolveOriginRate(
     context, destination, resolvedAOri, effectiveADst, effectiveRate.origem,
   );
@@ -441,6 +442,12 @@ function consolidateNoteGroups(params: {
     const reducedBaseEvidence = group.items.some(
       (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
     );
+
+    // Todas as planilhas: apenas o IPI é abatido da base; o desconto comercial não reduz a base.
+    const descTotal = useNoteTotal
+      ? (note.vDescNota ?? 0)
+      : group.items.reduce((sum, item) => sum + Number(item.vDesc ?? 0), 0);
+    if (descTotal > 0) base = Math.max(0, vTotal + descTotal - ipi);
 
     if (base <= 0) base = vTotal - ipi;
 

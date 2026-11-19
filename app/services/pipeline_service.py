@@ -1007,8 +1007,15 @@ class ProcessingPipelineService:
         a_ori_inferida_simples = False
         a_ori_original = item.a_ori
 
+        # Crédito de ICMS autorizado pelo fornecedor nas Informações Complementares.
+        # Vale para todas as planilhas e tem prioridade sobre a alíquota interestadual
+        # de referência, que só entra quando a nota não traz essa autorização.
+        aliq_credito_inf_compl = nf_data.aliq_credito_icms_inf_compl
+        usar_inf_compl = bool(aliq_credito_inf_compl) and not a_ori_destacada
+
         if (
             destino_item not in DESTINOS_DIFAL
+            and not usar_inf_compl
             and is_fornecedor_simples
             and is_operacao_interestadual
             and (a_ori is None or a_ori == Decimal("0.00"))
@@ -1035,12 +1042,8 @@ class ProcessingPipelineService:
             })
 
         a_ori_inf_compl = False
-        if (
-            destino_item in DESTINOS_DIFAL
-            and not a_ori_destacada
-            and nf_data.aliq_credito_icms_inf_compl
-        ):
-            a_ori = nf_data.aliq_credito_icms_inf_compl
+        if usar_inf_compl:
+            a_ori = aliq_credito_inf_compl
             a_ori_destacada = True
             a_ori_inf_compl = True
             pct_inf = a_ori * Decimal("100.0")
@@ -1279,6 +1282,16 @@ class ProcessingPipelineService:
                 v_total_grupo = sum(it.v_total for it in itens_objs)
                 v_bc_grupo = sum(it.base_calculo for it in itens_objs)
                 ipi_despesas_grupo = sum(it.ipi_despesas for it in itens_objs)
+
+            # Todas as planilhas: apenas o IPI é abatido da base; o desconto
+            # comercial não reduz a base de cálculo.
+            v_desc_grupo = (
+                nf_data.v_desc_nota
+                if usar_total_nota
+                else sum(it.v_desc for it in itens_objs)
+            )
+            if v_desc_grupo > Decimal("0.00"):
+                v_bc_grupo = max(Decimal("0.00"), v_total_grupo + v_desc_grupo - ipi_despesas_grupo)
 
             if v_bc_grupo <= Decimal("0.00"):
                 v_bc_grupo = v_total_grupo - ipi_despesas_grupo

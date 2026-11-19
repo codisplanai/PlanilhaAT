@@ -3,6 +3,7 @@ import type { NotaIgnorada } from '../../types/solicitacao';
 import type { EntrySheetRecord, ExtractedCTe, ExtractedNote, ParsedFiscalSources } from './domain';
 import { decodeUtf8OrWindows1252 } from './domain.ts';
 import { isCteXmlDoc, parseCteXmlFromDoc, parseNfeXmlFromDoc, parseXmlDocument } from './xml.ts';
+import { NfeEventRegistry, isNfeEventDoc, isNfeInutDoc, parseNfeEventDoc, parseNfeInutDoc, protocolRejectionReason } from './nfeEvents.ts';
 import { parseSped } from './sped.ts';
 import { parseEntrySheet } from './xlsx.ts';
 import { readZip } from './zip.ts';
@@ -192,6 +193,8 @@ export async function loadLocalFiscalSources(
   const notes: ExtractedNote[] = [...spedNotes];
   const ctes: ExtractedCTe[] = [];
   const ignoredNotes: NotaIgnorada[] = [];
+  const events = new NfeEventRegistry();
+  const unauthorizedKeys = new Map<string, string>();
 
   for (const source of await xmlSources(input.xmlFiles)) {
     let doc: XMLDocument;
@@ -206,6 +209,19 @@ export async function loadLocalFiscalSources(
         motivo: error instanceof Error ? error.message : 'XML inválido.',
         arquivo: source.filename,
       });
+      continue;
+    }
+
+    // Eventos (cancelamento, carta de correção) e inutilizações não são notas: apenas
+    // alimentam o registro usado para descartar notas inválidas.
+    if (isNfeInutDoc(doc)) {
+      const inut = parseNfeInutDoc(doc);
+      if (inut) events.addInutilizacao(inut);
+      continue;
+    }
+    if (isNfeEventDoc(doc)) {
+      const event = parseNfeEventDoc(doc);
+      if (event) events.addEvent(event);
       continue;
     }
 
@@ -240,14 +256,42 @@ export async function loadLocalFiscalSources(
       continue;
     }
 
+    const protocolReason = protocolRejectionReason(xmlNote.cStatProtocolo);
+    if (protocolReason) {
+      for (const key of crossingKeys(xmlNote)) {
+        if (!unauthorizedKeys.has(key)) unauthorizedKeys.set(key, protocolReason);
+      }
+    }
+
     const match = crossingKeys(xmlNote).map((key) => spedByKey.get(key)).find(Boolean);
     if (match) enrichSpedWithXml(match, xmlNote);
     else notes.push(xmlNote);
   }
 
+  // Só notas autorizadas (com ou sem carta de correção) entram na apuração.
+  let discardedCount = 0;
+  const validNotes: ExtractedNote[] = [];
+  for (const note of notes) {
+    const reason = crossingKeys(note).map((key) => unauthorizedKeys.get(key)).find(Boolean)
+      ?? events.invalidityReason(note);
+    if (!reason) {
+      validNotes.push(note);
+      continue;
+    }
+    discardedCount += 1;
+    ignoredNotes.push({
+      numero_nota: note.numeroNota,
+      serie: note.serie || null,
+      chave_acesso: note.chaveAcesso || null,
+      data_emissao: note.dataEmissao ? note.dataEmissao.slice(0, 10) : null,
+      motivo: reason,
+      arquivo: note.filename,
+    });
+  }
+
   const unique: ExtractedNote[] = [];
   const seen = new Set<string>();
-  for (const note of notes) {
+  for (const note of validNotes) {
     const keys = crossingKeys(note);
     const identity = keys.length > 0
       ? keys.join('||')
@@ -269,6 +313,12 @@ export async function loadLocalFiscalSources(
     uniqueCtes.push(cte);
   }
 
+  if (unique.length === 0 && uniqueCtes.length === 0 && discardedCount > 0) {
+    throw new Error(
+      `Todas as ${discardedCount} NF-e(s) enviada(s) foram desconsideradas por estarem canceladas, inutilizadas ou não autorizadas. `
+      + 'Apenas notas autorizadas (com ou sem carta de correção) entram na apuração.',
+    );
+  }
   if (unique.length === 0 && uniqueCtes.length === 0) {
     throw new Error('Nenhum XML de NF-e, CT-e ou SPED Fiscal válido foi encontrado para processamento.');
   }
