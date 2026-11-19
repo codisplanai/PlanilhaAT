@@ -1,4 +1,4 @@
-import type { ExtractedNote } from './domain.ts';
+import type { ExtractedItem, ExtractedNote } from './domain.ts';
 import { normalizeDescription } from './domain.ts';
 
 // Somente estas empresas dispensam a Antecipação Tributária quando a
@@ -23,16 +23,19 @@ const COMPANIES = [
   'MERCADAO SUPERMECADO',
 ];
 
-export function shouldExcludeStFromTributaria(
+export function shouldExcludeStItemFromTributaria(
   companyName: string,
-  note: Pick<ExtractedNote, 'vStNota' | 'itens'>,
+  note: Pick<ExtractedNote, 'rawMetadata'>,
+  item: Pick<ExtractedItem, 'vIcmsSt'>,
 ): boolean {
   const normalized = normalizeDescription(companyName);
   const affected = COMPANIES.some((company) => normalized === company || normalized.startsWith(`${company} `));
   if (!affected) return false;
-  return Number(note.vStNota ?? 0) > 0
-    || note.itens.some((item) => Number(item.vIcmsSt ?? 0) > 0);
+  // Não inferir retenção de ST pelo CFOP, pela reclassificação ou pelo total
+  // da nota. SPED isolado não é prova de ST paga no item.
+  if (!Object.prototype.hasOwnProperty.call(note.rawMetadata, 'icms_st_xml')) return false;
+  return Number(item.vIcmsSt ?? 0) > 0;
 }
 
 export const ST_TRIBUTARIA_EXCLUSION_REASON =
-  'Antecipação Tributária excluída: ICMS ST já destacado no XML da NF-e (regra específica da empresa, independentemente do valor pago).';
+  'Antecipação Tributária excluída: ICMS ST já destacado no XML para este item (regra específica da empresa; frete do item fica fora da apuração).';
