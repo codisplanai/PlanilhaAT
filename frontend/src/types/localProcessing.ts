@@ -160,6 +160,7 @@ export interface LocalProcessingResult {
   avisosAvaliacao: AvisoAvaliacao[];
   cfopsSemRegra: Record<string, number>;
   rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  fcpRowsByDestination?: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
   artifacts: LocalGeneratedArtifact[];
   mensagem?: string | null;
 }

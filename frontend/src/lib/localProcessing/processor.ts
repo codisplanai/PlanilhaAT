@@ -23,6 +23,14 @@ import {
   normalizeDescription,
 } from './domain.ts';
 import { calculateTax, roundCurrency } from './calculations.ts';
+import {
+  buildFcpMetadata,
+  buildFcpOutputRow,
+  calculateSeparateFcp,
+  computeFcpApplication,
+  roundRate,
+  withNoteContext,
+} from './fcp.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
 import { consolidateControlRows } from './controlRows.ts';
 import { sortRowsByEntryAndNumber } from './rowSorting.ts';
@@ -66,6 +74,7 @@ import {
   routePaidEarlyDestination,
   resolveCfop,
   resolveDestinationRate,
+  resolveFcp,
   resolveMvaForItem,
   resolveOriginRate,
   resolveRevendaMva,
@@ -183,8 +192,11 @@ interface Group {
   aDst: number;
   mva: number;
   reducao: number | null;
+  fcpSeparado: number | null;
   items: ExtractedItem[];
   rateResolutions: TaxRateResolution[];
+  baseADsts: number[];
+  fcpResolutions: Array<TaxRateResolution | null>;
   cfopResolutions: CfopResolution[];
   aOriLimited: boolean;
   aOriFixed: boolean;
@@ -210,30 +222,27 @@ export function groupKey(
   mva: number,
   convenio5291Applied: boolean,
   reducao: number | null = null,
+  fcpSeparado: number | null = null,
 ): string {
-  return JSON.stringify([destination, aOri, aDst, mva, convenio5291Applied, reducao]);
+  return [
+    destination,
+    roundRate(aOri, 4),
+    roundRate(aDst, 4),
+    roundRate(mva, 4),
+    convenio5291Applied ? '1' : '0',
+    reducao == null ? 'none' : roundRate(reducao, 5),
+    fcpSeparado == null ? 'none' : roundRate(fcpSeparado, 4),
+  ].join('|');
 }
 
-/**
- * Erro do motor de alíquotas com a NF-e que o disparou, como no pipeline do
- * servidor: um conflito de cadastro sem o documento obriga a procurar o item à mão.
- */
-function withNoteContext<T>(note: ExtractedNote, resolve: () => T): T {
-  try {
-    return resolve();
-  } catch (error) {
-    if (!(error instanceof Error)) throw error;
-    throw new Error(`NF-e ${note.numeroNota} (arquivo ${note.filename}): ${error.message}`, { cause: error });
-  }
-}
-
-/** Aviso de cadastro devolvido pelo motor de reduções, já com nota e item. */
+/** Aviso de cadastro devolvido pelo motor de reduções/FCP, já com nota e item. */
 function pushReductionWarning(
   resolution: TaxRateResolution | null,
   note: ExtractedNote,
   item: ExtractedItem,
   warnings: AvisoAvaliacao[],
   diagnostic?: DiagnosticRecorder,
+  ruleKind = 'redução',
 ): void {
   if (!resolution?.aviso) return;
   warnings.push({
@@ -243,7 +252,7 @@ function pushReductionWarning(
     arquivo: note.filename,
     aviso: `Item ${item.itemNumero}: ${resolution.aviso.charAt(0).toUpperCase()}${resolution.aviso.slice(1)}`,
   });
-  diagnostic?.event('warning', 'calculo', 'Regras de redução redundantes casaram o mesmo item.', {
+  diagnostic?.event('warning', 'calculo', `Regras de ${ruleKind} redundantes casaram o mesmo item.`, {
     numeroNota: note.numeroNota,
     itemNumero: item.itemNumero,
     ncm: item.ncm,
@@ -291,15 +300,23 @@ function resolveConvenioAndRatesForItem(params: {
   const tributariaReduction = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
     ? withNoteContext(note, () => resolveTributariaReduction(context, item))
     : null;
+  const fcpResolution = withNoteContext(note, () => resolveFcp(context, item));
   // Com o Convênio 52/91 aplicado, a A.DST da redução por produto não é usada.
   if (!convenio?.applied) pushReductionWarning(rate, note, item, warnings, diagnostic);
   pushReductionWarning(tributariaReduction, note, item, warnings, diagnostic);
+  pushReductionWarning(fcpResolution, note, item, warnings, diagnostic, 'FCP');
   const itemReducao: number | null = tributariaReduction ? tributariaReduction.aliquota : null;
-  const effectiveADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
+  const baseADst = convenio?.applied ? Number(convenio.aDst) : rate.aliquota;
+  const { fcpSeparado, effectiveADst } = computeFcpApplication(
+    destination,
+    Boolean(context.empresa.optante_simples_nacional),
+    baseADst,
+    fcpResolution,
+  );
   const originalAOri = item.aOri;
   const effectiveRate = convenio?.applied
     ? {
-      aliquota: effectiveADst,
+      aliquota: baseADst,
       origem: CONVENIO_52_91_RATE_ORIGIN,
       detalhe: `Convênio ICMS 52/91 — ${convenio.classification.motivo}`,
     }
@@ -370,8 +387,11 @@ function resolveConvenioAndRatesForItem(params: {
   return {
     convenio,
     itemReducao,
+    baseADst,
     effectiveADst,
     effectiveRate,
+    fcpResolution,
+    fcpSeparado,
     originalAOri,
     originRate,
     aOri,
@@ -391,13 +411,14 @@ function consolidateNoteGroups(params: {
   supplierIsSimples: boolean;
   processed: LocalProcessingResult['notasProcessadas'];
   rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  fcpRowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
   ignored: NotaIgnorada[];
   excluded: ItemExcluido[];
   diagnostic?: DiagnosticRecorder;
 }): void {
   const {
     note, groups, classifiedItems, context, entryDate, entryOrigin, supplierIsSimples,
-    processed, rowsByDestination, ignored, excluded, diagnostic,
+    processed, rowsByDestination, fcpRowsByDestination, ignored, excluded, diagnostic,
   } = params;
   const splitByDestination = new Map<TipoPlanilha, number>();
   for (const group of groups.values()) {
@@ -427,7 +448,12 @@ function consolidateNoteGroups(params: {
       ignored.push(ignoredNote(note, `Valor total zerado ou sem valor comercial (R$ ${vTotal.toFixed(2)}).`));
       continue;
     }
-    if (base < 0 || group.aOri < 0 || group.aOri > 1 || group.aDst < 0 || group.aDst > 1) {
+    if (
+      base < 0
+      || group.aOri < 0 || group.aOri > 1
+      || group.aDst < 0 || group.aDst > 1
+      || (group.fcpSeparado != null && (group.fcpSeparado < 0 || group.fcpSeparado > 1))
+    ) {
       throw new Error(`NF-e ${note.numeroNota}: valores fiscais fora da faixa válida.`);
     }
 
@@ -515,6 +541,40 @@ function consolidateNoteGroups(params: {
       continue;
     }
 
+    const fcpCalc = group.fcpSeparado != null && group.fcpSeparado > 0
+      ? calculateSeparateFcp({
+        destination: group.destination,
+        vTotal,
+        baseCalculo: base,
+        ipiDespesas: ipi,
+        mva,
+        reducao: group.reducao,
+        fcpAliquota: group.fcpSeparado,
+      })
+      : null;
+    const validFcpResolutions = group.fcpResolutions.filter(
+      (res): res is TaxRateResolution => res !== null && res.aliquota > 0,
+    );
+    let aDstBaseGroup = group.baseADsts[0] ?? group.aDst;
+    let fcpAliqGroup: number | null = null;
+    if (fcpCalc && group.fcpSeparado != null) {
+      fcpAliqGroup = group.fcpSeparado;
+    } else if (validFcpResolutions.length > 0) {
+      const idxWithFcp = group.fcpResolutions.findIndex((res) => res !== null && res.aliquota > 0);
+      if (idxWithFcp >= 0 && idxWithFcp < group.baseADsts.length) {
+        aDstBaseGroup = group.baseADsts[idxWithFcp];
+      }
+      fcpAliqGroup = Number(validFcpResolutions[0].aliquota);
+    }
+    const fcpMeta = buildFcpMetadata({
+      aDstBase: aDstBaseGroup,
+      fcpAliquota: fcpAliqGroup,
+      fcpOrigem: [...new Set(validFcpResolutions.map((res) => res.origem))].sort().join('; ') || null,
+      fcpDetalhe: [...new Set(validFcpResolutions.map((res) => res.detalhe))].sort().join('; ') || null,
+      fcpSeparado: fcpCalc !== null,
+      fcpCalc,
+    });
+
     const effectiveEntryDate = EARLY_DESTINATIONS.has(group.destination) ? null : entryDate;
     const effectiveEntryOrigin = EARLY_DESTINATIONS.has(group.destination) ? null : entryOrigin;
     const rateOrigins = [...new Set(group.rateResolutions.map((item) => item.origem))].sort();
@@ -552,6 +612,7 @@ function consolidateNoteGroups(params: {
       convenio_52_91_base_planilha: group.convenio5291Applied ? base : null,
       convenio_52_91_cst_reducao_detectada: reducedBaseEvidence,
       ...calculation.detalhes,
+      ...fcpMeta,
     };
 
     processed.push({
@@ -609,6 +670,11 @@ function consolidateNoteGroups(params: {
       valor_pago: valorPago,
     };
     (rowsByDestination[group.destination] ??= []).push(row);
+    if (fcpCalc && group.fcpSeparado != null) {
+      (fcpRowsByDestination[group.destination] ??= []).push(
+        buildFcpOutputRow(row, group.fcpSeparado, fcpCalc),
+      );
+    }
     splitByDestination.set(group.destination, splitIndex + 1);
   }
 }
@@ -618,12 +684,14 @@ async function generateOutputArtifacts(params: {
   periodoInicio: string;
   spedIe: string | undefined;
   rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  fcpRowsByDestination?: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
   templateBytes: Map<number, ArrayBuffer>;
   loadTemplate?: (template: LocalTemplateDescriptor) => Promise<ArrayBuffer>;
   diagnostic?: DiagnosticRecorder;
 }): Promise<LocalGeneratedArtifact[]> {
   const {
-    context, periodoInicio, spedIe, rowsByDestination, templateBytes, loadTemplate, diagnostic,
+    context, periodoInicio, spedIe, rowsByDestination, fcpRowsByDestination,
+    templateBytes, loadTemplate, diagnostic,
   } = params;
   const artifacts: LocalGeneratedArtifact[] = [];
   const month = Number(periodoInicio.slice(5, 7));
@@ -633,10 +701,16 @@ async function generateOutputArtifacts(params: {
 
   for (const [destination, rows] of Object.entries(rowsByDestination) as Array<[TipoPlanilha, LocalOutputRow[]]>) {
     if (!rows?.length) continue;
+    const rawFcpRows = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+      ? (fcpRowsByDestination?.[destination] ?? [])
+      : [];
+    const fcpRows = [...rawFcpRows];
+    if (fcpRows.length > 0) sortRowsByEntryAndNumber(fcpRows);
+    const requiredRows = Math.max(rows.length, fcpRows.length);
     const template = selectTemplateForRows(
       context.templates_ativos,
       destination,
-      rows.length,
+      requiredRows,
       context.margens_seguranca_templates[destination] ?? 0,
       context.empresa.id,
     );
@@ -652,13 +726,19 @@ async function generateOutputArtifacts(params: {
       );
     }
 
-    const output = await fillTemplateLocally(bytes, template, rows, {
-      razaoSocial: context.empresa.razao_social,
-      ie,
-      competencia,
-      month,
-      year,
-    });
+    const output = await fillTemplateLocally(
+      bytes,
+      template,
+      rows,
+      {
+        razaoSocial: context.empresa.razao_social,
+        ie,
+        competencia,
+        month,
+        year,
+      },
+      fcpRows.length > 0 ? fcpRows : undefined,
+    );
     const filename = buildSpreadsheetFilename({
       razaoSocial: context.empresa.razao_social,
       tipo: destination,
@@ -672,11 +752,12 @@ async function generateOutputArtifacts(params: {
       filename,
       bytes: output,
       totalNotas: rows.length,
-      totalValorDevido: rows.reduce((sum, row) => sum + row.valor_devido, 0),
+      totalValorDevido: roundCurrency(rows.reduce((sum, row) => sum + row.valor_devido, 0)),
     });
     diagnostic?.event('info', 'geracao_planilha', 'Planilha montada e validada em memória.', {
       tipo: destination,
       linhas: rows.length,
+      linhasFcp: fcpRows.length,
       tamanhoBytes: output.byteLength,
       templateId: template.id,
       capacidadeLinhas: template.capacidade_linhas ?? null,
@@ -805,6 +886,7 @@ export async function processFiscalLocally(
   const warnings: AvisoAvaliacao[] = [];
   const missingCfops: Record<string, number> = {};
   const rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>> = {};
+  const fcpRowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>> = {};
   const processed: LocalProcessingResult['notasProcessadas'] = [];
   const transformationStartedAt = performance.now();
   diagnostic?.stage('transformacao', 'Validação fiscal, aplicação de regras e cálculos iniciados.');
@@ -1079,7 +1161,7 @@ export async function processFiscalLocally(
         diagnostic,
       });
       const {
-        convenio, itemReducao, effectiveADst, effectiveRate,
+        convenio, itemReducao, baseADst, effectiveADst, effectiveRate, fcpResolution, fcpSeparado,
         originalAOri, originRate, aOri, aOriInferredSimples, aOriHighlighted, aOriInfCompl,
       } = resolved;
 
@@ -1127,15 +1209,26 @@ export async function processFiscalLocally(
         }
       }
 
-      const key = groupKey(destination, aOri, effectiveADst, itemMva, Boolean(convenio?.applied), itemReducao);
+      const key = groupKey(
+        destination,
+        aOri,
+        effectiveADst,
+        itemMva,
+        Boolean(convenio?.applied),
+        itemReducao,
+        fcpSeparado,
+      );
       const group: Group = groups.get(key) ?? {
         destination,
         aOri,
         aDst: effectiveADst,
         mva: itemMva,
         reducao: itemReducao,
+        fcpSeparado,
         items: [],
         rateResolutions: [],
+        baseADsts: [],
+        fcpResolutions: [],
         cfopResolutions: [],
         aOriLimited: false,
         aOriFixed: false,
@@ -1157,6 +1250,8 @@ export async function processFiscalLocally(
       };
       group.items.push(item);
       group.rateResolutions.push(effectiveRate);
+      group.baseADsts.push(baseADst);
+      group.fcpResolutions.push(fcpResolution);
       group.cfopResolutions.push(cfopResolution);
       group.aOriLimited ||= originRate.limited;
       group.aOriFixed ||= originRate.fixed;
@@ -1223,6 +1318,7 @@ export async function processFiscalLocally(
       supplierIsSimples,
       processed,
       rowsByDestination,
+      fcpRowsByDestination,
       ignored,
       excluded,
       diagnostic,
@@ -1241,6 +1337,7 @@ export async function processFiscalLocally(
       hasEntrySource,
       processed,
       rowsByDestination,
+      fcpRowsByDestination,
       ignored,
       warnings,
       diagnostic,
@@ -1251,6 +1348,7 @@ export async function processFiscalLocally(
     rowsByDestination[CONTROLE_DESTINATION] = consolidateControlRows(rowsByDestination[CONTROLE_DESTINATION]);
   }
   for (const rows of Object.values(rowsByDestination)) if (rows) sortRowsByEntryAndNumber(rows);
+  for (const rows of Object.values(fcpRowsByDestination)) if (rows) sortRowsByEntryAndNumber(rows);
 
   // O controle não é apuração: não conta como "há o que recolher".
   const controlRows = rowsByDestination[CONTROLE_DESTINATION]?.length ?? 0;
@@ -1280,6 +1378,7 @@ export async function processFiscalLocally(
       periodoInicio,
       spedIe: sources.spedCompanyInfo.ie,
       rowsByDestination,
+      fcpRowsByDestination,
       templateBytes,
       loadTemplate,
       diagnostic,
@@ -1307,6 +1406,7 @@ export async function processFiscalLocally(
     avisosAvaliacao: warnings,
     cfopsSemRegra: missingCfops,
     rowsByDestination,
+    fcpRowsByDestination,
     artifacts,
     mensagem: message,
   };

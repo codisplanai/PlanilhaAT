@@ -184,11 +184,36 @@ function buildUpdatedFilename(originalFilename: string): string {
   return `${clean}_atualizada.xlsx`;
 }
 
-function pickTargetSheet(sheets: SheetDescriptor[]): SheetDescriptor {
+function isFcpSheetName(name: string): boolean {
+  return name.trim().toLowerCase().endsWith(' fcp');
+}
+
+function pickTargetSheets(sheets: SheetDescriptor[]): {
+  mainSheet: SheetDescriptor;
+  fcpSheet: SheetDescriptor | null;
+} {
   if (sheets.length === 0) throw new Error('A planilha .xlsx não contém abas legíveis.');
   const visible = sheets.filter((sheet) => !sheet.hidden);
-  const pool = visible.length > 0 ? visible : sheets;
-  return pool.find((sheet) => sheet.active) ?? pool[0];
+  if (visible.length === 0) {
+    return {
+      mainSheet: sheets.find((sheet) => sheet.active) ?? sheets[0],
+      fcpSheet: null,
+    };
+  }
+  const nonFcpVisible = visible.filter((sheet) => !isFcpSheetName(sheet.name));
+  const fcpVisible = visible.filter((sheet) => isFcpSheetName(sheet.name));
+  if (nonFcpVisible.length > 0 && fcpVisible.length > 0) {
+    const mainSheet = nonFcpVisible.find((sheet) => sheet.active) ?? nonFcpVisible[0];
+    const expectedFcpName = `${mainSheet.name.trim().toLowerCase()} fcp`;
+    const fcpSheet =
+      fcpVisible.find((sheet) => sheet.name.trim().toLowerCase() === expectedFcpName)
+      ?? fcpVisible[0];
+    return { mainSheet, fcpSheet };
+  }
+  return {
+    mainSheet: visible.find((sheet) => sheet.active) ?? visible[0],
+    fcpSheet: null,
+  };
 }
 
 function addCandidate(
@@ -437,31 +462,50 @@ function clearNonFormulaRowCells(rowEl: Element): Set<string> {
   return formulaCols;
 }
 
-export async function fillAndReorderEntryDatesInXlsx(
-  spreadsheetBuffer: ArrayBuffer,
-  originalFilename: string,
-  entryIndex: Map<string, EntryDateCandidate[]>,
-): Promise<EntryDateFillFileResult> {
-  const bytes = new Uint8Array(spreadsheetBuffer);
-  const isBiff8 = bytes.length >= 4 && bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0;
-  if (isBiff8) {
-    throw new Error(
-      `O arquivo "${originalFilename}" está no formato legado .xls (BIFF8). `
-      + 'Envie a planilha gerada no formato .xlsx.',
-    );
+function buildFallbackDatesByNota(rows: CollectedRow[]): Map<string, string> {
+  const datesByNota = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (!row.dataEntrada) continue;
+    const norm = normalizeInvoiceNumber(row.numeroNota);
+    if (!norm) continue;
+    let bucket = datesByNota.get(norm);
+    if (!bucket) {
+      bucket = new Set<string>();
+      datesByNota.set(norm, bucket);
+    }
+    bucket.add(row.dataEntrada);
   }
+  const unique = new Map<string, string>();
+  for (const [norm, dates] of datesByNota) {
+    if (dates.size === 1) {
+      const onlyDate = [...dates][0];
+      if (onlyDate) unique.set(norm, onlyDate);
+    }
+  }
+  return unique;
+}
 
-  const entries = await readZip(spreadsheetBuffer);
-  const sheets = workbookSheets(entries);
-  const targetSheet = pickTargetSheet(sheets);
-  const sheetRaw = entries.get(targetSheet.path);
-  if (!sheetRaw) throw new Error(`Aba "${targetSheet.name}" não encontrada em "${originalFilename}".`);
+function fillAndReorderSheet(params: {
+  entries: Map<string, Uint8Array>;
+  sheet: SheetDescriptor;
+  originalFilename: string;
+  entryIndex: Map<string, EntryDateCandidate[]>;
+  sharedStrings: string[];
+  allowEmpty: boolean;
+  fallbackDatesByNota?: Map<string, string>;
+}): {
+  rowsReport: EntryDateRowReport[];
+  warnings: string[];
+  fallbackDatesByNota: Map<string, string>;
+} | null {
+  const { entries, sheet, originalFilename, entryIndex, sharedStrings, allowEmpty, fallbackDatesByNota } = params;
+  const sheetRaw = entries.get(sheet.path);
+  if (!sheetRaw) throw new Error(`Aba "${sheet.name}" não encontrada em "${originalFilename}".`);
 
-  const doc = parseXml(sheetRaw, targetSheet.path);
+  const doc = parseXml(sheetRaw, sheet.path);
   const sheetData = doc.getElementsByTagNameNS(XML_NS, 'sheetData')[0];
   if (!sheetData) throw new Error(`A planilha "${originalFilename}" não possui área de dados.`);
 
-  const sharedStrings = getSharedStrings(entries);
   const rowElementsByNum = new Map<number, Element>();
   for (const rowEl of Array.from(sheetData.getElementsByTagNameNS(XML_NS, 'row'))) {
     const rowNum = Number.parseInt(rowEl.getAttribute('r') ?? '', 10);
@@ -527,6 +571,15 @@ export async function fillAndReorderEntryDatesInXlsx(
       if (resolution.dataEntrada) {
         dataEntrada = resolution.dataEntrada;
         status = 'preenchida_agora';
+      } else if (!resolution.ambiguous && fallbackDatesByNota) {
+        const syncedDate = fallbackDatesByNota.get(normalizeInvoiceNumber(numeroNota));
+        if (syncedDate) {
+          dataEntrada = syncedDate;
+          status = 'preenchida_agora';
+        } else {
+          dataEntrada = null;
+          status = 'pendente';
+        }
       } else {
         dataEntrada = null;
         status = 'pendente';
@@ -552,6 +605,7 @@ export async function fillAndReorderEntryDatesInXlsx(
   }
 
   if (collectedRows.length === 0) {
+    if (allowEmpty) return null;
     throw new Error(
       `Nenhuma nota fiscal foi localizada a partir da linha ${cols.startRow} em "${originalFilename}".`,
     );
@@ -622,21 +676,78 @@ export async function fillAndReorderEntryDatesInXlsx(
     if (leftoverRow) clearNonFormulaRowCells(leftoverRow);
   }
 
-  entries.set(targetSheet.path, serializeXml(doc));
+  entries.set(sheet.path, serializeXml(doc));
+  return {
+    rowsReport,
+    warnings,
+    fallbackDatesByNota: buildFallbackDatesByNota(collectedRows),
+  };
+}
+
+export async function fillAndReorderEntryDatesInXlsx(
+  spreadsheetBuffer: ArrayBuffer,
+  originalFilename: string,
+  entryIndex: Map<string, EntryDateCandidate[]>,
+): Promise<EntryDateFillFileResult> {
+  const bytes = new Uint8Array(spreadsheetBuffer);
+  const isBiff8 = bytes.length >= 4 && bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0;
+  if (isBiff8) {
+    throw new Error(
+      `O arquivo "${originalFilename}" está no formato legado .xls (BIFF8). `
+      + 'Envie a planilha gerada no formato .xlsx.',
+    );
+  }
+
+  const entries = await readZip(spreadsheetBuffer);
+  const sheets = workbookSheets(entries);
+  const { mainSheet, fcpSheet } = pickTargetSheets(sheets);
+  const sharedStrings = getSharedStrings(entries);
+
+  const mainResult = fillAndReorderSheet({
+    entries,
+    sheet: mainSheet,
+    originalFilename,
+    entryIndex,
+    sharedStrings,
+    allowEmpty: false,
+  })!;
+
+  const warnings = [...mainResult.warnings];
+  if (fcpSheet) {
+    const fcpResult = fillAndReorderSheet({
+      entries,
+      sheet: fcpSheet,
+      originalFilename,
+      entryIndex,
+      sharedStrings,
+      allowEmpty: true,
+      fallbackDatesByNota: mainResult.fallbackDatesByNota,
+    });
+    if (fcpResult) {
+      const seenWarnings = new Set(warnings);
+      for (const warning of fcpResult.warnings) {
+        if (!seenWarnings.has(warning)) {
+          seenWarnings.add(warning);
+          warnings.push(warning);
+        }
+      }
+    }
+  }
+
   enableWorkbookAutoRecalc(entries);
   const outputBytes = await writeZip(entries);
 
   return {
     originalFilename,
     outputFilename: buildUpdatedFilename(originalFilename),
-    sheetName: targetSheet.name,
+    sheetName: mainSheet.name,
     bytes: outputBytes,
-    rowsReport,
+    rowsReport: mainResult.rowsReport,
     summary: {
-      totalRows: rowsReport.length,
-      filledNow: rowsReport.filter((r) => r.status === 'preenchida_agora').length,
-      alreadyFilled: rowsReport.filter((r) => r.status === 'ja_preenchida').length,
-      stillPending: rowsReport.filter((r) => r.status === 'pendente').length,
+      totalRows: mainResult.rowsReport.length,
+      filledNow: mainResult.rowsReport.filter((r) => r.status === 'preenchida_agora').length,
+      alreadyFilled: mainResult.rowsReport.filter((r) => r.status === 'ja_preenchida').length,
+      stillPending: mainResult.rowsReport.filter((r) => r.status === 'pendente').length,
     },
     warnings,
   };

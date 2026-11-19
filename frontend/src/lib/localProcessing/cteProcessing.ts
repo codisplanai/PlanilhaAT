@@ -1,3 +1,4 @@
+import type { JsonObject } from '../../types/common';
 import type {
   LocalOutputRow,
   LocalProcessingRequest,
@@ -10,7 +11,7 @@ import type {
   TipoPlanilha,
 } from '../../types/solicitacao';
 import type { DiagnosticRecorder } from '../processingDiagnostics';
-import type { EntrySheetRecord, ExtractedCTe, ExtractedNote } from './domain.ts';
+import type { CalculationResult, EntrySheetRecord, ExtractedCTe, ExtractedNote } from './domain.ts';
 import {
   BONUS_SUFFIXES,
   EARLY_DESTINATIONS,
@@ -18,6 +19,16 @@ import {
   TAX_SUBSTITUTION_DESTINATIONS,
 } from './domain.ts';
 import { calculateTax, roundCurrency } from './calculations.ts';
+import {
+  buildFcpMetadata,
+  buildFcpOutputRow,
+  calculateSeparateFcp,
+  computeFcpApplication,
+  formatCurrencyString,
+  formatRateString,
+  roundRate,
+  withNoteContext,
+} from './fcp.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
 import { cleanDigits, isOwnEmissionNote, isSameUfNote } from './preAnalysis.ts';
 import {
@@ -28,6 +39,7 @@ import {
   mvaColumnForNote,
   redirectRevendaToAntecipacaoTributaria,
   resolveDestinationRate,
+  resolveFcp,
   resolveMvaForItem,
   resolveRevendaMva,
   resolveStandardDestinationRate,
@@ -42,6 +54,10 @@ export interface TribCandidateForCte {
   mva: number;
   reducao: number | null;
   aDst: number;
+  vTotal: number;
+  fcp: number;
+  fcpOrigem: string | null;
+  fcpDetalhe: string | null;
   mvaGrupo: 'especial' | 'demais' | '';
   mvaFonte: string;
 }
@@ -174,8 +190,15 @@ export function evaluateNfeForCte(params: {
     }
 
     if (TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
-      const rate = resolveDestinationRate(context, item, destination);
-      const itemReducao = resolveTributariaReduction(context, item)?.aliquota ?? null;
+      const rate = withNoteContext(note, () => resolveDestinationRate(context, item, destination));
+      const itemReducao = withNoteContext(note, () => resolveTributariaReduction(context, item))?.aliquota ?? null;
+      const fcpRes = withNoteContext(note, () => resolveFcp(context, item));
+      const { fcpAliquota, effectiveADst } = computeFcpApplication(
+        destination,
+        isSimplesCompany,
+        rate.aliquota,
+        fcpRes,
+      );
       const aOri = resolveSimpleOriginReference(note, item, context.empresa.uf, false).rate;
       let itemMva = 0;
       if (revendaConfig) {
@@ -188,12 +211,17 @@ export function evaluateNfeForCte(params: {
         }
         itemMva = mvaRes.mva;
       }
+      const temFcp = fcpAliquota > 0;
       somaTrib += item.vTotal;
       countTrib += 1;
       tribCandidates.push({
         mva: itemMva,
         reducao: itemReducao,
-        aDst: rate.aliquota,
+        aDst: effectiveADst,
+        vTotal: item.vTotal,
+        fcp: fcpAliquota,
+        fcpOrigem: temFcp && fcpRes ? fcpRes.origem : null,
+        fcpDetalhe: temFcp && fcpRes ? fcpRes.detalhe : null,
         mvaGrupo: mvaPolicyGroup,
         mvaFonte: mvaPolicySource,
       });
@@ -233,6 +261,48 @@ function cteIgnoredRecord(cte: ExtractedCTe, motivo: string): NotaIgnorada {
   };
 }
 
+interface FcpParcelaRowData {
+  vTotal: number;
+  baseCalculo: number;
+  mva: number;
+  reducao: number | null;
+  fcpAliquota: number;
+  fcpCalc: CalculationResult;
+  percentualRateio: number;
+  fcpOrigem: string | null;
+  fcpDetalhe: string | null;
+}
+
+function ratearBaseCalculoCte(
+  cte: ExtractedCTe,
+  vTotalRateado: number,
+  ratio: number,
+  fullScope: boolean,
+): number {
+  if (cte.vBcCte > 0 && cte.vBcCte < cte.vTotalCte) {
+    return fullScope ? cte.vBcCte : roundCurrency(cte.vBcCte * ratio);
+  }
+  return vTotalRateado;
+}
+
+function maxMvaAndReducao(candidates: TribCandidateForCte[]): {
+  maxMva: number;
+  maxCandidates: TribCandidateForCte[];
+  reducao: number | null;
+} {
+  const maxMva = Math.max(...candidates.map((cand) => cand.mva));
+  const maxCandidates = candidates.filter((cand) => cand.mva === maxMva);
+  return { maxMva, maxCandidates, reducao: maxCandidates[0]?.reducao ?? null };
+}
+
+function joinFcpField(
+  candidates: TribCandidateForCte[],
+  field: 'fcpOrigem' | 'fcpDetalhe',
+): string | null {
+  const values = [...new Set(candidates.map((cand) => cand[field]).filter((v): v is string => Boolean(v)))].sort();
+  return values.join('; ') || null;
+}
+
 function emitCteRow(params: {
   context: LocalProcessingRequest['context'];
   cte: ExtractedCTe;
@@ -251,6 +321,11 @@ function emitCteRow(params: {
   mvaFonte: string | null;
   processed: LocalProcessingResult['notasProcessadas'];
   rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  itemNumero?: number;
+  desdobramento?: boolean;
+  fcpMetadados?: JsonObject;
+  fcpRowsData?: FcpParcelaRowData[];
+  fcpRowsByDestination?: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
 }): void {
   const {
     context,
@@ -270,9 +345,23 @@ function emitCteRow(params: {
     mvaFonte,
     processed,
     rowsByDestination,
+    itemNumero = 1,
+    desdobramento = false,
+    fcpMetadados,
+    fcpRowsData,
+    fcpRowsByDestination,
   } = params;
 
   const aOriCalc = cte.aOriHighlighted ? cte.aOri : 0;
+  if (baseCalculo < 0 || aOriCalc < 0 || aOriCalc > 1 || aDst < 0 || aDst > 1) {
+    throw new Error(`CT-e ${cte.numeroCte}: valores fiscais fora da faixa válida.`);
+  }
+  for (const fcpItem of fcpRowsData ?? []) {
+    if (fcpItem.baseCalculo < 0 || fcpItem.fcpAliquota < 0 || fcpItem.fcpAliquota > 1) {
+      throw new Error(`CT-e ${cte.numeroCte}: valores fiscais de FCP fora da faixa válida.`);
+    }
+  }
+
   const calculation = calculateTax(destination, {
     vTotal,
     baseCalculo,
@@ -288,6 +377,7 @@ function emitCteRow(params: {
   const effectiveEntryDate = EARLY_DESTINATIONS.has(destination) ? null : entryDate;
   const effectiveEntryOrigin = EARLY_DESTINATIONS.has(destination) ? null : entryOrigin;
   const cnpjTomador = cleanDigits(cte.cnpjTomador) || cleanDigits(context.empresa.cnpj);
+  const numeroNotaPlanilha = itemNumero > 1 ? `${cte.numeroCte}*` : cte.numeroCte;
 
   processed.push({
     chave_acesso: cte.chaveAcesso,
@@ -300,7 +390,7 @@ function emitCteRow(params: {
     data_emissao: cte.dataEmissao,
     data_entrada: effectiveEntryDate,
     origem_data_entrada: effectiveEntryOrigin,
-    item_numero: 1,
+    item_numero: itemNumero,
     ncm: '',
     cfop: cte.cfop,
     destino_planilha: destination,
@@ -314,6 +404,8 @@ function emitCteRow(params: {
     valor_devido: calculation.valorDevido,
     metadados_extras: {
       tipo_documento: 'cte',
+      desdobramento,
+      subitem_index: itemNumero,
       chaves_nfe_origem: [...cte.chavesNfe],
       numeros_nfe_origem: numerosNfeOrigem,
       percentual_rateio: String(percentualRateio),
@@ -325,11 +417,12 @@ function emitCteRow(params: {
       aliq_simples: aliqSimples,
       a_ori_destacada: cte.aOriHighlighted,
       ...calculation.detalhes,
+      ...(fcpMetadados ?? {}),
     },
   });
 
   const row: LocalOutputRow = {
-    numero_nota: cte.numeroCte,
+    numero_nota: numeroNotaPlanilha,
     serie: cte.serie,
     chave_acesso: cte.chaveAcesso,
     cnpj_emitente: cte.cnpjEmitente,
@@ -338,7 +431,7 @@ function emitCteRow(params: {
     uf_destinatario: context.empresa.uf,
     data_emissao: cte.dataEmissao,
     data_entrada: effectiveEntryDate,
-    item_numero: 1,
+    item_numero: itemNumero,
     descricao: `CT-e ${cte.numeroCte} (${cte.nomeEmitente || 'Frete'})`,
     ncm: '',
     cfop: cte.cfop,
@@ -356,6 +449,263 @@ function emitCteRow(params: {
     valor_devido: calculation.valorDevido,
   };
   (rowsByDestination[destination] ??= []).push(row);
+
+  if (fcpRowsData?.length && fcpRowsByDestination) {
+    const totalParcelas = fcpRowsData.length;
+    fcpRowsData.forEach((fcpItem, idx) => {
+      (fcpRowsByDestination[destination] ??= []).push(
+        buildFcpOutputRow(row, fcpItem.fcpAliquota, fcpItem.fcpCalc, {
+          numero_nota: cte.numeroCte,
+          item_numero: totalParcelas > 1 ? idx + 1 : 1,
+          v_total: fcpItem.vTotal,
+          base_calculo: fcpItem.baseCalculo,
+          mva: fcpItem.mva,
+          reducao: fcpItem.reducao,
+        }),
+      );
+    });
+  }
+}
+
+function processCteTributaria(params: {
+  context: LocalProcessingRequest['context'];
+  cte: ExtractedCTe;
+  nfesCtx: NfeCteContext[];
+  contributingTrib: NfeCteContext[];
+  destinoTrib: TipoPlanilha;
+  vTotalNfes: number;
+  somaTrib: number;
+  entryDate: string | null;
+  entryOrigin: NotaFiscalProcessada['origem_data_entrada'];
+  numerosOrigem: string[];
+  processed: LocalProcessingResult['notasProcessadas'];
+  rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  fcpRowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  diagnostic?: DiagnosticRecorder;
+}): void {
+  const {
+    context,
+    cte,
+    nfesCtx,
+    contributingTrib,
+    destinoTrib,
+    vTotalNfes,
+    somaTrib,
+    entryDate,
+    entryOrigin,
+    numerosOrigem,
+    processed,
+    rowsByDestination,
+    fcpRowsByDestination,
+    diagnostic,
+  } = params;
+
+  const allTrib = nfesCtx.every((ctx) => ctx.allItemsTributaria);
+  const ratioTrib = allTrib ? 1 : Math.min(1, somaTrib / vTotalNfes);
+  const vTotalCteTrib = allTrib ? cte.vTotalCte : roundCurrency(cte.vTotalCte * ratioTrib);
+  if (vTotalCteTrib <= 0) return;
+
+  const vBcCteTrib = ratearBaseCalculoCte(cte, vTotalCteTrib, ratioTrib, allTrib);
+  const allCandidates = contributingTrib.flatMap((ctx) => ctx.tribCandidates);
+  const aDstPadrao = resolveStandardDestinationRate(context, {
+    itemNumero: 1,
+    ncm: '',
+    cest: '',
+    cfop: cte.cfop,
+    descricao: '',
+    descricaoConfiavel: false,
+    vItem: vTotalCteTrib,
+    vTotal: vTotalCteTrib,
+    baseCalculo: vBcCteTrib,
+    ipiDespesas: 0,
+    aOri: cte.aOri,
+    vIcms: cte.vIcmsCte,
+  }).aliquota;
+  const percentualTrib = Math.round((ratioTrib * 100 + Number.EPSILON) * 10000) / 10000;
+
+  if (context.empresa.optante_simples_nacional) {
+    const snGroups = new Map<number, TribCandidateForCte[]>();
+    for (const cand of allCandidates) {
+      const fcpKey = roundRate(cand.fcp || 0);
+      const bucket = snGroups.get(fcpKey);
+      if (bucket) bucket.push(cand);
+      else snGroups.set(fcpKey, [cand]);
+    }
+    const isSplit = snGroups.size > 1;
+    let emittedIdx = 0;
+    for (const [fcpGrupo, candsGrupo] of snGroups.entries()) {
+      let vTotalGrupo = vTotalCteTrib;
+      let vBcGrupo = vBcCteTrib;
+      let percentualGrupo = percentualTrib;
+      if (isSplit) {
+        const somaGrupo = candsGrupo.reduce((sum, c) => sum + c.vTotal, 0);
+        const ratioGrupo = Math.min(1, somaGrupo / vTotalNfes);
+        vTotalGrupo = roundCurrency(cte.vTotalCte * ratioGrupo);
+        if (vTotalGrupo <= 0) continue;
+        vBcGrupo = ratearBaseCalculoCte(cte, vTotalGrupo, ratioGrupo, false);
+        percentualGrupo = Math.round((ratioGrupo * 100 + Number.EPSILON) * 10000) / 10000;
+      }
+
+      const { maxMva, maxCandidates, reducao } = maxMvaAndReducao(candsGrupo);
+      const temFcp = fcpGrupo > 0;
+      const aDstTotal = temFcp ? roundRate(aDstPadrao + fcpGrupo) : aDstPadrao;
+      emittedIdx += 1;
+      const fcpMeta = buildFcpMetadata({
+        aDstBase: aDstPadrao,
+        fcpAliquota: temFcp ? fcpGrupo : null,
+        fcpOrigem: temFcp ? joinFcpField(candsGrupo, 'fcpOrigem') : null,
+        fcpDetalhe: temFcp ? joinFcpField(candsGrupo, 'fcpDetalhe') : null,
+        fcpSeparado: false,
+      });
+
+      emitCteRow({
+        context,
+        cte,
+        destination: destinoTrib,
+        vTotal: vTotalGrupo,
+        baseCalculo: vBcGrupo,
+        mva: maxMva,
+        reducao,
+        aDst: aDstTotal,
+        aliqSimples: 'N',
+        entryDate,
+        entryOrigin,
+        percentualRateio: percentualGrupo,
+        numerosNfeOrigem: numerosOrigem,
+        mvaGrupo: maxCandidates[0]?.mvaGrupo || null,
+        mvaFonte: maxCandidates[0]?.mvaFonte || null,
+        processed,
+        rowsByDestination,
+        itemNumero: emittedIdx,
+        desdobramento: isSplit,
+        fcpMetadados: fcpMeta,
+      });
+    }
+    diagnostic?.event('info', 'calculo', 'CT-e incluído na Antecipação Tributária.', {
+      numeroCte: cte.numeroCte,
+      destino: destinoTrib,
+      valorRateado: vTotalCteTrib,
+      desdobramentoFcpSn: isSplit,
+    });
+    return;
+  }
+
+  const { maxMva, maxCandidates, reducao: reducaoTrib } = maxMvaAndReducao(allCandidates);
+  const fcpGroups = new Map<number, TribCandidateForCte[]>();
+  for (const cand of allCandidates) {
+    if (cand.fcp > 0) {
+      const fcpKey = roundRate(cand.fcp);
+      const bucket = fcpGroups.get(fcpKey);
+      if (bucket) bucket.push(cand);
+      else fcpGroups.set(fcpKey, [cand]);
+    }
+  }
+
+  const fcpRowsData: FcpParcelaRowData[] = [];
+  for (const [fcpAliq, candsFcp] of fcpGroups.entries()) {
+    const somaFcp = candsFcp.reduce((sum, c) => sum + c.vTotal, 0);
+    const allSameFcp = allTrib && candsFcp.length === allCandidates.length;
+    const ratioFcp = allSameFcp ? 1 : Math.min(1, somaFcp / vTotalNfes);
+    const vTotalCteFcp = allSameFcp ? cte.vTotalCte : roundCurrency(cte.vTotalCte * ratioFcp);
+    if (vTotalCteFcp <= 0) continue;
+
+    const vBcCteFcp = ratearBaseCalculoCte(cte, vTotalCteFcp, ratioFcp, allSameFcp);
+    const { maxMva: maxMvaFcp, reducao: reducaoFcp } = maxMvaAndReducao(candsFcp);
+    const fcpCalc = calculateSeparateFcp({
+      destination: destinoTrib,
+      vTotal: vTotalCteFcp,
+      baseCalculo: vBcCteFcp,
+      ipiDespesas: 0,
+      mva: maxMvaFcp,
+      reducao: reducaoFcp,
+      fcpAliquota: fcpAliq,
+    });
+    fcpRowsData.push({
+      vTotal: vTotalCteFcp,
+      baseCalculo: vBcCteFcp,
+      mva: maxMvaFcp,
+      reducao: reducaoFcp,
+      fcpAliquota: fcpAliq,
+      fcpCalc,
+      percentualRateio: Math.round((ratioFcp * 100 + Number.EPSILON) * 10000) / 10000,
+      fcpOrigem: joinFcpField(candsFcp, 'fcpOrigem'),
+      fcpDetalhe: joinFcpField(candsFcp, 'fcpDetalhe'),
+    });
+  }
+
+  let fcpMeta: JsonObject;
+  if (fcpRowsData.length === 0) {
+    fcpMeta = buildFcpMetadata({
+      aDstBase: aDstPadrao,
+      fcpAliquota: null,
+      fcpOrigem: null,
+      fcpDetalhe: null,
+      fcpSeparado: false,
+    });
+  } else if (fcpRowsData.length === 1) {
+    const it0 = fcpRowsData[0];
+    fcpMeta = {
+      ...buildFcpMetadata({
+        aDstBase: aDstPadrao,
+        fcpAliquota: it0.fcpAliquota,
+        fcpOrigem: it0.fcpOrigem,
+        fcpDetalhe: it0.fcpDetalhe,
+        fcpSeparado: true,
+        fcpCalc: it0.fcpCalc,
+      }),
+      fcp_cte_v_total: formatCurrencyString(it0.vTotal),
+      fcp_cte_mva: String(it0.mva),
+      fcp_cte_reducao: it0.reducao != null ? String(it0.reducao) : null,
+      fcp_percentual_rateio: it0.percentualRateio.toFixed(4),
+    };
+  } else {
+    fcpMeta = {
+      a_dst_base: formatRateString(aDstPadrao),
+      fcp_separado: true,
+      fcp_parcelas: fcpRowsData.map((it) => ({
+        v_total: formatCurrencyString(it.vTotal),
+        base_calculo: formatCurrencyString(it.baseCalculo),
+        mva: String(it.mva),
+        reducao: it.reducao != null ? String(it.reducao) : null,
+        fcp_aliquota: formatRateString(it.fcpAliquota),
+        fcp_base_st: formatCurrencyString(Number(it.fcpCalc.detalhes.base_st ?? 0)),
+        debito: formatCurrencyString(it.fcpCalc.debito),
+        fcp_valor_devido: formatCurrencyString(it.fcpCalc.valorDevido),
+        percentual_rateio: it.percentualRateio.toFixed(4),
+        fcp_origem: it.fcpOrigem,
+        fcp_detalhe: it.fcpDetalhe,
+      })),
+    };
+  }
+
+  emitCteRow({
+    context,
+    cte,
+    destination: destinoTrib,
+    vTotal: vTotalCteTrib,
+    baseCalculo: vBcCteTrib,
+    mva: maxMva,
+    reducao: reducaoTrib,
+    aDst: aDstPadrao,
+    aliqSimples: 'N',
+    entryDate,
+    entryOrigin,
+    percentualRateio: percentualTrib,
+    numerosNfeOrigem: numerosOrigem,
+    mvaGrupo: maxCandidates[0]?.mvaGrupo || null,
+    mvaFonte: maxCandidates[0]?.mvaFonte || null,
+    processed,
+    rowsByDestination,
+    fcpMetadados: fcpMeta,
+    fcpRowsData,
+    fcpRowsByDestination,
+  });
+  diagnostic?.event('info', 'calculo', 'CT-e incluído na Antecipação Tributária.', {
+    numeroCte: cte.numeroCte,
+    destino: destinoTrib,
+    valorRateado: vTotalCteTrib,
+    mvaHerdada: maxMva,
+  });
 }
 
 export function processCtesLocally(params: {
@@ -369,6 +719,7 @@ export function processCtesLocally(params: {
   hasEntrySource: boolean;
   processed: LocalProcessingResult['notasProcessadas'];
   rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
+  fcpRowsByDestination?: Partial<Record<TipoPlanilha, LocalOutputRow[]>>;
   ignored: NotaIgnorada[];
   warnings: AvisoAvaliacao[];
   diagnostic?: DiagnosticRecorder;
@@ -384,6 +735,7 @@ export function processCtesLocally(params: {
     hasEntrySource,
     processed,
     rowsByDestination,
+    fcpRowsByDestination = {},
     ignored,
     warnings,
     diagnostic,
@@ -520,58 +872,22 @@ export function processCtesLocally(params: {
       const contributingTrib = nfesCtx.filter((ctx) => ctx.somaTrib > 0);
       const { entryDate, entryOrigin, paidEarly } = resolveEntryFor(contributingTrib);
       const destinoTrib = routePaidEarlyDestination('antecipacao_tributaria', paidEarly, isSimplesCompany);
-      const allTrib = nfesCtx.every((ctx) => ctx.allItemsTributaria);
-      const ratioTrib = allTrib ? 1 : Math.min(1, somaTrib / vTotalNfes);
-      const vTotalCteTrib = allTrib ? cte.vTotalCte : roundCurrency(cte.vTotalCte * ratioTrib);
-
-      if (vTotalCteTrib > 0) {
-        const vBcCteTrib = cte.vBcCte > 0 && cte.vBcCte < cte.vTotalCte
-          ? (allTrib ? cte.vBcCte : roundCurrency(cte.vBcCte * ratioTrib))
-          : vTotalCteTrib;
-        const allCandidates = contributingTrib.flatMap((ctx) => ctx.tribCandidates);
-        const maxMva = Math.max(...allCandidates.map((cand) => cand.mva));
-        const maxCandidate = allCandidates.find((cand) => cand.mva === maxMva)!;
-        const aDstTrib = resolveStandardDestinationRate(context, {
-          itemNumero: 1,
-          ncm: '',
-          cest: '',
-          cfop: cte.cfop,
-          descricao: '',
-          descricaoConfiavel: false,
-          vItem: vTotalCteTrib,
-          vTotal: vTotalCteTrib,
-          baseCalculo: vBcCteTrib,
-          ipiDespesas: 0,
-          aOri: cte.aOri,
-          vIcms: cte.vIcmsCte,
-        }).aliquota;
-
-        emitCteRow({
-          context,
-          cte,
-          destination: destinoTrib,
-          vTotal: vTotalCteTrib,
-          baseCalculo: vBcCteTrib,
-          mva: maxMva,
-          reducao: maxCandidate.reducao,
-          aDst: aDstTrib,
-          aliqSimples: 'N',
-          entryDate,
-          entryOrigin,
-          percentualRateio: Math.round((ratioTrib * 100 + Number.EPSILON) * 10000) / 10000,
-          numerosNfeOrigem: numerosOrigem,
-          mvaGrupo: maxCandidate.mvaGrupo || null,
-          mvaFonte: maxCandidate.mvaFonte || null,
-          processed,
-          rowsByDestination,
-        });
-        diagnostic?.event('info', 'calculo', 'CT-e incluído na Antecipação Tributária.', {
-          numeroCte: cte.numeroCte,
-          destino: destinoTrib,
-          valorRateado: vTotalCteTrib,
-          mvaHerdada: maxMva,
-        });
-      }
+      processCteTributaria({
+        context,
+        cte,
+        nfesCtx,
+        contributingTrib,
+        destinoTrib,
+        vTotalNfes,
+        somaTrib,
+        entryDate,
+        entryOrigin,
+        numerosOrigem,
+        processed,
+        rowsByDestination,
+        fcpRowsByDestination,
+        diagnostic,
+      });
     }
 
     if (somaDifal > 0) {
@@ -620,6 +936,13 @@ export function processCtesLocally(params: {
           mvaFonte: null,
           processed,
           rowsByDestination,
+          fcpMetadados: buildFcpMetadata({
+            aDstBase: aDstDifal,
+            fcpAliquota: null,
+            fcpOrigem: null,
+            fcpDetalhe: null,
+            fcpSeparado: false,
+          }),
         });
         diagnostic?.event('info', 'calculo', 'CT-e incluído no DIFAL.', {
           numeroCte: cte.numeroCte,
