@@ -7,6 +7,7 @@ installDomParserPolyfill();
 import { calculateTax } from '../src/lib/localProcessing/calculations.ts';
 import { parseNfeXml } from '../src/lib/localProcessing/xml.ts';
 import { processFiscalLocally } from '../src/lib/localProcessing/processor.ts';
+import { evaluateNfeForCte } from '../src/lib/localProcessing/cteProcessing.ts';
 import type { LocalProcessingContext } from '../src/types/localProcessing.ts';
 
 const SAMPLE_XML_WITH_ST = `<?xml version="1.0" encoding="UTF-8"?>
@@ -341,4 +342,79 @@ test('processFiscalLocally: exclui da planilha quando ICMS ST cobre ou supera o 
   assert.equal(result.itensExcluidos.length, 1);
   assert.equal(result.itensExcluidos[0].numero_nota, '50884');
   assert.match(result.itensExcluidos[0].motivo, /ICMS ST destacado na nota/);
+});
+
+const XML_ST_MISTO_FRETE = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe>
+<infNFe Id="NFe35260814515925000180550010000508831030783820">
+<ide><nNF>50883</nNF><serie>1</serie><dhEmi>2026-08-10T10:00:00-03:00</dhEmi></ide>
+<emit><CNPJ>14515925000180</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+<dest><CNPJ>14064976000132</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+<total><ICMSTot><vNF>550.00</vNF><vBC>550.00</vBC><vFrete>50.00</vFrete><vST>50.00</vST></ICMSTot></total>
+<det nItem="1"><prod><xProd>PRODUTO ST PAGO</xProd><NCM>84649090</NCM><CFOP>6403</CFOP><vProd>300.00</vProd><vFrete>30.00</vFrete></prod>
+<imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><pICMS>7.00</pICMS><vBC>330.00</vBC><vICMSST>50.00</vICMSST></ICMS10></ICMS></imposto></det>
+<det nItem="2"><prod><xProd>ITEM RECLASSIFICADO SEM ST</xProd><NCM>84649090</NCM><CFOP>6102</CFOP><vProd>200.00</vProd><vFrete>20.00</vFrete></prod>
+<imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><pICMS>7.00</pICMS><vBC>220.00</vBC><vICMS>15.40</vICMS></ICMS00></ICMS></imposto></det>
+</infNFe></NFe></nfeProc>`;
+
+function mixedStContext(): LocalProcessingContext {
+  const context = buildContext();
+  context.empresa.razao_social = 'Armazém Comércio LTDA';
+  context.regras_reclassificacao.push({
+    id: 91,
+    perfil_regras_id: context.perfil.id,
+    ncm: '84649090',
+    cfop_origem_sufixo: '102',
+    cfop_destino_sufixo: '403',
+    termos_inclusao: [],
+    termos_exclusao: [],
+    descricao: 'ST grampo pela classificação tributária',
+  } as never);
+  return context;
+}
+
+test('NF-e mista com frete: item 6102 reclassificado para 6403 permanece na Tributária sem valor pago', async () => {
+  const context = mixedStContext();
+  const note = parseNfeXml(XML_ST_MISTO_FRETE, 'mista.xml');
+  assert.equal(note.rawMetadata.icms_st_xml, 50);
+  assert.deepEqual(note.itens.map((item) => item.vIcmsSt), [50, 0]);
+  assert.deepEqual(note.itens.map((item) => item.vTotal), [330, 220]);
+  assert.deepEqual(note.itens.map((item) => item.ipiDespesas), [0, 0]);
+
+  // O CT-e só transfere 220/550 do frete para o item sujeito ao recolhimento.
+  const cteContext = evaluateNfeForCte({
+    note, context, entryRecords: [], hasEntrySource: false,
+  });
+  assert.equal(cteContext.somaTrib, 220);
+  assert.equal(cteContext.allItemsTributaria, false);
+
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const templatePath = fs.existsSync('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    ? path.resolve('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    : path.resolve('../storage/templates/modelo_padrao_antecipacao_tributaria.xlsx');
+  const templateBuf = fs.readFileSync(templatePath);
+  const templateBytes = new Map<number, ArrayBuffer>([
+    [1, templateBuf.buffer.slice(templateBuf.byteOffset, templateBuf.byteOffset + templateBuf.byteLength)],
+  ]);
+  const result = await processFiscalLocally({
+    solicitacaoId: 'teste-st-mista-frete',
+    periodoInicio: '2026-08-01',
+    periodoFim: '2026-08-31',
+    context,
+    input: {
+      xmlFiles: [new File([XML_ST_MISTO_FRETE], 'mista.xml')],
+      spedFile: null,
+      entrySheet: null,
+    },
+  }, templateBytes);
+  assert.equal(result.notasProcessadas.length, 1);
+  assert.equal(result.itensExcluidos.length, 1);
+  const itemTributavel = result.notasProcessadas[0];
+  assert.equal(itemTributavel.cfop, '6403');
+  assert.equal(itemTributavel.v_total, 220);
+  assert.equal(itemTributavel.base_calculo, 220);
+  assert.equal(itemTributavel.ipi_despesas, 0);
+  assert.equal(Number(itemTributavel.metadados_extras?.valor_pago ?? 0), 0);
+  assert.ok(itemTributavel.valor_devido > 0);
 });
