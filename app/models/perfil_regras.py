@@ -26,3 +26,6 @@ class PerfilRegras(Base):
     regras_exclusao_parcial = relationship(
         "RegraExclusaoParcial", back_populates="perfil_regras", cascade="all, delete-orphan"
     )
+    regras_fcp_produto = relationship(
+        "RegraFcpProduto", back_populates="perfil_regras", cascade="all, delete-orphan"
+    )

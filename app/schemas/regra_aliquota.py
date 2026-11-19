@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, validator
 from app.schemas.empresa import VALID_UFS
-from app.schemas.validators import clean_ncm, clean_uf, normalizar_aliquota
+from app.schemas.validators import clean_ncm, clean_ncm_prefixo_opcional, clean_uf, normalizar_aliquota
 
 # Reexportado: integrações e testes existentes importam clean_ncm daqui.
 __all__ = ["clean_ncm", "VALID_UFS", "RegraAliquotaBase", "RegraAliquotaCreate",
@@ -13,7 +13,7 @@ __all__ = ["clean_ncm", "VALID_UFS", "RegraAliquotaBase", "RegraAliquotaCreate",
 class RegraAliquotaBase(BaseModel):
     perfil_regras_id: int = Field(..., example=1)
     uf: str = Field(..., min_length=2, max_length=2, example="BA")
-    ncm: Optional[str] = Field(None, example="84713012", description="NCM de 8 dígitos ou null para regra padrão do estado")
+    ncm: Optional[str] = Field(None, example="84713012", description="NCM de 4 a 8 dígitos (prefixo) ou null para regra padrão do estado")
     aliquota: Decimal = Field(..., example=0.1800, description="Alíquota decimal (ex: 0.1800 para 18%)")
     descricao: Optional[str] = Field(None, example="Alíquota padrão BA ou exceção Informática")
     parametros_extras: Dict[str, Any] = Field(default_factory=dict)
@@ -24,7 +24,7 @@ class RegraAliquotaBase(BaseModel):
 
     @validator("ncm")
     def validate_ncm(cls, v):
-        return clean_ncm(v)
+        return clean_ncm_prefixo_opcional(v)
 
     @validator("aliquota")
     def validate_aliquota(cls, v):
@@ -52,7 +52,7 @@ class RegraAliquotaUpdate(BaseModel):
 
     @validator("ncm")
     def validate_ncm(cls, v):
-        return clean_ncm(v)
+        return clean_ncm_prefixo_opcional(v)
 
     @validator("aliquota")
     def validate_aliquota(cls, v):
