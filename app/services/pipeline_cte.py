@@ -1,5 +1,6 @@
 """Avaliação de NF-es originárias e apuração/rateio de CT-e para Tributária e DIFAL."""
 
+from collections import defaultdict
 import re
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -215,17 +216,7 @@ def avaliar_nfe_para_cte(
             continue
 
         if destino_item in DESTINOS_TRIBUTARIA:
-            (
-                a_ori,
-                a_dst,
-                _resolucao,
-                a_ori_original,
-                _a_ori_destacada,
-                _a_ori_inferida_simples,
-                _a_ori_inf_compl,
-                _a_ori_limitada,
-                reducao_item,
-            ) = pipeline._resolver_aliquotas_item(
+            aliq = pipeline._resolver_aliquotas_item(
                 nf_data=nf_data,
                 item=item,
                 filename=filename,
@@ -243,9 +234,9 @@ def avaliar_nfe_para_cte(
                 item=item,
                 filename=filename,
                 destino_item=destino_item,
-                a_ori=a_ori,
-                a_dst=a_dst,
-                a_ori_original=a_ori_original,
+                a_ori=aliq.a_ori,
+                a_dst=aliq.a_dst,
+                a_ori_original=aliq.a_ori_original,
                 is_fornecedor_simples=is_fornecedor_simples,
                 coluna_mva_nota=coluna_mva_nota,
                 revenda_tributaria_config=revenda_tributaria_config,
@@ -255,13 +246,31 @@ def avaliar_nfe_para_cte(
             if mva_item is None:
                 has_other_or_excluded = True
                 continue
+            fcp_aliquota = (
+                aliq.resolucao_fcp.aliquota
+                if aliq.resolucao_fcp is not None
+                else Decimal("0.00")
+            )
+            tem_fcp = fcp_aliquota > Decimal("0.00")
             soma_trib += item.v_total
             count_trib += 1
             trib_candidates.append(
                 {
                     "mva": mva_item,
-                    "reducao": reducao_item,
-                    "a_dst": a_dst,
+                    "reducao": aliq.reducao_item,
+                    "a_dst": aliq.a_dst,
+                    "v_total": item.v_total,
+                    "fcp": fcp_aliquota,
+                    "fcp_origem": (
+                        aliq.resolucao_fcp.origem
+                        if tem_fcp and aliq.resolucao_fcp is not None
+                        else None
+                    ),
+                    "fcp_detalhe": (
+                        aliq.resolucao_fcp.detalhe
+                        if tem_fcp and aliq.resolucao_fcp is not None
+                        else None
+                    ),
                     "mva_grupo": mva_policy_group,
                     "mva_fonte": mva_policy_source,
                 }
@@ -304,8 +313,34 @@ def _cte_ignored_record(cte: ExtractedCTeData, filename: str, motivo: str) -> Di
     }
 
 
+def _ratear_base_calculo_cte(
+    cte: ExtractedCTeData,
+    v_total_rateado: Decimal,
+    ratio: Decimal,
+    *,
+    full_scope: bool,
+) -> Decimal:
+    if cte.v_bc_cte > Decimal("0.00") and cte.v_bc_cte < cte.v_total_cte:
+        return cte.v_bc_cte if full_scope else round_currency(cte.v_bc_cte * ratio)
+    return v_total_rateado
+
+
+def _max_mva_e_reducao(
+    candidates: List[Dict[str, Any]],
+) -> Tuple[Decimal, List[Dict[str, Any]], Optional[Decimal]]:
+    max_mva = max(cand["mva"] for cand in candidates)
+    max_candidates = [cand for cand in candidates if cand["mva"] == max_mva]
+    return max_mva, max_candidates, max_candidates[0]["reducao"]
+
+
+def _juntar_campo_fcp(candidates: List[Dict[str, Any]], field: str) -> Optional[str]:
+    valores = sorted({cand[field] for cand in candidates if cand.get(field)})
+    return "; ".join(valores) or None
+
+
 def _emitir_linha_cte(
     *,
+    pipeline: Any,
     solicitacao: Solicitacao,
     empresa: Empresa,
     cte: ExtractedCTeData,
@@ -327,6 +362,11 @@ def _emitir_linha_cte(
     notas_ignoradas: List[Dict[str, Any]],
     erros_validacao: List[str],
     rows_por_destino: Dict[str, List[Dict[str, Any]]],
+    item_numero: int = 1,
+    desdobramento: bool = False,
+    fcp_metadados: Optional[Dict[str, Any]] = None,
+    fcp_rows_data: Optional[List[Dict[str, Any]]] = None,
+    fcp_rows_por_destino: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> None:
     a_ori_calc = cte.a_ori if cte.a_ori_destacada else Decimal("0.00")
     try:
@@ -351,6 +391,15 @@ def _emitir_linha_cte(
             a_ori=a_ori_calc,
             a_dst=a_dst,
         )
+        for fcp_item in (fcp_rows_data or []):
+            SanityChecker.validate_numeric_values(
+                numero_nota=cte.numero_cte,
+                v_total=fcp_item["v_total"],
+                base_calculo=fcp_item["base_calculo"],
+                a_ori=Decimal("0.00"),
+                a_dst=a_dst,
+                fcp_separado=fcp_item["fcp_aliquota"],
+            )
     except ValidationException as val_err:
         erros_validacao.append(str(val_err))
         notas_ignoradas.append(_cte_ignored_record(cte, filename, str(val_err)))
@@ -360,6 +409,7 @@ def _emitir_linha_cte(
     data_entrada_efetiva = None if is_antecipado else data_entrada
     origem_data_efetiva = None if is_antecipado else origem_data
     cnpj_tomador = _clean_digits(cte.cnpj_tomador) or _clean_digits(empresa.cnpj)
+    numero_nota_planilha = f"{cte.numero_cte}*" if item_numero > 1 else cte.numero_cte
 
     notas_criadas.append(
         NotaFiscalProcessada(
@@ -374,7 +424,7 @@ def _emitir_linha_cte(
             data_emissao=cte.data_emissao,
             data_entrada=data_entrada_efetiva,
             origem_data_entrada=origem_data_efetiva,
-            item_numero=1,
+            item_numero=item_numero,
             ncm="",
             cfop=(cte.cfop or "")[:4] or None,
             destino_planilha=destino_final,
@@ -388,6 +438,8 @@ def _emitir_linha_cte(
             valor_devido=calc_result.valor_devido,
             metadados_extras={
                 "tipo_documento": "cte",
+                "desdobramento": desdobramento,
+                "subitem_index": item_numero,
                 "chaves_nfe_origem": list(cte.chaves_nfe),
                 "numeros_nfe_origem": numeros_nfe_origem,
                 "percentual_rateio": str(percentual_rateio),
@@ -399,38 +451,293 @@ def _emitir_linha_cte(
                 "aliq_simples": aliq_simples,
                 "a_ori_destacada": cte.a_ori_destacada,
                 **calc_result.detalhes,
+                **(fcp_metadados or {}),
             },
         )
     )
 
-    rows_por_destino[destino_final].append(
-        {
-            "numero_nota": cte.numero_cte,
-            "serie": cte.serie,
-            "chave_acesso": cte.chave_acesso,
-            "cnpj_emitente": cte.cnpj_emitente,
-            "uf_emitente": cte.uf_emitente,
-            "cnpj_destinatario": cnpj_tomador,
-            "uf_destinatario": empresa.uf,
-            "data_emissao": cte.data_emissao,
-            "data_entrada": data_entrada_efetiva,
-            "item_numero": 1,
-            "descricao": f"CT-e {cte.numero_cte} ({cte.nome_emitente or 'Frete'})",
-            "ncm": "",
-            "cfop": cte.cfop,
-            "v_total": v_total,
-            "base_calculo": base_calculo,
-            "ipi_despesas": Decimal("0.00"),
-            "mva": mva,
-            "reducao": reducao,
-            "red": "",
-            "aliq_simples": aliq_simples,
-            "a_ori": cte.a_ori if cte.a_ori_destacada else None,
-            "a_dst": a_dst,
-            "debito": calc_result.debito,
-            "credito": calc_result.credito,
-            "valor_devido": calc_result.valor_devido,
+    row_principal = {
+        "numero_nota": numero_nota_planilha,
+        "serie": cte.serie,
+        "chave_acesso": cte.chave_acesso,
+        "cnpj_emitente": cte.cnpj_emitente,
+        "uf_emitente": cte.uf_emitente,
+        "cnpj_destinatario": cnpj_tomador,
+        "uf_destinatario": empresa.uf,
+        "data_emissao": cte.data_emissao,
+        "data_entrada": data_entrada_efetiva,
+        "item_numero": item_numero,
+        "descricao": f"CT-e {cte.numero_cte} ({cte.nome_emitente or 'Frete'})",
+        "ncm": "",
+        "cfop": cte.cfop,
+        "v_total": v_total,
+        "base_calculo": base_calculo,
+        "ipi_despesas": Decimal("0.00"),
+        "mva": mva,
+        "reducao": reducao,
+        "red": "",
+        "aliq_simples": aliq_simples,
+        "a_ori": cte.a_ori if cte.a_ori_destacada else None,
+        "a_dst": a_dst,
+        "debito": calc_result.debito,
+        "credito": calc_result.credito,
+        "valor_devido": calc_result.valor_devido,
+    }
+    rows_por_destino[destino_final].append(row_principal)
+
+    if fcp_rows_data and fcp_rows_por_destino is not None:
+        total_parcelas = len(fcp_rows_data)
+        for idx, fcp_item in enumerate(fcp_rows_data, start=1):
+            fcp_rows_por_destino[destino_final].append(
+                pipeline._montar_linha_fcp(
+                    row_principal,
+                    fcp_aliquota=fcp_item["fcp_aliquota"],
+                    fcp_calc=fcp_item["fcp_calc"],
+                    overrides={
+                        "numero_nota": cte.numero_cte,
+                        "item_numero": idx if total_parcelas > 1 else 1,
+                        "v_total": fcp_item["v_total"],
+                        "base_calculo": fcp_item["base_calculo"],
+                        "mva": fcp_item["mva"],
+                        "reducao": fcp_item["reducao"],
+                    },
+                )
+            )
+
+
+def _processar_cte_tributaria(
+    *,
+    pipeline: Any,
+    solicitacao: Solicitacao,
+    empresa: Empresa,
+    cte: ExtractedCTeData,
+    filename: str,
+    nfes_ctx: List[Dict[str, Any]],
+    contributing_trib: List[Dict[str, Any]],
+    destino_trib: str,
+    v_total_nfes: Decimal,
+    soma_trib: Decimal,
+    data_ent_trib: Any,
+    orig_ent_trib: Optional[str],
+    numeros_origem: List[str],
+    notas_criadas: List[NotaFiscalProcessada],
+    notas_ignoradas: List[Dict[str, Any]],
+    erros_validacao: List[str],
+    rows_por_destino: Dict[str, List[Dict[str, Any]]],
+    fcp_rows_por_destino: Dict[str, List[Dict[str, Any]]],
+) -> None:
+    all_trib = all(ctx["todos_itens_tributaria"] for ctx in nfes_ctx)
+    if all_trib:
+        ratio_trib = Decimal("1")
+        v_total_cte_trib = cte.v_total_cte
+    else:
+        ratio_trib = min(Decimal("1"), soma_trib / v_total_nfes)
+        v_total_cte_trib = round_currency(cte.v_total_cte * ratio_trib)
+
+    if v_total_cte_trib <= Decimal("0.00"):
+        return
+
+    v_bc_cte_trib = _ratear_base_calculo_cte(
+        cte, v_total_cte_trib, ratio_trib, full_scope=all_trib
+    )
+    all_candidates = [
+        cand
+        for ctx in contributing_trib
+        for cand in ctx["trib_candidates"]
+    ]
+    res_a_dst_trib = pipeline.resolver.resolve_a_dst(
+        perfil_regras_id=empresa.perfil_regras_id,
+        uf=empresa.uf,
+        ncm=None,
+        empresa_id=empresa.id,
+        ignorar_termo_acordo=True,
+        ignorar_reducao_produto=True,
+    )
+    a_dst_padrao = res_a_dst_trib.aliquota
+    percentual_trib = (ratio_trib * Decimal("100.00")).quantize(Decimal("0.0001"))
+
+    if empresa.optante_simples_nacional:
+        sn_groups: Dict[Decimal, List[Dict[str, Any]]] = {}
+        for cand in all_candidates:
+            fcp_val = cand.get("fcp") or Decimal("0.00")
+            sn_groups.setdefault(fcp_val, []).append(cand)
+
+        is_split = len(sn_groups) > 1
+        emitted_idx = 0
+        for fcp_grupo, cands_grupo in sn_groups.items():
+            if not is_split:
+                v_total_grupo = v_total_cte_trib
+                v_bc_grupo = v_bc_cte_trib
+                percentual_grupo = percentual_trib
+            else:
+                soma_grupo = sum((c["v_total"] for c in cands_grupo), Decimal("0.00"))
+                ratio_grupo = min(Decimal("1"), soma_grupo / v_total_nfes)
+                v_total_grupo = round_currency(cte.v_total_cte * ratio_grupo)
+                if v_total_grupo <= Decimal("0.00"):
+                    continue
+                v_bc_grupo = _ratear_base_calculo_cte(
+                    cte, v_total_grupo, ratio_grupo, full_scope=False
+                )
+                percentual_grupo = (ratio_grupo * Decimal("100.00")).quantize(Decimal("0.0001"))
+
+            max_mva_g, max_cands_g, reducao_g = _max_mva_e_reducao(cands_grupo)
+            tem_fcp = fcp_grupo > Decimal("0.00")
+            a_dst_total = a_dst_padrao + fcp_grupo if tem_fcp else a_dst_padrao
+            emitted_idx += 1
+            fcp_meta = pipeline._montar_metadados_fcp(
+                a_dst_base=a_dst_padrao,
+                fcp_aliquota=fcp_grupo if tem_fcp else None,
+                fcp_origem=_juntar_campo_fcp(cands_grupo, "fcp_origem") if tem_fcp else None,
+                fcp_detalhe=_juntar_campo_fcp(cands_grupo, "fcp_detalhe") if tem_fcp else None,
+                fcp_separado=False,
+            )
+            _emitir_linha_cte(
+                pipeline=pipeline,
+                solicitacao=solicitacao,
+                empresa=empresa,
+                cte=cte,
+                filename=filename,
+                destino_final=destino_trib,
+                v_total=v_total_grupo,
+                base_calculo=v_bc_grupo,
+                mva=max_mva_g,
+                reducao=reducao_g,
+                a_dst=a_dst_total,
+                aliq_simples="N",
+                data_entrada=data_ent_trib,
+                origem_data=orig_ent_trib,
+                percentual_rateio=percentual_grupo,
+                numeros_nfe_origem=numeros_origem,
+                mva_grupo=max_cands_g[0].get("mva_grupo") or None,
+                mva_fonte=max_cands_g[0].get("mva_fonte") or None,
+                notas_criadas=notas_criadas,
+                notas_ignoradas=notas_ignoradas,
+                erros_validacao=erros_validacao,
+                rows_por_destino=rows_por_destino,
+                item_numero=emitted_idx,
+                desdobramento=is_split,
+                fcp_metadados=fcp_meta,
+            )
+        return
+
+    max_mva, max_candidates, reducao_trib = _max_mva_e_reducao(all_candidates)
+    fcp_groups: Dict[Decimal, List[Dict[str, Any]]] = {}
+    for cand in all_candidates:
+        fcp_val = cand.get("fcp") or Decimal("0.00")
+        if fcp_val > Decimal("0.00"):
+            fcp_groups.setdefault(fcp_val, []).append(cand)
+
+    fcp_rows_data: List[Dict[str, Any]] = []
+    for fcp_aliq, cands_fcp in fcp_groups.items():
+        soma_fcp = sum((c["v_total"] for c in cands_fcp), Decimal("0.00"))
+        all_same_fcp = all_trib and len(cands_fcp) == len(all_candidates)
+        if all_same_fcp:
+            ratio_fcp = Decimal("1")
+            v_total_cte_fcp = cte.v_total_cte
+        else:
+            ratio_fcp = min(Decimal("1"), soma_fcp / v_total_nfes)
+            v_total_cte_fcp = round_currency(cte.v_total_cte * ratio_fcp)
+
+        if v_total_cte_fcp <= Decimal("0.00"):
+            continue
+
+        v_bc_cte_fcp = _ratear_base_calculo_cte(
+            cte, v_total_cte_fcp, ratio_fcp, full_scope=all_same_fcp
+        )
+        max_mva_fcp, _max_cands_fcp, reducao_fcp = _max_mva_e_reducao(cands_fcp)
+        fcp_calc = pipeline._calcular_fcp_separado(
+            destino=destino_trib,
+            v_total=v_total_cte_fcp,
+            base_calculo=v_bc_cte_fcp,
+            ipi_despesas=Decimal("0.00"),
+            mva=max_mva_fcp,
+            reducao=reducao_fcp,
+            fcp_aliquota=fcp_aliq,
+        )
+        fcp_rows_data.append({
+            "v_total": v_total_cte_fcp,
+            "base_calculo": v_bc_cte_fcp,
+            "mva": max_mva_fcp,
+            "reducao": reducao_fcp,
+            "fcp_aliquota": fcp_aliq,
+            "fcp_calc": fcp_calc,
+            "percentual_rateio": (ratio_fcp * Decimal("100.00")).quantize(Decimal("0.0001")),
+            "fcp_origem": _juntar_campo_fcp(cands_fcp, "fcp_origem"),
+            "fcp_detalhe": _juntar_campo_fcp(cands_fcp, "fcp_detalhe"),
+        })
+
+    if not fcp_rows_data:
+        fcp_meta = pipeline._montar_metadados_fcp(
+            a_dst_base=a_dst_padrao,
+            fcp_aliquota=None,
+            fcp_origem=None,
+            fcp_detalhe=None,
+            fcp_separado=False,
+        )
+    elif len(fcp_rows_data) == 1:
+        it0 = fcp_rows_data[0]
+        fcp_meta = pipeline._montar_metadados_fcp(
+            a_dst_base=a_dst_padrao,
+            fcp_aliquota=it0["fcp_aliquota"],
+            fcp_origem=it0["fcp_origem"],
+            fcp_detalhe=it0["fcp_detalhe"],
+            fcp_separado=True,
+            fcp_calc=it0["fcp_calc"],
+        )
+        fcp_meta.update({
+            "fcp_cte_v_total": str(it0["v_total"]),
+            "fcp_cte_mva": str(it0["mva"]),
+            "fcp_cte_reducao": str(it0["reducao"]) if it0["reducao"] is not None else None,
+            "fcp_percentual_rateio": str(it0["percentual_rateio"]),
+        })
+    else:
+        fcp_meta = {
+            "a_dst_base": str(a_dst_padrao),
+            "fcp_separado": True,
+            "fcp_parcelas": [
+                {
+                    "v_total": str(it["v_total"]),
+                    "base_calculo": str(it["base_calculo"]),
+                    "mva": str(it["mva"]),
+                    "reducao": str(it["reducao"]) if it["reducao"] is not None else None,
+                    "fcp_aliquota": str(it["fcp_aliquota"]),
+                    "fcp_base_st": it["fcp_calc"].detalhes["base_st"],
+                    "debito": str(it["fcp_calc"].debito),
+                    "fcp_valor_devido": str(it["fcp_calc"].valor_devido),
+                    "percentual_rateio": str(it["percentual_rateio"]),
+                    "fcp_origem": it["fcp_origem"],
+                    "fcp_detalhe": it["fcp_detalhe"],
+                }
+                for it in fcp_rows_data
+            ],
         }
+
+    _emitir_linha_cte(
+        pipeline=pipeline,
+        solicitacao=solicitacao,
+        empresa=empresa,
+        cte=cte,
+        filename=filename,
+        destino_final=destino_trib,
+        v_total=v_total_cte_trib,
+        base_calculo=v_bc_cte_trib,
+        mva=max_mva,
+        reducao=reducao_trib,
+        a_dst=a_dst_padrao,
+        aliq_simples="N",
+        data_entrada=data_ent_trib,
+        origem_data=orig_ent_trib,
+        percentual_rateio=percentual_trib,
+        numeros_nfe_origem=numeros_origem,
+        mva_grupo=max_candidates[0].get("mva_grupo") or None,
+        mva_fonte=max_candidates[0].get("mva_fonte") or None,
+        notas_criadas=notas_criadas,
+        notas_ignoradas=notas_ignoradas,
+        erros_validacao=erros_validacao,
+        rows_por_destino=rows_por_destino,
+        fcp_metadados=fcp_meta,
+        fcp_rows_data=fcp_rows_data,
+        fcp_rows_por_destino=fcp_rows_por_destino,
     )
 
 
@@ -450,8 +757,11 @@ def processar_ctes(
     avisos_avaliacao: List[Dict[str, Any]],
     erros_validacao: List[str],
     rows_por_destino: Dict[str, List[Dict[str, Any]]],
+    fcp_rows_por_destino: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> None:
     """Processa todos os CT-es carregados, aplicando regra do tomador, rateio e cálculo."""
+    if fcp_rows_por_destino is None:
+        fcp_rows_por_destino = defaultdict(list)
     empresa_cnpj = _clean_digits(empresa.cnpj)
     uf_empresa_dest = (empresa.uf or "").strip().upper()
     tem_fonte_entradas = has_sped or bool(planilha_records)
@@ -607,64 +917,26 @@ def processar_ctes(
             if not modo_legado or pipeline._compativel_com_modo_legado(
                 destino_trib, solicitacao.tipo_planilha
             ):
-                all_trib = all(ctx["todos_itens_tributaria"] for ctx in nfes_ctx)
-                if all_trib:
-                    ratio_trib = Decimal("1")
-                    v_total_cte_trib = cte.v_total_cte
-                else:
-                    ratio_trib = min(Decimal("1"), soma_trib / v_total_nfes)
-                    v_total_cte_trib = round_currency(cte.v_total_cte * ratio_trib)
-
-                if v_total_cte_trib > Decimal("0.00"):
-                    if cte.v_bc_cte > Decimal("0.00") and cte.v_bc_cte < cte.v_total_cte:
-                        v_bc_cte_trib = (
-                            cte.v_bc_cte
-                            if all_trib
-                            else round_currency(cte.v_bc_cte * ratio_trib)
-                        )
-                    else:
-                        v_bc_cte_trib = v_total_cte_trib
-
-                    all_candidates = [
-                        cand
-                        for ctx in contributing_trib
-                        for cand in ctx["trib_candidates"]
-                    ]
-                    max_mva = max(cand["mva"] for cand in all_candidates)
-                    max_candidates = [cand for cand in all_candidates if cand["mva"] == max_mva]
-                    reducao_trib = max_candidates[0]["reducao"]
-                    res_a_dst_trib = pipeline.resolver.resolve_a_dst(
-                        perfil_regras_id=empresa.perfil_regras_id,
-                        uf=empresa.uf,
-                        ncm=None,
-                        empresa_id=empresa.id,
-                        ignorar_termo_acordo=True,
-                        ignorar_reducao_produto=True,
-                    )
-                    percentual_trib = (ratio_trib * Decimal("100.00")).quantize(Decimal("0.0001"))
-                    _emitir_linha_cte(
-                        solicitacao=solicitacao,
-                        empresa=empresa,
-                        cte=cte,
-                        filename=filename,
-                        destino_final=destino_trib,
-                        v_total=v_total_cte_trib,
-                        base_calculo=v_bc_cte_trib,
-                        mva=max_mva,
-                        reducao=reducao_trib,
-                        a_dst=res_a_dst_trib.aliquota,
-                        aliq_simples="N",
-                        data_entrada=data_ent_trib,
-                        origem_data=orig_ent_trib,
-                        percentual_rateio=percentual_trib,
-                        numeros_nfe_origem=numeros_origem,
-                        mva_grupo=max_candidates[0].get("mva_grupo") or None,
-                        mva_fonte=max_candidates[0].get("mva_fonte") or None,
-                        notas_criadas=notas_criadas,
-                        notas_ignoradas=notas_ignoradas,
-                        erros_validacao=erros_validacao,
-                        rows_por_destino=rows_por_destino,
-                    )
+                _processar_cte_tributaria(
+                    pipeline=pipeline,
+                    solicitacao=solicitacao,
+                    empresa=empresa,
+                    cte=cte,
+                    filename=filename,
+                    nfes_ctx=nfes_ctx,
+                    contributing_trib=contributing_trib,
+                    destino_trib=destino_trib,
+                    v_total_nfes=v_total_nfes,
+                    soma_trib=soma_trib,
+                    data_ent_trib=data_ent_trib,
+                    orig_ent_trib=orig_ent_trib,
+                    numeros_origem=numeros_origem,
+                    notas_criadas=notas_criadas,
+                    notas_ignoradas=notas_ignoradas,
+                    erros_validacao=erros_validacao,
+                    rows_por_destino=rows_por_destino,
+                    fcp_rows_por_destino=fcp_rows_por_destino,
+                )
 
         if soma_difal > Decimal("0.00"):
             contributing_difal = [ctx for ctx in nfes_ctx if ctx["soma_difal"] > Decimal("0.00")]
@@ -695,6 +967,7 @@ def processar_ctes(
                     aliq_simples = "S" if cte.fornecedor_simples_nacional else "N"
                     percentual_difal = (ratio_difal * Decimal("100.00")).quantize(Decimal("0.0001"))
                     _emitir_linha_cte(
+                        pipeline=pipeline,
                         solicitacao=solicitacao,
                         empresa=empresa,
                         cte=cte,
@@ -716,5 +989,12 @@ def processar_ctes(
                         notas_ignoradas=notas_ignoradas,
                         erros_validacao=erros_validacao,
                         rows_por_destino=rows_por_destino,
+                        fcp_metadados=pipeline._montar_metadados_fcp(
+                            a_dst_base=res_a_dst_difal.aliquota,
+                            fcp_aliquota=None,
+                            fcp_origem=None,
+                            fcp_detalhe=None,
+                            fcp_separado=False,
+                        ),
                     )
 
