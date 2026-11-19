@@ -12,19 +12,21 @@ import {
   downloadLocalArtifacts,
   getStoredRequestIds,
 } from '../../lib/localProcessing/artifactStore';
+import { sumSeparatedFcpByDestination } from '../../lib/fcpSummary';
 import { isAdminOrSenior } from '../../lib/permissions';
 import type { User } from '../../types/auth';
 import type { NotaFiscalProcessada, Solicitacao } from '../../types/solicitacao';
 
-type DetailTotals = {
+export type DetailTotals = {
   debito: number;
   credito: number;
   devido: number;
   notas: number;
+  fcpSeparado: number;
 };
 
 function calculateTotals(notes: NotaFiscalProcessada[] | undefined): DetailTotals {
-  return (notes ?? []).reduce<DetailTotals>(
+  const base = (notes ?? []).reduce(
     (totals, note) => ({
       debito: totals.debito + Number(note.debito),
       credito: totals.credito + Number(note.credito),
@@ -33,6 +35,10 @@ function calculateTotals(notes: NotaFiscalProcessada[] | undefined): DetailTotal
     }),
     { debito: 0, credito: 0, devido: 0, notas: 0 },
   );
+  return {
+    ...base,
+    fcpSeparado: sumSeparatedFcpByDestination(notes),
+  };
 }
 
 export function useHistoricoPage(currentUser?: User | null) {
