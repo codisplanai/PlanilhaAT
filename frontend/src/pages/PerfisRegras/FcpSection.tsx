@@ -647,7 +647,7 @@ export const FcpSection: React.FC<Props> = ({ perfilId, open, onOpenChange }) =>
         onConfirm={() => {
           if (regraParaExcluir) {
             deletarRegra.mutate(regraParaExcluir.id, {
-              onSuccess: () => setRegraParaExcluir(null),
+              onSettled: () => setRegraParaExcluir(null),
             });
           }
         }}
@@ -666,7 +666,7 @@ export const FcpSection: React.FC<Props> = ({ perfilId, open, onOpenChange }) =>
           if (excecaoParaExcluir) {
             deletarExcecao.mutate(
               { regraId: excecaoParaExcluir.regraId, excecaoId: excecaoParaExcluir.excecaoId },
-              { onSuccess: () => setExcecaoParaExcluir(null) },
+              { onSettled: () => setExcecaoParaExcluir(null) },
             );
           }
         }}

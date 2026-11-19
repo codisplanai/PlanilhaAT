@@ -974,3 +974,161 @@ def test_fcp_itens_excluidos_avisos_redundancia_e_sanity_checker(
     wb_mva = openpyxl.load_workbook(res_mva.saidas[0].arquivo_path, data_only=False)
     assert wb_mva.sheetnames == ["01-2026"]
     wb_mva.close()
+
+
+def test_parcial_fcp_dispensa_limite_a_ori_quando_iguala_xml_e_limita_quando_difere(
+    db_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "OUTPUTS_DIR", str(tmp_path))
+
+    # Termo 10% + FCP 2% = 12% igual à A.ORI 12% -> dispensa limite de 10% e exclui por alíquotas iguais
+    sol_waiver, emp_waiver, perfil_waiver = _setup_empresa_ba(
+        db_session,
+        simples=False,
+        preset_bebidas=False,
+        configuracoes_extras={
+            "politica_aliquotas_iguais_parcial": {"BA": True},
+            "limitar_a_ori_reducoes": True,
+        },
+        aliq_padrao_ba="0.2050",
+    )
+    db_session.add(
+        RegraAliquotaEmpresa(
+            empresa_id=emp_waiver.id,
+            aliquota=Decimal("0.1000"),
+            descricao="Termo 10%",
+        )
+    )
+    db_session.add(
+        RegraFcpProduto(
+            perfil_regras_id=perfil_waiver.id,
+            uf="BA",
+            ncm="22021000",
+            termos_inclusao=["REFRIGERANTE"],
+            termos_exclusao=[],
+            aliquota=Decimal("0.0200"),
+            aplicar_com_termo_acordo=True,
+            descricao="FCP Refri 2%",
+        )
+    )
+    db_session.commit()
+
+    xml_waiver = _xml_nfe_itens(
+        numero="107",
+        chave=chave_nfe("2601", 107),
+        itens=[
+            {
+                "ncm": "22021000",
+                "cfop": "6102",
+                "x_prod": "REFRIGERANTE COLA 2L",
+                "v_prod": "500.00",
+            },
+        ],
+    )
+    res_waiver = ProcessingPipelineService(db_session).process_solicitacao(
+        sol_waiver.id,
+        xml_files_bytes=[("107.xml", xml_waiver)],
+    )
+    db_session.refresh(res_waiver)
+
+    assert len(res_waiver.notas_processadas) == 0
+    assert len(res_waiver.itens_excluidos) == 1
+    assert res_waiver.itens_excluidos[0]["tipo_exclusao"] == "aliquotas_iguais"
+    assert Decimal(str(res_waiver.itens_excluidos[0]["a_ori"])) == Decimal("0.12")
+    assert Decimal(str(res_waiver.itens_excluidos[0]["a_dst"])) == Decimal("0.12")
+
+    # Quando A.DST efetiva (com FCP) difere de A.ORI 12%, o limite de 10% continua valendo:
+    # - Termo 10% + FCP 1% = 11% (!= 12%) -> limita A.ORI a 10%
+    # - Redução 12% + FCP 2% = 14% (!= 12%) -> limita A.ORI a 10%
+    emp_waiver.cnpj = "99888777000166"
+    db_session.commit()
+    sol_cap, emp_cap, perfil_cap = _setup_empresa_ba(
+        db_session,
+        simples=False,
+        preset_bebidas=False,
+        configuracoes_extras={
+            "politica_aliquotas_iguais_parcial": {"BA": True},
+            "limitar_a_ori_reducoes": True,
+        },
+        aliq_padrao_ba="0.2050",
+    )
+    db_session.add(
+        RegraAliquotaEmpresa(
+            empresa_id=emp_cap.id,
+            aliquota=Decimal("0.1000"),
+            descricao="Termo 10%",
+        )
+    )
+    db_session.add(
+        RegraReducaoProduto(
+            perfil_regras_id=perfil_cap.id,
+            ncm="22030000",
+            termos_inclusao=["CERVEJA"],
+            termos_exclusao=[],
+            aliquota=Decimal("0.1200"),
+            descricao="Redução 12% Cerveja",
+        )
+    )
+    db_session.add(
+        RegraFcpProduto(
+            perfil_regras_id=perfil_cap.id,
+            uf="BA",
+            ncm="22021000",
+            termos_inclusao=["REFRIGERANTE"],
+            termos_exclusao=[],
+            aliquota=Decimal("0.0100"),
+            aplicar_com_termo_acordo=True,
+            descricao="FCP 1%",
+        )
+    )
+    db_session.add(
+        RegraFcpProduto(
+            perfil_regras_id=perfil_cap.id,
+            uf="BA",
+            ncm="22030000",
+            termos_inclusao=["CERVEJA"],
+            termos_exclusao=[],
+            aliquota=Decimal("0.0200"),
+            aplicar_com_termo_acordo=True,
+            descricao="FCP 2%",
+        )
+    )
+    db_session.commit()
+
+    xml_cap = _xml_nfe_itens(
+        numero="108",
+        chave=chave_nfe("2601", 108),
+        itens=[
+            {
+                "ncm": "22021000",
+                "cfop": "6102",
+                "x_prod": "REFRIGERANTE COLA 2L",
+                "v_prod": "500.00",
+            },
+            {
+                "ncm": "22030000",
+                "cfop": "6102",
+                "x_prod": "CERVEJA PILSEN 350ML",
+                "v_prod": "500.00",
+            },
+        ],
+    )
+    res_cap = ProcessingPipelineService(db_session).process_solicitacao(
+        sol_cap.id,
+        xml_files_bytes=[("108.xml", xml_cap)],
+    )
+    db_session.refresh(res_cap)
+
+    assert len(res_cap.itens_excluidos or []) == 0
+    assert len(res_cap.notas_processadas) == 2
+    por_ncm = {n.ncm: n for n in res_cap.notas_processadas}
+
+    assert por_ncm["22021000"].a_dst_resolvida == Decimal("0.1100")
+    assert por_ncm["22021000"].a_ori == Decimal("0.10")
+    assert por_ncm["22021000"].metadados_extras["a_ori_limitada"] is True
+    assert por_ncm["22021000"].metadados_extras["a_ori_limite_dispensado"] is False
+
+    assert por_ncm["22030000"].a_dst_resolvida == Decimal("0.1400")
+    assert por_ncm["22030000"].a_ori == Decimal("0.10")
+    assert por_ncm["22030000"].metadados_extras["a_ori_limitada"] is True
+    assert por_ncm["22030000"].metadados_extras["a_ori_limite_dispensado"] is False

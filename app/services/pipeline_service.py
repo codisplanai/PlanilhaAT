@@ -104,6 +104,7 @@ class ResolucaoAliquotasItem:
     a_ori_inferida_simples: bool
     a_ori_inf_compl: bool
     a_ori_limitada: bool
+    a_ori_limite_dispensado: bool
     reducao_item: Optional[Decimal]
 
 
@@ -551,6 +552,7 @@ class ProcessingPipelineService:
                         resolucoes_cfop[key] = []
                         info_a_ori[key] = {
                             "limitada": False,
+                            "limite_dispensado": False,
                             "original": str(aliq.a_ori_original),
                             "inferida_simples": aliq.a_ori_inferida_simples,
                             "destacada": aliq.a_ori_destacada,
@@ -573,6 +575,8 @@ class ProcessingPipelineService:
                     if aliq.a_ori_limitada:
                         info_a_ori[key]["limitada"] = True
                         info_a_ori[key]["original"] = str(aliq.a_ori_original)
+                    if aliq.a_ori_limite_dispensado:
+                        info_a_ori[key]["limite_dispensado"] = True
                     if aliq.a_ori_inferida_simples:
                         info_a_ori[key]["inferida_simples"] = True
                     if item.p_cred_sn > 0:
@@ -1063,14 +1067,20 @@ class ProcessingPipelineService:
             or origem_resolucao.startswith("termo_acordo:")
         )
         a_ori_limitada = False
+        a_ori_limite_dispensado = False
         if (
             destino_item in DESTINOS_PARCIAL
             and limitar_a_ori_reducoes
             and teve_reducao_ou_acordo
             and a_ori > Decimal("0.10")
         ):
-            a_ori = Decimal("0.10")
-            a_ori_limitada = True
+            # Na Parcial prevalece o tratamento mais benéfico: com A.ORI igual à
+            # A.DST efetiva (incluindo FCP) o imposto zera e alíquotas iguais pode excluir.
+            if abs(a_ori - a_dst) <= Decimal("1e-10"):
+                a_ori_limite_dispensado = True
+            else:
+                a_ori = Decimal("0.10")
+                a_ori_limitada = True
 
         return ResolucaoAliquotasItem(
             a_ori=a_ori,
@@ -1084,6 +1094,7 @@ class ProcessingPipelineService:
             a_ori_inferida_simples=a_ori_inferida_simples,
             a_ori_inf_compl=a_ori_inf_compl,
             a_ori_limitada=a_ori_limitada,
+            a_ori_limite_dispensado=a_ori_limite_dispensado,
             reducao_item=reducao_item,
         )
 
@@ -1409,6 +1420,7 @@ class ProcessingPipelineService:
                         sorted({rc.motivo for rc in resolucoes_cfop.get(grupo_key, []) if rc.motivo})
                     ),
                     "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
+                    "a_ori_limite_dispensado": info_a_ori.get(grupo_key, {}).get("limite_dispensado", False),
                     "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
                     "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
                     "a_ori_destacada": info_a_ori.get(grupo_key, {}).get("destacada", True),
