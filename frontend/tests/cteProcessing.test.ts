@@ -428,4 +428,56 @@ test('CT-e interno (mesma UF do emitente e tomador) é ignorado na pré-análise
   assert.match(ignoredByNumber.get('4402') ?? '', /Operação interna estadual desconsiderada/);
 });
 
+test('CT-e vinculado a NF-e excluída por ST pago continua entrando na Antecipação Tributária', async () => {
+  const ctx = buildCteContext();
+  ctx.empresa.razao_social = 'Armazém Comércio LTDA';
+  const chvNfSt = chaveNfe('2601', 701);
+  const nfStXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvNfSt}">
+  <ide><nNF>701</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${FORNECEDOR_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+  <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <total><ICMSTot><vNF>1000.00</vNF><vBC>1000.00</vBC><vST>50.00</vST></ICMSTot></total>
+  <det nItem="1"><prod><NCM>73170090</NCM><CEST>1005700</CEST><CFOP>6403</CFOP><xProd>PREGO</xProd><vProd>1000.00</vProd></prod>
+    <imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>1000.00</vBC><pICMS>12.00</pICMS><vICMS>120.00</vICMS><vICMSST>50.00</vICMSST></ICMS10></ICMS></imposto>
+  </det>
+</infNFe></NFe></nfeProc>`;
+
+  const cteXml = buildCteXml({
+    numero: '3001',
+    chave: chaveCte('2601', 3001),
+    vTPrest: '200.00',
+    toma: '3',
+    chavesNfe: [chvNfSt],
+  });
+
+  const res = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-cte-nf-st-excluida',
+      periodoInicio: '2026-01-01',
+      periodoFim: '2026-01-31',
+      context: ctx,
+      input: {
+        xmlFiles: [
+          new File([nfStXml], '701.xml', { type: 'text/xml' }),
+          new File([cteXml], 'cte3001.xml', { type: 'text/xml' }),
+        ],
+      },
+    },
+    new Map(),
+    loadTemplate,
+  );
+
+  assert.equal(res.itensExcluidos.length, 1);
+  assert.equal(res.itensExcluidos[0].numero_nota, '701');
+  assert.match(res.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
+
+  const trib = res.rowsByDestination.antecipacao_tributaria!;
+  assert.equal(trib.length, 1);
+  assert.equal(trib[0].numero_nota, '3001');
+  assert.equal(trib[0].v_total, 200);
+  assert.equal(trib[0].mva, 45);
+  assert.equal(res.notasIgnoradas.length, 0);
+});
+
 

@@ -1138,6 +1138,16 @@ class ProcessingPipelineService:
                 v_bc_grupo = sum(it.base_calculo for it in itens_objs)
                 ipi_despesas_grupo = sum(it.ipi_despesas for it in itens_objs)
 
+            # Todas as planilhas: apenas o IPI é abatido da base; o desconto
+            # comercial não reduz a base de cálculo.
+            v_desc_grupo = (
+                nf_data.v_desc_nota
+                if usar_total_nota
+                else sum(it.v_desc for it in itens_objs)
+            )
+            if v_desc_grupo > Decimal("0.00"):
+                v_bc_grupo = max(Decimal("0.00"), v_total_grupo + v_desc_grupo - ipi_despesas_grupo)
+
             if v_bc_grupo <= Decimal("0.00"):
                 v_bc_grupo = v_total_grupo - ipi_despesas_grupo
 
