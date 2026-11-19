@@ -289,7 +289,7 @@ class PerfilRegrasCopiarRegras(BaseModel):
 
     @validator("secao")
     def validate_secao(cls, value):
-        if value not in {"aliquotas", "cfop", "reducao", "reclassificacao", "exclusao"}:
+        if value not in {"aliquotas", "cfop", "reducao", "reclassificacao", "exclusao", "fcp"}:
             raise ValueError("Seção inválida")
         return value
 
