@@ -190,7 +190,8 @@ def test_pipeline_preenche_v_total_e_base_calculo_liquidos(db_session):
     assert len(res.notas_processadas) == 1
     nota = res.notas_processadas[0]
     assert nota.v_total == Decimal("7275.84")
-    assert nota.base_calculo == Decimal("7275.84")
+    # Antecipação Parcial: apenas o IPI abate a base; o desconto não reduz a base.
+    assert nota.base_calculo == Decimal("8268.00")
 
 
 def test_pipeline_simples_nacional_com_desconto(db_session):
@@ -251,6 +252,7 @@ def test_pipeline_simples_nacional_com_desconto(db_session):
     assert len(res.notas_processadas) == 1
     nota = res.notas_processadas[0]
     assert nota.v_total == Decimal("4500.00")
-    assert nota.base_calculo == Decimal("4500.00")
+    # Antecipação Parcial: desconto não reduz a base (apenas IPI abate).
+    assert nota.base_calculo == Decimal("5000.00")
 
 
