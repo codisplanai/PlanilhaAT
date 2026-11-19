@@ -30,6 +30,7 @@ import {
   withNoteContext,
 } from './fcp.ts';
 import { isSimplesSupplier, resolveSimpleOriginReference } from './interstateRate.ts';
+import { shouldExcludeStItemFromTributaria } from './stTributariaExclusion.ts';
 import { cleanDigits, isOwnEmissionNote, isSameUfNote } from './preAnalysis.ts';
 import {
   classifyRevendaMva,
@@ -185,6 +186,16 @@ export function evaluateNfeForCte(params: {
     }
 
     if (PARTIAL_DESTINATIONS.has(destination)) {
+      hasOtherOrExcluded = true;
+      continue;
+    }
+
+    // CT-e é rateado com o total da NF-e como denominador; ST paga
+    // só elimina a parcela de frete atribuível ao próprio item retido.
+    if (
+      TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+      && shouldExcludeStItemFromTributaria(context.empresa.razao_social, note, originalItem)
+    ) {
       hasOtherOrExcluded = true;
       continue;
     }
