@@ -129,7 +129,7 @@ export const ExcecoesNcmCard: React.FC<ExcecoesNcmCardProps> = ({
     bodyPadding="none"
     marker={<NivelMarker nivel="3a" descricao="Nível 3a: exceção por NCM, vence a alíquota base da UF" />}
     title="Exceções Tributárias por NCM"
-    subtitle="Sobrescreve a alíquota padrão do estado. É superada pelas reduções por produto e pelo termo de acordo da empresa."
+    subtitle="Sobrescreve a alíquota padrão do estado (aceita NCM completo ou prefixo de 4 a 8 dígitos; o mais específico vence). É superada pelas reduções por produto e pelo termo de acordo da empresa."
     headerAction={
       <>
         <CopiarRegrasButton
@@ -179,7 +179,7 @@ export const ExcecoesNcmCard: React.FC<ExcecoesNcmCardProps> = ({
           <thead className="bg-purple-50/50 text-purple-900 font-bold uppercase tracking-wider text-[10px]">
             <tr>
               <th className="py-3 px-4">Estado</th>
-              <th className="py-3 px-4 font-mono">NCM (8 dígitos)</th>
+              <th className="py-3 px-4 font-mono">NCM / Prefixo</th>
               <th className="py-3 px-4">Precedência</th>
               <th className="py-3 px-4 font-mono text-right">A.DST Específica</th>
               <th className="py-3 px-4">Descrição da Exceção</th>

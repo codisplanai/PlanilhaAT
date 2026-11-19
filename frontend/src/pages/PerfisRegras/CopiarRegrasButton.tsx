@@ -15,6 +15,7 @@ const REGRAS_QUERY_PREFIXES = [
   'regras-aliquotas',
   'regras-cfop-efetivas',
   'regras-reducao-produto',
+  'regras-fcp',
   'regras-reclassificacao-cfop',
   'regras-exclusao-parcial',
 ];

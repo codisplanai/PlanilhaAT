@@ -24,6 +24,7 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { DESTINO_CFOP_BADGE_VARIANTS, DESTINO_CFOP_LABELS } from '../../constants/domain';
 import { usePerfisRegrasPage } from './usePerfisRegrasPage';
 import { ReducaoProdutoSection } from './ReducaoProdutoSection';
+import { FcpSection } from './FcpSection';
 import { ReclassificacaoCfopSection } from './ReclassificacaoCfopSection';
 import { ExclusaoParcialSection } from './ExclusaoParcialSection';
 import { MvaAntecipacaoSection } from './MvaAntecipacaoSection';
@@ -43,6 +44,7 @@ type SectionKey =
   | 'limiteAori'
   | 'aliquotasIguais'
   | 'reducoes'
+  | 'fcp'
   | 'convenio5291'
   | 'convenio5291Agricola'
   | 'exclusoes'
@@ -55,6 +57,7 @@ type SectionKey =
 // depois a antecipação e por fim o roteamento dos itens.
 const SECTION_KEYS: SectionKey[] = [
   'reducoes',
+  'fcp',
   'convenio5291',
   'convenio5291Agricola',
   'excecoes',
@@ -87,6 +90,7 @@ const collapsedSections = (): Record<SectionKey, boolean> => ({
   limiteAori: false,
   aliquotasIguais: false,
   reducoes: false,
+  fcp: false,
   convenio5291: false,
   convenio5291Agricola: false,
   exclusoes: false,
@@ -415,6 +419,13 @@ export const PerfisRegrasPage: React.FC = () => {
                 error={aOriError}
                 disabled={isTogglingAliquotaOrigem}
                 onToggle={() => toggleLimitarAliquotaOrigem(activePerfil)}
+              />
+
+              {/* Regras de FCP (adicional apurado em aba separada) */}
+              <FcpSection
+                perfilId={activePerfil.id}
+                open={openSections.fcp}
+                onOpenChange={(open) => setSectionOpen('fcp', open)}
               />
               </section>
 

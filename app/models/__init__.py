@@ -5,6 +5,7 @@ from app.models.empresa import Empresa
 from app.models.regra_aliquota import RegraAliquotaDestino
 from app.models.regra_aliquota_empresa import RegraAliquotaEmpresa
 from app.models.regra_reducao_produto import ExcecaoReducaoProduto, RegraReducaoProduto
+from app.models.regra_fcp_produto import ExcecaoFcpProduto, RegraFcpProduto
 from app.models.regra_reclassificacao_cfop import ExcecaoReclassificacaoCfop, RegraReclassificacaoCfop
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.regra_exclusao_parcial import RegraExclusaoParcial
@@ -22,6 +23,8 @@ __all__ = [
     "RegraAliquotaEmpresa",
     "RegraReducaoProduto",
     "ExcecaoReducaoProduto",
+    "RegraFcpProduto",
+    "ExcecaoFcpProduto",
     "RegraReclassificacaoCfop",
     "ExcecaoReclassificacaoCfop",
     "RegraCfopDestino",

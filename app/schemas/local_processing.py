@@ -164,6 +164,26 @@ class LocalRegraExclusaoOut(BaseModel):
     ativo: bool
 
 
+class LocalExcecaoFcpOut(BaseModel):
+    id: int
+    descricao_exata: str
+    enquadrado: bool
+    observacao: Optional[str] = None
+
+
+class LocalRegraFcpOut(BaseModel):
+    id: int
+    perfil_regras_id: int
+    uf: str
+    ncm: str
+    termos_inclusao: List[str] = Field(default_factory=list)
+    termos_exclusao: List[str] = Field(default_factory=list)
+    aliquota: float
+    aplicar_com_termo_acordo: bool = True
+    descricao: Optional[str] = None
+    excecoes: List[LocalExcecaoFcpOut] = Field(default_factory=list)
+
+
 class LocalTemplateMappingOut(BaseModel):
     start_row: int
     columns: Dict[str, str]
@@ -215,6 +235,7 @@ class LocalProcessingContextOut(BaseModel):
     regras_reducao: List[LocalRegraReducaoOut]
     regras_reclassificacao: List[LocalRegraReclassificacaoOut]
     regras_exclusao_parcial: List[LocalRegraExclusaoOut]
+    regras_fcp: List[LocalRegraFcpOut] = Field(default_factory=list)
     margens_seguranca_templates: Dict[str, int]
     templates_ativos: List[LocalTemplateDescriptorOut]
     mva_anexo: List[LocalMvaEntryOut]

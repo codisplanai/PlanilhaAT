@@ -13,6 +13,7 @@ from app.models.perfil_regras import PerfilRegras
 from app.models.regra_aliquota import RegraAliquotaDestino
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.regra_exclusao_parcial import RegraExclusaoParcial
+from app.models.regra_fcp_produto import RegraFcpProduto
 from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop
 from app.models.regra_reducao_produto import RegraReducaoProduto
 
@@ -44,6 +45,10 @@ SECOES: Dict[str, Tuple[str, type, Callable[[Any], Tuple[Any, ...]]]] = {
     "exclusao": (
         "regras_exclusao_parcial", RegraExclusaoParcial,
         lambda r: (r.uf, r.ncm, _termos(r.termos_obrigatorios)),
+    ),
+    "fcp": (
+        "regras_fcp_produto", RegraFcpProduto,
+        lambda r: (r.uf, r.ncm, _termos(r.termos_inclusao)),
     ),
 }
 
