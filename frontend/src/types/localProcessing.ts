@@ -14,6 +14,7 @@ import type { Empresa } from './empresa';
 import type { RegraAliquota } from './regra';
 import type { RegraCfop } from './regraCfop';
 import type { RegraExclusaoParcial } from './regraExclusaoParcial';
+import type { RegraFcp } from './regraFcp';
 import type { RegraReclassificacaoCfop } from './regraReclassificacaoCfop';
 import type { RegraReducao } from './regraReducao';
 import type { DiagnosticRecorder } from '../lib/processingDiagnostics';
@@ -69,6 +70,7 @@ export interface LocalProcessingContext {
   regras_reducao: RegraReducao[];
   regras_reclassificacao: RegraReclassificacaoCfop[];
   regras_exclusao_parcial: RegraExclusaoParcial[];
+  regras_fcp?: RegraFcp[];
   margens_seguranca_templates: Partial<Record<TipoPlanilha, number>>;
   templates_ativos: LocalTemplateDescriptor[];
   mva_anexo: LocalMvaEntry[];
