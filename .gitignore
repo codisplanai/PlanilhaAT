@@ -40,4 +40,5 @@ storage/templates/template_*
 Thumbs.db
 .idea/
 .superpowers/
+.worktrees/
 .vscode/
