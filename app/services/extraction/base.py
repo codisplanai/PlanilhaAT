@@ -49,6 +49,9 @@ class ExtractedNFData(BaseModel):
     v_desc_nota: Decimal = Decimal("0.00")  # Desconto comercial total da nota (tag vDesc)
     # Alíquota de crédito de ICMS autorizada em Informações Complementares (ex: 0.0359); None se ausente
     aliq_credito_icms_inf_compl: Optional[Decimal] = None
+    # Situação no protocolo de autorização (protNFe/infProt): cStat 100/150 = autorizada.
+    c_stat_protocolo: Optional[str] = None
+    protocolo_autorizacao: Optional[str] = None
     itens: List[ExtractedItemNF]
     raw_metadata: Dict[str, Any] = Field(default_factory=dict)
     origem_extracao: str = "xml"  # "xml" ou "sped"
