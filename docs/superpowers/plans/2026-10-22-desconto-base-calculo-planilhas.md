@@ -1,3 +1,5 @@
+> **ATUALIZAÇÃO 2026-11-19:** a regra de base foi alterada. Em todas as planilhas (Parcial, Tributária e DIFAL) o desconto comercial **não** abate mais a Base de Cálculo; apenas o IPI é abatido (`base = V.Total + desconto − IPI`). O V.Total continua líquido de desconto. Os trechos abaixo que mandam abater o desconto da base estão superados.
+
 # Desconto Comercial no Valor Total e Base de Cálculo das Planilhas Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
