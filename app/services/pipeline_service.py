@@ -23,7 +23,7 @@ from app.services.rules_engine.interstate_rate_resolver import InterstateRateRes
 from app.services.rules_engine.mva_resolver import MvaResolver
 from app.services.rules_engine.revenda_antecipacao_policy import RevendaAntecipacaoTributariaPolicy
 from app.services.rules_engine.st_tributaria_exclusion import (
-    should_exclude_st_from_tributaria,
+    should_exclude_st_item_from_tributaria,
     ST_TRIBUTARIA_EXCLUSION_REASON,
 )
 from app.services.rules_engine.parcial_decision import (
@@ -332,10 +332,6 @@ class ProcessingPipelineService:
                 info_mva_policy: Dict[GrupoKey, Dict[str, Any]] = {}
                 itens_retroativos_pulados: List[int] = []
                 itens_aguardando_entrada: List[int] = []
-                exclude_st_tributaria_note = should_exclude_st_from_tributaria(
-                    empresa.razao_social, nf_data
-                )
-
                 for item in nf_data.itens:
                     bonificacao_uso_consumo = False
                     mva_policy_group = ""
@@ -443,7 +439,9 @@ class ProcessingPipelineService:
                         itens_retroativos_pulados.append(item.item_numero)
                         continue
 
-                    if exclude_st_tributaria_note and destino_item in DESTINOS_TRIBUTARIA:
+                    if destino_item in DESTINOS_TRIBUTARIA and should_exclude_st_item_from_tributaria(
+                        empresa.razao_social, nf_data, item
+                    ):
                         itens_excluidos.append(
                             serialize_excluded_item(
                                 nf_data,
