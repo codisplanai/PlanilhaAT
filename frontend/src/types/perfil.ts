@@ -71,7 +71,7 @@ export interface PerfilRegrasUpdate {
   configuracoes_extras?: PerfilConfiguracoesExtras;
 }
 
-export type CopiarRegrasSecao = 'aliquotas' | 'cfop' | 'reducao' | 'reclassificacao' | 'exclusao';
+export type CopiarRegrasSecao = 'aliquotas' | 'cfop' | 'reducao' | 'reclassificacao' | 'exclusao' | 'fcp';
 
 export interface CopiarRegrasPayload {
   secao: CopiarRegrasSecao;

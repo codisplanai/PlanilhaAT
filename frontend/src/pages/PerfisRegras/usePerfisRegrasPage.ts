@@ -21,6 +21,11 @@ const perfilSchema = z.object({
   limitar_a_ori_reducoes: z.boolean().optional(),
 });
 
+const isValidNcmPrefix = (value: string | undefined): boolean => {
+  const digits = (value ?? '').replace(/\D/g, '');
+  return digits.length >= 4 && digits.length <= 8 && !/^0+$/.test(digits);
+};
+
 const regraSchema = z.object({
   uf: z.string().length(2, 'Selecione a UF'),
   tipo_regra: z.enum(['padrao', 'excecao']),
@@ -28,9 +33,9 @@ const regraSchema = z.object({
   aliquota: z.number().min(0, 'Alíquota deve ser positiva').max(100, 'Alíquota máxima de 100%'),
   descricao: z.string().optional(),
 }).refine(
-  (data) => data.tipo_regra !== 'excecao' || (data.ncm?.replace(/\D/g, '').length === 8),
+  (data) => data.tipo_regra !== 'excecao' || isValidNcmPrefix(data.ncm),
   {
-    message: 'Para regra de exceção, informe um NCM válido de 8 dígitos',
+    message: 'Para regra de exceção, informe um NCM ou prefixo válido de 4 a 8 dígitos não zerado',
     path: ['ncm'],
   },
 );
