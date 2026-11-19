@@ -31,17 +31,25 @@ def clean_ncm_obrigatorio(v: str) -> str:
     return cleaned
 
 
-def clean_ncm_prefixo_obrigatorio(v: str) -> str:
-    """NCM completo (8 dígitos) ou prefixo de posição/subposição (4 a 8 dígitos)."""
+def clean_ncm_prefixo_opcional(v: Optional[str]) -> Optional[str]:
+    """NCM completo (8 dígitos) ou prefixo (4 a 8 dígitos), ou None para regra padrão."""
     if v is None or str(v).strip() == "":
-        raise ValueError("NCM é obrigatório na regra de redução por produto")
+        return None
     cleaned = re.sub(r"\D", "", str(v))
     if not (4 <= len(cleaned) <= 8):
         raise ValueError("NCM deve conter de 4 a 8 dígitos numéricos (ex: 7217, 7314.31 ou 72142000)")
     if set(cleaned) == {"0"}:
         raise ValueError(
-            "NCM zerado (00000000) é o marcador de item sem NCM no SPED e não pode ter regra de redução"
+            "NCM zerado (00000000) é o marcador de item sem NCM no SPED e não pode ser usado em regra"
         )
+    return cleaned
+
+
+def clean_ncm_prefixo_obrigatorio(v: str) -> str:
+    """NCM completo (8 dígitos) ou prefixo de posição/subposição (4 a 8 dígitos)."""
+    cleaned = clean_ncm_prefixo_opcional(v)
+    if cleaned is None:
+        raise ValueError("NCM é obrigatório na regra de redução por produto")
     return cleaned
 
 

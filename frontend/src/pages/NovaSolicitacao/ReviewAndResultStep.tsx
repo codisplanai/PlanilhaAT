@@ -18,6 +18,12 @@ import { NotasIgnoradasSection } from '../../components/domain/NotasIgnoradasSec
 import { ProcessingDiagnostics } from '../../components/processing/ProcessingDiagnostics';
 import { getEntryOriginLabel } from '../../constants/domain';
 import { formatCNPJ, formatCurrency, formatDate, formatPercent } from '../../lib/formatters';
+import {
+  formatFcpCompetenceTab,
+  formatNotaFcpRateLabel,
+  getNotaFcpInfo,
+  sumSeparatedFcpByDestination,
+} from '../../lib/fcpSummary';
 import type { DiagnosticSession } from '../../lib/processingDiagnostics';
 import type { Empresa } from '../../types/empresa';
 import type { Solicitacao, TipoPlanilha } from '../../types/solicitacao';
@@ -307,41 +313,55 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {resultadoSolicitacao.saidas.map((saida) => (
-                <div
-                  key={saida.tipo}
-                  className={`rounded-xl border p-4 space-y-3 shadow-2xs transition-all ${
-                    hasLocalArtifact(saida.tipo) ? 'bg-white border-slate-200/90 hover:border-slate-300' : 'bg-amber-50/60 border-amber-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <PlanilhaBadge tipo={saida.tipo} detailed />
-                    {!hasLocalArtifact(saida.tipo) && (
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-600 space-y-0.5">
-                    <div>{saida.total_notas} nota(s) processada(s)</div>
-                    <div className="font-mono font-bold text-slate-900 text-sm tabular-nums">
-                      {formatCurrency(saida.total_valor_devido)}
-                    </div>
-                  </div>
-                  {hasLocalArtifact(saida.tipo) ? (
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => onDownload(saida.tipo)}
-                      leftIcon={<Download className="w-3.5 h-3.5" />}
+              {(() => {
+                const fcpTabLabel = formatFcpCompetenceTab(resultadoSolicitacao.periodo_inicio || periodoInicio);
+                return resultadoSolicitacao.saidas.map((saida) => {
+                  const totalFcpSeparado = sumSeparatedFcpByDestination(
+                    resultadoSolicitacao.notas_processadas,
+                    saida.tipo,
+                  );
+                  return (
+                    <div
+                      key={saida.tipo}
+                      className={`rounded-xl border p-4 space-y-3 shadow-2xs transition-all ${
+                        hasLocalArtifact(saida.tipo) ? 'bg-white border-slate-200/90 hover:border-slate-300' : 'bg-amber-50/60 border-amber-200'
+                      }`}
                     >
-                      Baixar .xlsx
-                    </Button>
-                  ) : (
-                    <p className="text-[11px] text-amber-800 leading-relaxed">
-                      {saida.aviso || 'Nenhum template ativo cadastrado para este tipo. Cadastre em Admin > Templates.'}
-                    </p>
-                  )}
-                </div>
-              ))}
+                      <div className="flex items-center justify-between">
+                        <PlanilhaBadge tipo={saida.tipo} detailed />
+                        {!hasLocalArtifact(saida.tipo) && (
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-600 space-y-0.5">
+                        <div>{saida.total_notas} nota(s) processada(s)</div>
+                        <div className="font-mono font-bold text-slate-900 text-sm tabular-nums">
+                          {formatCurrency(saida.total_valor_devido)}
+                        </div>
+                        {totalFcpSeparado > 0 && (
+                          <div className="text-[11px] font-semibold text-indigo-800 bg-indigo-50/80 border border-indigo-200/80 rounded-md px-2 py-1 mt-1.5 font-mono tabular-nums">
+                            FCP (aba {fcpTabLabel}): {formatCurrency(totalFcpSeparado)}
+                          </div>
+                        )}
+                      </div>
+                      {hasLocalArtifact(saida.tipo) ? (
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={() => onDownload(saida.tipo)}
+                          leftIcon={<Download className="w-3.5 h-3.5" />}
+                        >
+                          Baixar .xlsx
+                        </Button>
+                      ) : (
+                        <p className="text-[11px] text-amber-800 leading-relaxed">
+                          {saida.aviso || 'Nenhum template ativo cadastrado para este tipo. Cadastre em Admin > Templates.'}
+                        </p>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
@@ -399,6 +419,8 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
                   {resultadoSolicitacao.notas_processadas.map((nota, i) => {
                     const isCte = nota.metadados_extras?.tipo_documento === 'cte';
                     const aOriOculta = isCte && nota.metadados_extras?.a_ori_destacada === false;
+                    const fcpInfo = getNotaFcpInfo(nota);
+                    const fcpRateLabel = formatNotaFcpRateLabel(nota);
                     return (
                     <tr key={i} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-2.5 px-3 font-semibold text-slate-900">
@@ -434,9 +456,29 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(nota.v_total)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(nota.base_calculo)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{aOriOculta ? '-' : formatPercent(nota.a_ori)}</td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-blue-900">{formatPercent(nota.a_dst_resolvida)}</td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-emerald-800">
-                        {formatCurrency(nota.valor_devido)}
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">
+                        <div className="font-bold text-blue-900">{formatPercent(nota.a_dst_resolvida)}</div>
+                        {fcpRateLabel && (
+                          <div className="mt-0.5">
+                            {fcpInfo.separado ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200/80 whitespace-nowrap">
+                                +{fcpRateLabel} FCP (aba FCP)
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">
+                                (inclui +{fcpRateLabel} FCP)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">
+                        <div className="font-bold text-emerald-800">{formatCurrency(nota.valor_devido)}</div>
+                        {fcpInfo.separado && fcpInfo.valorDevido > 0 && (
+                          <div className="text-[10px] font-semibold text-indigo-800 mt-0.5 whitespace-nowrap">
+                            FCP: {formatCurrency(fcpInfo.valorDevido)}
+                          </div>
+                        )}
                       </td>
                     </tr>
                     );

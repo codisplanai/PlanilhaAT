@@ -23,6 +23,7 @@ from app.models.profile import Profile
 from app.models.regra_aliquota import RegraAliquotaDestino
 from app.models.regra_cfop import RegraCfopDestino
 from app.models.regra_exclusao_parcial import RegraExclusaoParcial
+from app.models.regra_fcp_produto import RegraFcpProduto
 from app.models.regra_reclassificacao_cfop import RegraReclassificacaoCfop
 from app.models.regra_reducao_produto import RegraReducaoProduto
 from app.models.solicitacao import Solicitacao
@@ -160,6 +161,29 @@ def _serialize_reclassificacao(regra: RegraReclassificacaoCfop) -> Dict[str, Any
     }
 
 
+def _serialize_fcp(regra: RegraFcpProduto) -> Dict[str, Any]:
+    return {
+        "id": regra.id,
+        "perfil_regras_id": regra.perfil_regras_id,
+        "uf": regra.uf,
+        "ncm": regra.ncm,
+        "termos_inclusao": regra.termos_inclusao or [],
+        "termos_exclusao": regra.termos_exclusao or [],
+        "aliquota": _serialize_decimal(regra.aliquota),
+        "aplicar_com_termo_acordo": bool(regra.aplicar_com_termo_acordo),
+        "descricao": regra.descricao,
+        "excecoes": [
+            {
+                "id": excecao.id,
+                "descricao_exata": excecao.descricao_exata,
+                "enquadrado": bool(excecao.enquadrado),
+                "observacao": excecao.observacao,
+            }
+            for excecao in regra.excecoes
+        ],
+    }
+
+
 def _build_context_payload(
     *,
     db: Session,
@@ -170,6 +194,7 @@ def _build_context_payload(
     reducoes: list[RegraReducaoProduto],
     reclassificacoes: list[RegraReclassificacaoCfop],
     exclusoes: list[RegraExclusaoParcial],
+    regras_fcp: list[RegraFcpProduto],
     templates: list[TemplateXlsx],
 ) -> Dict[str, Any]:
     return {
@@ -219,6 +244,7 @@ def _build_context_payload(
             }
             for regra in exclusoes
         ],
+        "regras_fcp": [_serialize_fcp(regra) for regra in regras_fcp],
         "margens_seguranca_templates": {
             tipo: TemplateManager.get_safety_margin(db, tipo)
             for tipo in TIPOS_PLANILHA
@@ -294,6 +320,12 @@ def obter_contexto_processamento_local(
         )
         .all()
     )
+    regras_fcp = (
+        db.query(RegraFcpProduto)
+        .options(joinedload(RegraFcpProduto.excecoes))
+        .filter(RegraFcpProduto.perfil_regras_id == perfil.id)
+        .all()
+    )
     templates = (
         db.query(TemplateXlsx)
         .filter(
@@ -313,6 +345,7 @@ def obter_contexto_processamento_local(
         reducoes=reducoes,
         reclassificacoes=reclassificacoes,
         exclusoes=exclusoes,
+        regras_fcp=regras_fcp,
         templates=templates,
     )
 

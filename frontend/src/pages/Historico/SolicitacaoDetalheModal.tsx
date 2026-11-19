@@ -13,16 +13,11 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { getEntryOriginLabel, getPlanilhaLabel } from '../../constants/domain';
+import { formatFcpCompetenceTab, formatNotaFcpRateLabel, getNotaFcpInfo } from '../../lib/fcpSummary';
 import { formatCNPJ, formatCurrency, formatDate, formatPercent } from '../../lib/formatters';
 import type { Empresa } from '../../types/empresa';
 import type { NotaFiscalProcessada, Solicitacao } from '../../types/solicitacao';
-
-interface DetailTotals {
-  debito: number;
-  credito: number;
-  devido: number;
-  notas: number;
-}
+import type { DetailTotals } from './useHistoricoPage';
 
 interface SolicitacaoDetalheModalProps {
   selectedSolicitacaoId: string | null;
@@ -114,23 +109,36 @@ export const SolicitacaoDetalheModal: React.FC<SolicitacaoDetalheModalProps> = (
         )}
 
         {/* Totais Consolidados para Conferência */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Valor total das notas</span>
-            <span className="text-base font-bold font-mono text-slate-900 tabular-nums">{formatCurrency(totals.notas)}</span>
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Valor total das notas</span>
+              <span className="text-base font-bold font-mono text-slate-900 tabular-nums">{formatCurrency(totals.notas)}</span>
+            </div>
+            <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Débito</span>
+              <span className="text-base font-bold font-mono text-blue-900 tabular-nums">{formatCurrency(totals.debito)}</span>
+            </div>
+            <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Crédito</span>
+              <span className="text-base font-bold font-mono text-slate-700 tabular-nums">{formatCurrency(totals.credito)}</span>
+            </div>
+            <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 block">Valor Devido Total</span>
+              <span className="text-base font-bold font-mono text-emerald-900 tabular-nums">{formatCurrency(totals.devido)}</span>
+            </div>
           </div>
-          <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Débito</span>
-            <span className="text-base font-bold font-mono text-blue-900 tabular-nums">{formatCurrency(totals.debito)}</span>
-          </div>
-          <div className="bg-white border border-slate-200/90 p-3.5 rounded-xl shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Crédito</span>
-            <span className="text-base font-bold font-mono text-slate-700 tabular-nums">{formatCurrency(totals.credito)}</span>
-          </div>
-          <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 block">Valor Devido Total</span>
-            <span className="text-base font-bold font-mono text-emerald-900 tabular-nums">{formatCurrency(totals.devido)}</span>
-          </div>
+
+          {totals.fcpSeparado > 0 && (
+            <div className="bg-indigo-50/80 border border-indigo-200/90 px-4 py-2.5 rounded-xl flex items-center justify-between text-xs">
+              <span className="font-semibold text-indigo-900">
+                FCP (aba {formatFcpCompetenceTab(solicitacaoDetalhada.periodo_inicio)}):
+              </span>
+              <span className="font-mono font-bold text-indigo-950 text-sm tabular-nums">
+                {formatCurrency(totals.fcpSeparado)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Tabela de Itens Processados */}
@@ -177,6 +185,8 @@ export const SolicitacaoDetalheModal: React.FC<SolicitacaoDetalheModalProps> = (
                   {solicitacaoDetalhada.notas_processadas.map((item, idx) => {
                     const isCte = item.metadados_extras?.tipo_documento === 'cte';
                     const aOriOculta = isCte && item.metadados_extras?.a_ori_destacada === false;
+                    const fcpInfo = getNotaFcpInfo(item);
+                    const fcpRateLabel = formatNotaFcpRateLabel(item);
                     return (
                     <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2.5 px-3 font-semibold text-slate-900">
@@ -229,11 +239,31 @@ export const SolicitacaoDetalheModal: React.FC<SolicitacaoDetalheModalProps> = (
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(item.v_total)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatCurrency(item.base_calculo)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{aOriOculta ? '-' : formatPercent(item.a_ori)}</td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-blue-900">{formatPercent(item.a_dst_resolvida)}</td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">
+                        <div className="font-bold text-blue-900">{formatPercent(item.a_dst_resolvida)}</div>
+                        {fcpRateLabel && (
+                          <div className="mt-0.5">
+                            {fcpInfo.separado ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200/80 whitespace-nowrap">
+                                +{fcpRateLabel} FCP (aba FCP)
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">
+                                (inclui +{fcpRateLabel} FCP)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums text-blue-950">{formatCurrency(item.debito)}</td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">{formatCurrency(item.credito)}</td>
-                      <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-emerald-800">
-                        {formatCurrency(item.valor_devido)}
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">
+                        <div className="font-bold text-emerald-800">{formatCurrency(item.valor_devido)}</div>
+                        {fcpInfo.separado && fcpInfo.valorDevido > 0 && (
+                          <div className="text-[10px] font-semibold text-indigo-800 mt-0.5 whitespace-nowrap">
+                            FCP: {formatCurrency(fcpInfo.valorDevido)}
+                          </div>
+                        )}
                       </td>
                     </tr>
                     );

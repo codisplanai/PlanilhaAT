@@ -12,6 +12,7 @@ export const queryKeys = {
   regrasAliquotas: (perfilId?: number) => ['regras-aliquotas', perfilId] as const,
   regrasCfopEfetivas: (perfilId?: number) => ['regras-cfop-efetivas', perfilId] as const,
   regrasReducaoProduto: (perfilId?: number) => ['regras-reducao-produto', perfilId] as const,
+  regrasFcp: (perfilId?: number) => ['regras-fcp', perfilId] as const,
   regrasReclassificacaoCfop: (perfilId?: number) => ['regras-reclassificacao-cfop', perfilId] as const,
   regrasExclusaoParcial: (perfilId?: number, uf?: string) =>
     ['regras-exclusao-parcial', perfilId, uf ?? ''] as const,

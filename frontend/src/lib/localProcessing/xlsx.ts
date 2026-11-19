@@ -5,6 +5,11 @@ import { readZip, writeZip } from './zip.ts';
 
 export const XML_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const PKG_REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const CONTENT_TYPES_NS = 'http://schemas.openxmlformats.org/package/2006/content-types';
+const WORKSHEET_REL_TYPE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet';
+const WORKSHEET_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml';
+const TOTAL_ROW_LABELS = new Set(['TOTAL', 'TOTAL:', 'TOTALIZADOR', 'TOTALIZADOR:', 'TOTAIS', 'TOTAIS:']);
 
 function decode(bytes: Uint8Array): string {
   return new TextDecoder('utf-8').decode(bytes);
@@ -395,32 +400,224 @@ const SINGLE_PERIOD_SHEET_TYPES = new Set<LocalTemplateDescriptor['tipo']>([
   'controle_imposto_pago_entrada',
 ]);
 
-function keepOnlyPeriodSheetVisible(
+function keepOnlyPeriodSheetsVisible(
   entries: Map<string, Uint8Array>,
-  selected: { name: string; path: string },
+  visibleSheetNames: string[],
+  activeSheetName: string,
 ): void {
   const workbookRaw = entries.get('xl/workbook.xml');
   if (!workbookRaw) throw new Error('XLSX inválido: workbook.xml ausente.');
 
   const workbook = parseXml(workbookRaw, 'workbook.xml');
   const sheets = Array.from(workbook.getElementsByTagNameNS(XML_NS, 'sheet'));
-  const selectedIndex = sheets.findIndex((sheet) => (sheet.getAttribute('name') ?? '') === selected.name);
-  if (selectedIndex < 0) throw new Error(`A aba selecionada "${selected.name}" não existe no workbook.`);
+  const visibleSet = new Set(visibleSheetNames);
+  const activeIndex = sheets.findIndex((sheet) => (sheet.getAttribute('name') ?? '') === activeSheetName);
+  if (activeIndex < 0) throw new Error(`A aba selecionada "${activeSheetName}" não existe no workbook.`);
 
-  sheets.forEach((sheet, index) => {
-    if (index === selectedIndex) {
+  for (const sheet of sheets) {
+    const name = sheet.getAttribute('name') ?? '';
+    if (visibleSet.has(name)) {
       sheet.removeAttribute('state');
-      return;
+    } else if (sheet.getAttribute('state') !== 'veryHidden') {
+      sheet.setAttribute('state', 'hidden');
     }
-    if (sheet.getAttribute('state') !== 'veryHidden') sheet.setAttribute('state', 'hidden');
-  });
+  }
 
   for (const view of Array.from(workbook.getElementsByTagNameNS(XML_NS, 'workbookView'))) {
-    view.setAttribute('activeTab', String(selectedIndex));
-    view.setAttribute('firstSheet', String(selectedIndex));
+    view.setAttribute('activeTab', String(activeIndex));
+    view.setAttribute('firstSheet', String(activeIndex));
   }
 
   entries.set('xl/workbook.xml', serializeXml(workbook));
+}
+
+function createXmlElement(doc: XMLDocument, fallbackNs: string, tagName: string): Element {
+  const ns = doc.documentElement.namespaceURI || fallbackNs;
+  return doc.createElementNS(ns, tagName);
+}
+
+function setRelationId(element: Element, rid: string): void {
+  if (typeof element.setAttributeNS === 'function') {
+    element.setAttributeNS(REL_NS, 'r:id', rid);
+  } else {
+    element.setAttribute('r:id', rid);
+  }
+}
+
+function shouldRenameToCompetence(title: string): boolean {
+  const stripped = title.trim();
+  return (
+    /^\d{2}[-_./]\d{4}/.test(stripped) ||
+    /^\d{1,2}$/.test(stripped) ||
+    ['sheet1', 'planilha1', 'sheet'].includes(stripped.toLowerCase())
+  );
+}
+
+function formatFcpFallbackTitle(originalTitle: string): string {
+  return originalTitle.length > 27 ? `${originalTitle.slice(0, 27)} FCP` : `${originalTitle} FCP`;
+}
+
+function uniqueHiddenBackupName(usedLower: Set<string>, originalName: string): string {
+  for (let i = 1; i < 1000; i += 1) {
+    const suffix = i === 1 ? ' (orig)' : ` (${i})`;
+    const candidate = `${originalName.slice(0, Math.max(0, 31 - suffix.length))}${suffix}`;
+    if (!usedLower.has(candidate.toLowerCase())) {
+      usedLower.add(candidate.toLowerCase());
+      return candidate;
+    }
+  }
+  return `orig_${Date.now()}`.slice(0, 31);
+}
+
+function nextWorksheetFileName(entries: Map<string, Uint8Array>): string {
+  let maxIndex = 0;
+  for (const key of entries.keys()) {
+    const match = key.match(/^xl\/worksheets\/sheet(\d+)\.xml$/i);
+    if (match) {
+      maxIndex = Math.max(maxIndex, Number.parseInt(match[1], 10));
+    }
+  }
+  let candidate = maxIndex + 1;
+  while (entries.has(`xl/worksheets/sheet${candidate}.xml`)) {
+    candidate += 1;
+  }
+  return `sheet${candidate}.xml`;
+}
+
+function registerWorksheetRelationship(entries: Map<string, Uint8Array>, sheetFileName: string): string {
+  const relsPath = 'xl/_rels/workbook.xml.rels';
+  const relsRaw = entries.get(relsPath);
+  if (!relsRaw) throw new Error('XLSX inválido: xl/_rels/workbook.xml.rels ausente.');
+
+  const relsDoc = parseXml(relsRaw, 'workbook.xml.rels');
+  const existingIds = new Set<string>();
+  let maxRid = 0;
+  for (const rel of Array.from(relsDoc.documentElement.children)) {
+    const id = rel.getAttribute('Id') ?? '';
+    if (id) existingIds.add(id);
+    const match = id.match(/^rId(\d+)$/);
+    if (match) maxRid = Math.max(maxRid, Number.parseInt(match[1], 10));
+  }
+
+  let nextRidNum = maxRid + 1;
+  while (existingIds.has(`rId${nextRidNum}`)) nextRidNum += 1;
+  const nextRid = `rId${nextRidNum}`;
+
+  const relEl = createXmlElement(relsDoc, PKG_REL_NS, 'Relationship');
+  relEl.setAttribute('Id', nextRid);
+  relEl.setAttribute('Type', WORKSHEET_REL_TYPE);
+  relEl.setAttribute('Target', `worksheets/${sheetFileName}`);
+  relsDoc.documentElement.appendChild(relEl);
+  entries.set(relsPath, serializeXml(relsDoc));
+  return nextRid;
+}
+
+function registerWorksheetContentType(entries: Map<string, Uint8Array>, sheetPath: string): void {
+  const contentTypesRaw = entries.get('[Content_Types].xml');
+  if (!contentTypesRaw) return;
+  const doc = parseXml(contentTypesRaw, '[Content_Types].xml');
+  const partName = `/${sheetPath}`;
+  const alreadyExists = Array.from(doc.documentElement.children).some(
+    (child) => child.localName === 'Override' && child.getAttribute('PartName') === partName,
+  );
+  if (alreadyExists) return;
+
+  const overrideEl = createXmlElement(doc, CONTENT_TYPES_NS, 'Override');
+  overrideEl.setAttribute('PartName', partName);
+  overrideEl.setAttribute('ContentType', WORKSHEET_CONTENT_TYPE);
+  doc.documentElement.appendChild(overrideEl);
+  entries.set('[Content_Types].xml', serializeXml(doc));
+}
+
+function isTotalsRow(row: Element, sharedStrings: string[]): boolean {
+  for (const cell of Array.from(row.getElementsByTagNameNS(XML_NS, 'c'))) {
+    const formula = (cell.getElementsByTagNameNS(XML_NS, 'f')[0]?.textContent ?? '').trim().toUpperCase();
+    if (formula && (formula.includes('SUM(') || formula.includes('SOMA(') || formula.includes('SUBTOTAL('))) {
+      return true;
+    }
+    const text = getCellValue(cell, sharedStrings).trim().toUpperCase();
+    if (TOTAL_ROW_LABELS.has(text)) return true;
+    if (text.startsWith('=') && (text.includes('SUM(') || text.includes('SOMA(') || text.includes('SUBTOTAL('))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function clearResidualRows(
+  sheetData: Element,
+  startCleanupRow: number,
+  clearableColumns: Set<string>,
+  sharedStrings: string[],
+): void {
+  if (clearableColumns.size === 0) return;
+  const residualRows = Array.from(sheetData.getElementsByTagNameNS(XML_NS, 'row'))
+    .map((row) => ({ row, rowIndex: Number.parseInt(row.getAttribute('r') ?? '', 10) }))
+    .filter((entry) => Number.isFinite(entry.rowIndex) && entry.rowIndex >= startCleanupRow)
+    .sort((a, b) => a.rowIndex - b.rowIndex);
+
+  for (const { row } of residualRows) {
+    if (isTotalsRow(row, sharedStrings)) break;
+    for (const cell of Array.from(row.getElementsByTagNameNS(XML_NS, 'c'))) {
+      const col = columnLetters(cell.getAttribute('r') ?? '');
+      if (!col || !clearableColumns.has(col)) continue;
+      if (cell.getElementsByTagNameNS(XML_NS, 'f')[0]) continue;
+      clearCellValue(cell);
+      cell.removeAttribute('t');
+    }
+  }
+}
+
+function fillWorksheetDoc(params: {
+  doc: XMLDocument;
+  sharedStrings: string[];
+  rows: LocalOutputRow[];
+  headerCell: string;
+  header: TemplateHeaderInfo;
+  startRow: number;
+  columnsMapping: Record<string, string>;
+  percentageFormat: string;
+}): void {
+  const { doc, sharedStrings, rows, headerCell, header, startRow, columnsMapping, percentageFormat } = params;
+  const sheetData = doc.getElementsByTagNameNS(XML_NS, 'sheetData')[0];
+  if (!sheetData) throw new Error('Template sem área de dados.');
+
+  const headerRowIndex = Number.parseInt(headerCell.replace(/^[A-Z]+/i, ''), 10);
+  const headerRow = ensureRow(doc, sheetData, headerRowIndex);
+  writeCell(doc, ensureCell(doc, headerRow, headerCell.toUpperCase()), 'header', headerText(header), 'decimal');
+
+  rows.forEach((source, index) => {
+    const rowIndex = startRow + index;
+    const row = ensureRow(doc, sheetData, rowIndex);
+    const sourceRecord = source as unknown as Record<string, unknown>;
+    const writtenColumns = new Set<string>();
+    for (const [field, rawColumn] of Object.entries(columnsMapping)) {
+      const column = rawColumn.toUpperCase();
+      const value = sourceRecord[field] ?? (field === 'item_index' ? index + 1 : undefined);
+      if (value == null) {
+        if (field !== 'item_index' && !writtenColumns.has(column)) {
+          const ref = cellRef(column, rowIndex);
+          const existingCell = Array.from(row.getElementsByTagNameNS(XML_NS, 'c')).find(
+            (candidate) => candidate.getAttribute('r') === ref,
+          );
+          if (existingCell && !existingCell.getElementsByTagNameNS(XML_NS, 'f')[0]) {
+            clearCellValue(existingCell);
+            existingCell.removeAttribute('t');
+          }
+        }
+        continue;
+      }
+      writeCell(doc, ensureCell(doc, row, cellRef(column, rowIndex)), field, value, percentageFormat);
+      writtenColumns.add(column);
+    }
+  });
+
+  const clearableColumns = new Set(
+    Object.entries(columnsMapping)
+      .filter(([field]) => field !== 'item_index')
+      .map(([, column]) => column.toUpperCase()),
+  );
+  clearResidualRows(sheetData, startRow + rows.length, clearableColumns, sharedStrings);
 }
 
 export function createSpreadsheetElement(doc: XMLDocument, name: string): Element {
@@ -534,11 +731,73 @@ function headerText(info: TemplateHeaderInfo): string {
   return `                  Empresa -${info.razaoSocial}                                                                    COMP.  ${info.competencia}`;
 }
 
+function updateWorkbookSheets(params: {
+  entries: Map<string, Uint8Array>;
+  originalMainName: string;
+  mainSheetName: string;
+  fcpSheetName: string | null;
+  fcpRid: string | null;
+  restrictVisibility: boolean;
+}): void {
+  const { entries, originalMainName, mainSheetName, fcpSheetName, fcpRid, restrictVisibility } = params;
+  const workbookRaw = entries.get('xl/workbook.xml');
+  if (!workbookRaw) throw new Error('XLSX inválido: workbook.xml ausente.');
+
+  const workbook = parseXml(workbookRaw, 'workbook.xml');
+  const sheetsEl = workbook.getElementsByTagNameNS(XML_NS, 'sheets')[0];
+  const sheetElements = Array.from(workbook.getElementsByTagNameNS(XML_NS, 'sheet'));
+  const mainSheetEl = sheetElements.find((sheet) => (sheet.getAttribute('name') ?? '') === originalMainName);
+  if (!mainSheetEl) throw new Error(`A aba selecionada "${originalMainName}" não existe no workbook.`);
+
+  // Evita colisao quando uma aba legada oculta ja usa o nome alvo (ex.: "12-2025 FCP").
+  const reservedLower = new Set([mainSheetName.toLowerCase()]);
+  if (fcpSheetName) reservedLower.add(fcpSheetName.toLowerCase());
+  const usedLower = new Set(reservedLower);
+  for (const sheet of sheetElements) {
+    if (sheet === mainSheetEl) continue;
+    const currentName = sheet.getAttribute('name') ?? '';
+    if (currentName) usedLower.add(currentName.toLowerCase());
+  }
+  for (const sheet of sheetElements) {
+    if (sheet === mainSheetEl) continue;
+    const currentName = sheet.getAttribute('name') ?? '';
+    if (reservedLower.has(currentName.toLowerCase())) {
+      sheet.setAttribute('name', uniqueHiddenBackupName(usedLower, currentName));
+    }
+  }
+
+  mainSheetEl.setAttribute('name', mainSheetName);
+
+  if (fcpSheetName && fcpRid) {
+    if (!sheetsEl) throw new Error('XLSX inválido: elemento <sheets> ausente em workbook.xml.');
+    const maxSheetId = sheetElements.reduce(
+      (max, sheet) => Math.max(max, Number.parseInt(sheet.getAttribute('sheetId') ?? '0', 10) || 0),
+      0,
+    );
+    const fcpSheetEl = createSpreadsheetElement(workbook, 'sheet');
+    fcpSheetEl.setAttribute('name', fcpSheetName);
+    fcpSheetEl.setAttribute('sheetId', String(maxSheetId + 1));
+    setRelationId(fcpSheetEl, fcpRid);
+    sheetsEl.appendChild(fcpSheetEl);
+  }
+
+  entries.set('xl/workbook.xml', serializeXml(workbook));
+
+  if (restrictVisibility) {
+    keepOnlyPeriodSheetsVisible(
+      entries,
+      fcpSheetName ? [mainSheetName, fcpSheetName] : [mainSheetName],
+      mainSheetName,
+    );
+  }
+}
+
 export async function fillTemplateLocally(
   templateBytes: ArrayBuffer,
   template: LocalTemplateDescriptor,
   rows: LocalOutputRow[],
   header: TemplateHeaderInfo,
+  fcpRows?: LocalOutputRow[],
 ): Promise<ArrayBuffer> {
   const entries = await readZip(templateBytes);
   const selected = worksheetForTemplate(entries, template.mapeamento_campos, {
@@ -548,17 +807,15 @@ export async function fillTemplateLocally(
   const raw = entries.get(selected.path);
   if (!raw) throw new Error(`Aba de template não encontrada: ${selected.name}.`);
 
-  const doc = parseXml(raw, selected.path);
-  const sheetData = doc.getElementsByTagNameNS(XML_NS, 'sheetData')[0];
-  if (!sheetData) throw new Error('Template sem área de dados.');
+  // Snapshot dos bytes originais antes de preencher a aba principal (domPolyfill nao tem cloneNode).
+  const originalSheetBytes = raw.slice();
+  const selectedFileName = selected.path.split('/').pop() ?? '';
+  const selectedRelsPath = selectedFileName ? `xl/worksheets/_rels/${selectedFileName}.rels` : '';
+  const originalRelsBytes = selectedRelsPath ? entries.get(selectedRelsPath)?.slice() : undefined;
 
   const headerCell = template.mapeamento_campos.header_cell
     || String(template.mapeamento_campos.extra_options?.header_cell ?? '')
     || 'A2';
-  const headerRowIndex = Number.parseInt(headerCell.replace(/^[A-Z]+/i, ''), 10);
-  const headerRow = ensureRow(doc, sheetData, headerRowIndex);
-  writeCell(doc, ensureCell(doc, headerRow, headerCell.toUpperCase()), 'header', headerText(header), 'decimal');
-
   const startRow = template.mapeamento_campos.start_row || 4;
   const percentageFormat = template.mapeamento_campos.aliquota_format
     || String(template.mapeamento_campos.extra_options?.aliquota_format ?? 'decimal');
@@ -568,30 +825,76 @@ export async function fillTemplateLocally(
     template.tipo === 'antecipacao_tributaria'
     || template.tipo === 'antecipacao_tributaria_antecipado'
   ) {
-    if (!columnsMapping.reducao) {
-      columnsMapping.reducao = 'I';
-    }
-    if (!columnsMapping.valor_pago) {
-      columnsMapping.valor_pago = 'S';
-    }
+    if (!columnsMapping.reducao) columnsMapping.reducao = 'I';
+    if (!columnsMapping.valor_pago) columnsMapping.valor_pago = 'S';
   }
 
-  rows.forEach((source, index) => {
-    const rowIndex = startRow + index;
-    const row = ensureRow(doc, sheetData, rowIndex);
-    const sourceRecord = source as unknown as Record<string, unknown>;
-    for (const [field, column] of Object.entries(columnsMapping)) {
-      const value = sourceRecord[field] ?? (field === 'item_index' ? index + 1 : undefined);
-      if (value == null) continue;
-      writeCell(doc, ensureCell(doc, row, cellRef(column, rowIndex)), field, value, percentageFormat);
-    }
+  const sharedStrings = getSharedStrings(entries);
+  const mainDoc = parseXml(originalSheetBytes, selected.path);
+  fillWorksheetDoc({
+    doc: mainDoc,
+    sharedStrings,
+    rows,
+    headerCell,
+    header,
+    startRow,
+    columnsMapping,
+    percentageFormat,
   });
+  entries.set(selected.path, serializeXml(mainDoc));
 
-  entries.set(selected.path, serializeXml(doc));
+  const hasFcp = Boolean(fcpRows && fcpRows.length > 0);
+  let fcpRid: string | null = null;
+  if (hasFcp && fcpRows) {
+    const fcpFileName = nextWorksheetFileName(entries);
+    const fcpSheetPath = `xl/worksheets/${fcpFileName}`;
+    const fcpDoc = parseXml(originalSheetBytes, fcpSheetPath);
+    for (const view of Array.from(fcpDoc.getElementsByTagNameNS(XML_NS, 'sheetView'))) {
+      view.removeAttribute('tabSelected');
+    }
+    fcpDoc.getElementsByTagNameNS(XML_NS, 'sheetPr')[0]?.removeAttribute('codeName');
 
-  if (SINGLE_PERIOD_SHEET_TYPES.has(template.tipo)) {
-    keepOnlyPeriodSheetVisible(entries, selected);
+    fillWorksheetDoc({
+      doc: fcpDoc,
+      sharedStrings,
+      rows: fcpRows,
+      headerCell,
+      header,
+      startRow,
+      columnsMapping,
+      percentageFormat,
+    });
+    entries.set(fcpSheetPath, serializeXml(fcpDoc));
+
+    if (originalRelsBytes) {
+      entries.set(`xl/worksheets/_rels/${fcpFileName}.rels`, originalRelsBytes);
+    }
+    fcpRid = registerWorksheetRelationship(entries, fcpFileName);
+    registerWorksheetContentType(entries, fcpSheetPath);
   }
+
+  const hasValidCompetence =
+    Number.isInteger(header.month) && header.month >= 1 && header.month <= 12
+    && Number.isInteger(header.year) && header.year > 0;
+  const competenceTitle = hasValidCompetence
+    ? `${String(header.month).padStart(2, '0')}-${header.year}`
+    : null;
+  const mainSheetName =
+    competenceTitle && shouldRenameToCompetence(selected.name)
+      ? competenceTitle
+      : selected.name;
+  const fcpSheetName = hasFcp
+    ? (competenceTitle ? `${competenceTitle} FCP` : formatFcpFallbackTitle(selected.name))
+    : null;
+
+  updateWorkbookSheets({
+    entries,
+    originalMainName: selected.name,
+    mainSheetName,
+    fcpSheetName,
+    fcpRid,
+    restrictVisibility: SINGLE_PERIOD_SHEET_TYPES.has(template.tipo),
+  });
 
   enableWorkbookAutoRecalc(entries);
 

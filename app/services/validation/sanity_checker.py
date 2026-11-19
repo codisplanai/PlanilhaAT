@@ -88,7 +88,8 @@ class SanityChecker:
         v_total: Decimal,
         base_calculo: Decimal,
         a_ori: Decimal,
-        a_dst: Decimal
+        a_dst: Decimal,
+        fcp_separado: Optional[Decimal] = None,
     ) -> None:
         if v_total <= Decimal("0.00"):
             raise ValidationException(f"NF-e nº {numero_nota}: Valor total deve ser estritamente positivo (recebido: {v_total}).")
@@ -101,3 +102,6 @@ class SanityChecker:
 
         if not (Decimal("0.00") <= a_dst <= Decimal("1.00")):
             raise ValidationException(f"NF-e nº {numero_nota}: Alíquota de destino A.DST fora da faixa válida [0, 1] (recebido: {a_dst}).")
+
+        if fcp_separado is not None and not (Decimal("0.00") <= fcp_separado <= Decimal("1.00")):
+            raise ValidationException(f"NF-e nº {numero_nota}: Alíquota de FCP fora da faixa válida [0, 1] (recebido: {fcp_separado}).")

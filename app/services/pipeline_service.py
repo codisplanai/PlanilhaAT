@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
 from sqlalchemy.orm import Session
@@ -31,6 +32,7 @@ from app.services.rules_engine.parcial_decision import (
     ParcialExclusionService,
 )
 from app.services.rules_engine.descricao_matcher import normalizar
+from app.services.calculation.base import CalculationResult
 from app.services.calculation.factory import CalculatorFactory
 from app.services.validation.sanity_checker import SanityChecker
 from app.services.templates_admin.template_manager import TemplateManager
@@ -86,7 +88,24 @@ from app.services.pipeline_helpers import (
     serialize_excluded_item,
 )
 
-GrupoKey = Tuple[str, Decimal, Decimal, Decimal, Optional[Decimal]]
+GrupoKey = Tuple[str, Decimal, Decimal, Decimal, Optional[Decimal], Optional[Decimal]]
+
+
+@dataclass(frozen=True)
+class ResolucaoAliquotasItem:
+    a_ori: Decimal
+    a_dst: Decimal
+    a_dst_base: Decimal
+    resolucao: ResolucaoAliquota
+    resolucao_fcp: Optional[ResolucaoAliquota]
+    fcp_separado: Optional[Decimal]
+    a_ori_original: Decimal
+    a_ori_destacada: bool
+    a_ori_inferida_simples: bool
+    a_ori_inf_compl: bool
+    a_ori_limitada: bool
+    a_ori_limite_dispensado: bool
+    reducao_item: Optional[Decimal]
 
 
 class ProcessingPipelineService:
@@ -213,6 +232,7 @@ class ProcessingPipelineService:
         generated_artifacts = GeneratedArtifacts()
         try:
             rows_por_destino: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+            fcp_rows_por_destino: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
             notas_criadas: List[NotaFiscalProcessada] = []
             notas_ignoradas: List[Dict[str, Any]] = list(sources.ignored_notes)
             itens_excluidos: List[Dict[str, Any]] = []
@@ -305,6 +325,8 @@ class ProcessingPipelineService:
 
                 grupos: Dict[GrupoKey, List[Any]] = {}
                 resolucoes: Dict[GrupoKey, List[ResolucaoAliquota]] = {}
+                resolucoes_fcp: Dict[GrupoKey, List[Optional[ResolucaoAliquota]]] = {}
+                a_dst_bases: Dict[GrupoKey, List[Decimal]] = {}
                 resolucoes_cfop: Dict[GrupoKey, List[ResolucaoCfop]] = {}
                 info_a_ori: Dict[GrupoKey, Dict[str, Any]] = {}
                 info_mva_policy: Dict[GrupoKey, Dict[str, Any]] = {}
@@ -459,17 +481,7 @@ class ProcessingPipelineService:
                     ):
                         continue
 
-                    (
-                        a_ori,
-                        a_dst,
-                        resolucao,
-                        a_ori_original,
-                        a_ori_destacada,
-                        a_ori_inferida_simples,
-                        a_ori_inf_compl,
-                        a_ori_limitada,
-                        reducao_item,
-                    ) = self._resolver_aliquotas_item(
+                    aliq = self._resolver_aliquotas_item(
                         nf_data=nf_data,
                         item=item,
                         filename=filename,
@@ -491,8 +503,8 @@ class ProcessingPipelineService:
                             v_total=item.v_total,
                             base_calculo=item.base_calculo,
                             ipi_despesas=item.ipi_despesas,
-                            a_ori=a_ori,
-                            a_dst=a_dst,
+                            a_ori=aliq.a_ori,
+                            a_dst=aliq.a_dst,
                             is_simples=empresa.optante_simples_nacional,
                         )
                         if decisao_numerica.excluido:
@@ -512,9 +524,9 @@ class ProcessingPipelineService:
                         item=item,
                         filename=filename,
                         destino_item=destino_item,
-                        a_ori=a_ori,
-                        a_dst=a_dst,
-                        a_ori_original=a_ori_original,
+                        a_ori=aliq.a_ori,
+                        a_dst=aliq.a_dst,
+                        a_ori_original=aliq.a_ori_original,
                         is_fornecedor_simples=is_fornecedor_simples,
                         coluna_mva_nota=coluna_mva_nota,
                         revenda_tributaria_config=revenda_tributaria_config,
@@ -526,21 +538,25 @@ class ProcessingPipelineService:
 
                     key: GrupoKey = (
                         destino_item,
-                        a_ori,
-                        a_dst,
+                        aliq.a_ori,
+                        aliq.a_dst,
                         mva_item,
-                        reducao_item,
+                        aliq.reducao_item,
+                        aliq.fcp_separado,
                     )
                     if key not in grupos:
                         grupos[key] = []
                         resolucoes[key] = []
+                        resolucoes_fcp[key] = []
+                        a_dst_bases[key] = []
                         resolucoes_cfop[key] = []
                         info_a_ori[key] = {
                             "limitada": False,
-                            "original": str(a_ori_original),
-                            "inferida_simples": a_ori_inferida_simples,
-                            "destacada": a_ori_destacada,
-                            "inf_compl": a_ori_inf_compl,
+                            "limite_dispensado": False,
+                            "original": str(aliq.a_ori_original),
+                            "inferida_simples": aliq.a_ori_inferida_simples,
+                            "destacada": aliq.a_ori_destacada,
+                            "inf_compl": aliq.a_ori_inf_compl,
                             "p_cred_sn": set(),
                         }
                         info_mva_policy[key] = {
@@ -549,15 +565,19 @@ class ProcessingPipelineService:
                             "mva": mva_item,
                         }
                     grupos[key].append(item)
-                    resolucoes[key].append(resolucao)
+                    resolucoes[key].append(aliq.resolucao)
+                    resolucoes_fcp[key].append(aliq.resolucao_fcp)
+                    a_dst_bases[key].append(aliq.a_dst_base)
                     resolucoes_cfop[key].append(resolucao_cfop)
                     if not info_mva_policy[key]["grupo"] and mva_policy_group:
                         info_mva_policy[key]["grupo"] = mva_policy_group
                         info_mva_policy[key]["fonte"] = mva_policy_source
-                    if a_ori_limitada:
+                    if aliq.a_ori_limitada:
                         info_a_ori[key]["limitada"] = True
-                        info_a_ori[key]["original"] = str(a_ori_original)
-                    if a_ori_inferida_simples:
+                        info_a_ori[key]["original"] = str(aliq.a_ori_original)
+                    if aliq.a_ori_limite_dispensado:
+                        info_a_ori[key]["limite_dispensado"] = True
+                    if aliq.a_ori_inferida_simples:
                         info_a_ori[key]["inferida_simples"] = True
                     if item.p_cred_sn > 0:
                         info_a_ori[key]["p_cred_sn"].add(str(item.p_cred_sn))
@@ -600,6 +620,8 @@ class ProcessingPipelineService:
                     origem_data=origem_data,
                     grupos=grupos,
                     resolucoes=resolucoes,
+                    resolucoes_fcp=resolucoes_fcp,
+                    a_dst_bases=a_dst_bases,
                     resolucoes_cfop=resolucoes_cfop,
                     info_a_ori=info_a_ori,
                     info_mva_policy=info_mva_policy,
@@ -607,6 +629,7 @@ class ProcessingPipelineService:
                     notas_ignoradas=notas_ignoradas,
                     erros_validacao=erros_validacao,
                     rows_por_destino=rows_por_destino,
+                    fcp_rows_por_destino=fcp_rows_por_destino,
                 )
 
             if raw_ctes:
@@ -625,6 +648,7 @@ class ProcessingPipelineService:
                     avisos_avaliacao=avisos_avaliacao,
                     erros_validacao=erros_validacao,
                     rows_por_destino=rows_por_destino,
+                    fcp_rows_por_destino=fcp_rows_por_destino,
                 )
 
             if rows_por_destino.get(CONTROLE_IMPOSTO_PAGO_ENTRADA):
@@ -656,6 +680,8 @@ class ProcessingPipelineService:
             # Ordenação cronológica aplicada dentro de cada planilha/destino
             for destino_key in list(rows_por_destino.keys()):
                 rows_por_destino[destino_key].sort(key=nfe_sort_key)
+            for destino_key in list(fcp_rows_por_destino.keys()):
+                fcp_rows_por_destino[destino_key].sort(key=nfe_sort_key)
 
             # Persistir todas as notas fiscais processadas (a ordem de exibição vem do order_by do relationship)
             for nf_proc in notas_criadas:
@@ -677,6 +703,7 @@ class ProcessingPipelineService:
                 legacy_mode=modo_legado,
                 legacy_template=template_legado,
                 header_info=header_info,
+                fcp_rows_by_destination=fcp_rows_por_destino,
             )
 
             # Atualizar status e resultado da solicitação
@@ -905,8 +932,13 @@ class ProcessingPipelineService:
         is_fornecedor_simples: bool,
         is_operacao_interestadual: bool,
         avisos_avaliacao: List[Dict[str, Any]],
-    ) -> Tuple[Decimal, Decimal, ResolucaoAliquota, Decimal, bool, bool, bool, bool, Optional[Decimal]]:
+    ) -> ResolucaoAliquotasItem:
         is_tributaria = destino_item in DESTINOS_TRIBUTARIA
+        empresa_tem_termo_acordo = (
+            self.resolver._termo_acordo(empresa.id) is not None
+            if getattr(empresa, "id", None) is not None
+            else getattr(empresa, "termo_acordo", None) is not None
+        )
         try:
             resolucao = self.resolver.resolve_a_dst(
                 perfil_regras_id=empresa.perfil_regras_id,
@@ -927,14 +959,21 @@ class ProcessingPipelineService:
                 if is_tributaria
                 else None
             )
+            resolucao_fcp = self.resolver.resolve_fcp(
+                perfil_regras_id=empresa.perfil_regras_id,
+                uf=empresa.uf,
+                ncm=item.ncm,
+                descricao=item.descricao if item.descricao_confiavel else None,
+                empresa_tem_termo_acordo=empresa_tem_termo_acordo,
+            )
         except RuleResolutionException as err:
             raise RuleResolutionException(
                 f"NF-e {nf_data.numero_nota} (arquivo {filename}): {err.message}"
             ) from err
 
-        # Regras de redução redundantes (mesmo valor) não param o processamento,
+        # Regras de redução/FCP redundantes (mesmo valor) não param o processamento,
         # mas o cadastro precisa ser unificado: o aviso vai para o resultado.
-        for resolucao_com_aviso in (resolucao, resolucao_red_trib):
+        for resolucao_com_aviso in (resolucao, resolucao_red_trib, resolucao_fcp):
             if resolucao_com_aviso is not None and resolucao_com_aviso.aviso:
                 aviso = resolucao_com_aviso.aviso
                 avisos_avaliacao.append({
@@ -945,7 +984,21 @@ class ProcessingPipelineService:
                     "aviso": f"Item {item.item_numero}: {aviso[:1].upper()}{aviso[1:]}",
                 })
 
-        a_dst = resolucao.aliquota
+        a_dst_base = resolucao.aliquota
+        fcp_aliquota = (
+            resolucao_fcp.aliquota if resolucao_fcp is not None else Decimal("0.00")
+        )
+        is_tributaria_regime_normal = is_tributaria and (not empresa.optante_simples_nacional)
+        if fcp_aliquota > Decimal("0.00") and is_tributaria_regime_normal:
+            fcp_separado_item: Optional[Decimal] = fcp_aliquota
+            a_dst = a_dst_base
+        elif fcp_aliquota > Decimal("0.00"):
+            fcp_separado_item = None
+            a_dst = a_dst_base + fcp_aliquota
+        else:
+            fcp_separado_item = None
+            a_dst = a_dst_base
+
         reducao_item: Optional[Decimal] = (
             resolucao_red_trib.aliquota if resolucao_red_trib is not None else None
         )
@@ -1017,25 +1070,35 @@ class ProcessingPipelineService:
             or origem_resolucao.startswith("termo_acordo:")
         )
         a_ori_limitada = False
+        a_ori_limite_dispensado = False
         if (
             destino_item in DESTINOS_PARCIAL
             and limitar_a_ori_reducoes
             and teve_reducao_ou_acordo
             and a_ori > Decimal("0.10")
         ):
-            a_ori = Decimal("0.10")
-            a_ori_limitada = True
+            # Na Parcial prevalece o tratamento mais benéfico: com A.ORI igual à
+            # A.DST efetiva (incluindo FCP) o imposto zera e alíquotas iguais pode excluir.
+            if abs(a_ori - a_dst) <= Decimal("1e-10"):
+                a_ori_limite_dispensado = True
+            else:
+                a_ori = Decimal("0.10")
+                a_ori_limitada = True
 
-        return (
-            a_ori,
-            a_dst,
-            resolucao,
-            a_ori_original,
-            a_ori_destacada,
-            a_ori_inferida_simples,
-            a_ori_inf_compl,
-            a_ori_limitada,
-            reducao_item,
+        return ResolucaoAliquotasItem(
+            a_ori=a_ori,
+            a_dst=a_dst,
+            a_dst_base=a_dst_base,
+            resolucao=resolucao,
+            resolucao_fcp=resolucao_fcp,
+            fcp_separado=fcp_separado_item,
+            a_ori_original=a_ori_original,
+            a_ori_destacada=a_ori_destacada,
+            a_ori_inferida_simples=a_ori_inferida_simples,
+            a_ori_inf_compl=a_ori_inf_compl,
+            a_ori_limitada=a_ori_limitada,
+            a_ori_limite_dispensado=a_ori_limite_dispensado,
+            reducao_item=reducao_item,
         )
 
     @staticmethod
@@ -1091,6 +1154,75 @@ class ProcessingPipelineService:
             return None
         return resultado_mva.mva
 
+    @staticmethod
+    def _calcular_fcp_separado(
+        *,
+        destino: str,
+        v_total: Decimal,
+        base_calculo: Decimal,
+        ipi_despesas: Decimal,
+        mva: Decimal,
+        reducao: Optional[Decimal],
+        fcp_aliquota: Decimal,
+    ) -> CalculationResult:
+        return CalculatorFactory.get_calculator(destino).calculate(
+            v_total=v_total,
+            base_calculo=base_calculo,
+            ipi_despesas=ipi_despesas,
+            a_ori=Decimal("0.00"),
+            a_dst=fcp_aliquota,
+            parametros_extras={
+                "mva": mva,
+                "reducao": reducao,
+                "valor_pago": Decimal("0.00"),
+                "is_simples": False,
+            },
+        )
+
+    @staticmethod
+    def _montar_linha_fcp(
+        base_row: Dict[str, Any],
+        *,
+        fcp_aliquota: Decimal,
+        fcp_calc: CalculationResult,
+        overrides: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        row_fcp = dict(base_row)
+        if overrides:
+            row_fcp.update(overrides)
+        row_fcp.update({
+            "a_ori": Decimal("0.00"),
+            "a_dst": fcp_aliquota,
+            "debito": fcp_calc.debito,
+            "credito": Decimal("0.00"),
+            "valor_devido": fcp_calc.valor_devido,
+            "valor_pago": Decimal("0.00"),
+        })
+        return row_fcp
+
+    @staticmethod
+    def _montar_metadados_fcp(
+        *,
+        a_dst_base: Decimal,
+        fcp_aliquota: Optional[Decimal],
+        fcp_origem: Optional[str],
+        fcp_detalhe: Optional[str],
+        fcp_separado: bool,
+        fcp_calc: Optional[CalculationResult] = None,
+    ) -> Dict[str, Any]:
+        tem_fcp = fcp_aliquota is not None and fcp_aliquota > Decimal("0.00")
+        meta: Dict[str, Any] = {
+            "a_dst_base": str(a_dst_base),
+            "fcp_aliquota": str(fcp_aliquota) if tem_fcp else None,
+            "fcp_origem": fcp_origem if tem_fcp else None,
+            "fcp_detalhe": fcp_detalhe if tem_fcp else None,
+            "fcp_separado": bool(fcp_separado and tem_fcp),
+        }
+        if meta["fcp_separado"] and fcp_calc is not None:
+            meta["fcp_base_st"] = fcp_calc.detalhes["base_st"]
+            meta["fcp_valor_devido"] = str(fcp_calc.valor_devido)
+        return meta
+
     def _consolidar_grupos_nota(
         self,
         *,
@@ -1104,6 +1236,8 @@ class ProcessingPipelineService:
         origem_data: Optional[str],
         grupos: Dict[GrupoKey, List[Any]],
         resolucoes: Dict[GrupoKey, List[ResolucaoAliquota]],
+        resolucoes_fcp: Dict[GrupoKey, List[Optional[ResolucaoAliquota]]],
+        a_dst_bases: Dict[GrupoKey, List[Decimal]],
         resolucoes_cfop: Dict[GrupoKey, List[ResolucaoCfop]],
         info_a_ori: Dict[GrupoKey, Dict[str, Any]],
         info_mva_policy: Dict[GrupoKey, Dict[str, Any]],
@@ -1111,13 +1245,21 @@ class ProcessingPipelineService:
         notas_ignoradas: List[Dict[str, Any]],
         erros_validacao: List[str],
         rows_por_destino: Dict[str, List[Dict[str, Any]]],
+        fcp_rows_por_destino: Dict[str, List[Dict[str, Any]]],
     ) -> None:
         qtd_itens_originais = len(nf_data.itens)
         qtd_itens_classificados = sum(len(v) for v in grupos.values())
         split_index_por_destino: Dict[str, int] = defaultdict(lambda: 1)
 
         for grupo_key, itens_objs in grupos.items():
-            destino_grupo, a_ori, a_dst, mva_grupo, reducao_grupo = grupo_key
+            (
+                destino_grupo,
+                a_ori,
+                a_dst,
+                mva_grupo,
+                reducao_grupo,
+                fcp_separado_grupo,
+            ) = grupo_key
             split_index = split_index_por_destino[destino_grupo]
 
             usar_total_nota = (
@@ -1198,11 +1340,53 @@ class ProcessingPipelineService:
                     base_calculo=v_bc_grupo,
                     a_ori=a_ori,
                     a_dst=a_dst,
+                    fcp_separado=fcp_separado_grupo,
                 )
             except ValidationException as val_err:
                 erros_validacao.append(str(val_err))
                 notas_ignoradas.append(ignored_note(nf_data, filename, str(val_err)))
                 continue
+
+            fcp_calc = (
+                self._calcular_fcp_separado(
+                    destino=destino_grupo,
+                    v_total=v_total_grupo,
+                    base_calculo=v_bc_grupo,
+                    ipi_despesas=ipi_despesas_grupo,
+                    mva=mva_grupo,
+                    reducao=reducao_grupo,
+                    fcp_aliquota=fcp_separado_grupo,
+                )
+                if fcp_separado_grupo is not None and fcp_separado_grupo > Decimal("0.00")
+                else None
+            )
+            res_fcp_validas = [
+                r for r in resolucoes_fcp.get(grupo_key, [])
+                if r is not None and r.aliquota > Decimal("0.00")
+            ]
+            bases_grupo = a_dst_bases.get(grupo_key, [a_dst])
+            if fcp_calc is not None:
+                a_dst_base_grupo = bases_grupo[0]
+                fcp_aliq_grupo: Optional[Decimal] = fcp_separado_grupo
+            elif res_fcp_validas:
+                bases_com_fcp = [
+                    b for b, r in zip(bases_grupo, resolucoes_fcp.get(grupo_key, []))
+                    if r is not None and r.aliquota > Decimal("0.00")
+                ]
+                a_dst_base_grupo = bases_com_fcp[0] if bases_com_fcp else bases_grupo[0]
+                fcp_aliq_grupo = res_fcp_validas[0].aliquota
+            else:
+                a_dst_base_grupo = bases_grupo[0]
+                fcp_aliq_grupo = None
+
+            fcp_meta = self._montar_metadados_fcp(
+                a_dst_base=a_dst_base_grupo,
+                fcp_aliquota=fcp_aliq_grupo,
+                fcp_origem="; ".join(sorted({r.origem for r in res_fcp_validas})) or None,
+                fcp_detalhe="; ".join(sorted({r.detalhe for r in res_fcp_validas})) or None,
+                fcp_separado=fcp_calc is not None,
+                fcp_calc=fcp_calc,
+            )
 
             is_antecipado = destino_grupo in DESTINOS_ANTECIPADOS
             data_entrada_efetiva = None if is_antecipado else data_entrada_resolvida
@@ -1249,12 +1433,14 @@ class ProcessingPipelineService:
                         sorted({rc.motivo for rc in resolucoes_cfop.get(grupo_key, []) if rc.motivo})
                     ),
                     "a_ori_limitada": info_a_ori.get(grupo_key, {}).get("limitada", False),
+                    "a_ori_limite_dispensado": info_a_ori.get(grupo_key, {}).get("limite_dispensado", False),
                     "a_ori_original": info_a_ori.get(grupo_key, {}).get("original", str(a_ori)),
                     "a_ori_inferida_simples": info_a_ori.get(grupo_key, {}).get("inferida_simples", False),
                     "a_ori_destacada": info_a_ori.get(grupo_key, {}).get("destacada", True),
                     "a_ori_inf_compl": info_a_ori.get(grupo_key, {}).get("inf_compl", False),
                     "p_cred_sn": sorted(info_a_ori.get(grupo_key, {}).get("p_cred_sn", set())) or None,
                     **calc_result.detalhes,
+                    **fcp_meta,
                 },
             )
             notas_criadas.append(nf_proc)
@@ -1265,7 +1451,7 @@ class ProcessingPipelineService:
                 if destino_grupo in DESTINOS_DIFAL and not info_a_ori.get(grupo_key, {}).get("destacada", True)
                 else a_ori
             )
-            rows_por_destino[destino_grupo].append({
+            row_principal = {
                 "numero_nota": numero_nota_planilha,
                 "serie": nf_data.serie,
                 "chave_acesso": nf_data.chave_acesso,
@@ -1291,7 +1477,16 @@ class ProcessingPipelineService:
                 "debito": calc_result.debito,
                 "credito": calc_result.credito,
                 "valor_devido": calc_result.valor_devido,
-            })
+            }
+            rows_por_destino[destino_grupo].append(row_principal)
+            if fcp_calc is not None and fcp_separado_grupo is not None:
+                fcp_rows_por_destino[destino_grupo].append(
+                    self._montar_linha_fcp(
+                        row_principal,
+                        fcp_aliquota=fcp_separado_grupo,
+                        fcp_calc=fcp_calc,
+                    )
+                )
             split_index_por_destino[destino_grupo] = split_index + 1
 
     def _tratar_sem_linhas_geradas(

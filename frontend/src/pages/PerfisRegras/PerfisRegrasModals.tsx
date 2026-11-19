@@ -244,12 +244,12 @@ export const PerfisRegrasModals: React.FC<PerfisRegrasModalsProps> = ({
         {tipoRegraWatch === 'excecao' && (
           <div>
             <Input
-              label="Código NCM (8 dígitos)"
-              placeholder="Ex: 84713012"
-              maxLength={8}
+              label="Código NCM ou prefixo (4 a 8 dígitos)"
+              placeholder="Ex: 2203 ou 84713012"
+              maxLength={12}
               {...registerRegra('ncm')}
               error={errorsRegra.ncm?.message}
-              helperText="Apenas números. Itens de NF-e com este NCM adotarão esta alíquota prioritariamente."
+              helperText="Informe de 4 a 8 dígitos numéricos (ex.: 2203 para toda a posição ou 84713012 exato). Quando houver sobreposição, o prefixo mais longo (mais específico) vence."
             />
           </div>
         )}

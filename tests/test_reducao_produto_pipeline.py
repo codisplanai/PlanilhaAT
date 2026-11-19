@@ -147,7 +147,8 @@ def test_regras_redundantes_com_mesma_aliquota_nao_interrompem_e_viram_aviso(
 
 def test_limitar_a_ori_reducoes_a_10_quando_ativo(db_session, cenario_janeiro):
     """Quando o perfil de regras possui 'limitar_a_ori_reducoes: True' e o item recebe
-    redução ou termo de acordo, a A.ORI de 12% é limitada a 10%, recalculando crédito e valor devido."""
+    redução ou termo de acordo, a A.ORI de 12% é limitada a 10% apenas quando difere da
+    A.DST; quando A.ORI == A.DST, o limite é dispensado e o crédito integral é mantido."""
     sol = cenario_janeiro()
     empresa = _preparar(db_session, sol)
     empresa.perfil_regras.configuracoes_extras = {"limitar_a_ori_reducoes": True}
@@ -157,13 +158,26 @@ def test_limitar_a_ori_reducoes_a_10_quando_ativo(db_session, cenario_janeiro):
         sol.id, xml_files_bytes=[("901.xml", _xml_dois_itens_mesmo_ncm())])
     db_session.refresh(res)
 
-    for n in res.notas_processadas:
-        assert Decimal(str(n.a_ori)) == Decimal("0.10")
-        assert n.metadados_extras.get("a_ori_limitada") is True
-        assert Decimal(str(n.metadados_extras.get("a_ori_original"))) == Decimal("0.12")
-        # Crédito recalculado: base_calculo * 0.10
-        assert n.credito == (n.base_calculo * Decimal("0.10")).quantize(Decimal("0.01"))
-        assert n.valor_devido == (n.debito - n.credito)
+    por_aliquota = {Decimal(str(n.a_dst_resolvida)): n for n in res.notas_processadas}
+    assert set(por_aliquota.keys()) == {Decimal("0.1200"), Decimal("0.1206")}
+
+    # Item 1 (VERGALHAO): A.DST 12% == A.ORI 12% -> dispensa o limite de 10%
+    vergalhao = por_aliquota[Decimal("0.1200")]
+    assert Decimal(str(vergalhao.a_ori)) == Decimal("0.1200")
+    assert vergalhao.metadados_extras.get("a_ori_limitada") is False
+    assert vergalhao.metadados_extras.get("a_ori_limite_dispensado") is True
+    assert Decimal(str(vergalhao.metadados_extras.get("a_ori_original"))) == Decimal("0.12")
+    assert vergalhao.credito == (vergalhao.base_calculo * Decimal("0.12")).quantize(Decimal("0.01"))
+    assert vergalhao.valor_devido == (vergalhao.debito - vergalhao.credito)
+
+    # Item 2 (BARRA CHATA): A.DST 12,06% != A.ORI 12% -> limita A.ORI a 10%
+    barra_chata = por_aliquota[Decimal("0.1206")]
+    assert Decimal(str(barra_chata.a_ori)) == Decimal("0.10")
+    assert barra_chata.metadados_extras.get("a_ori_limitada") is True
+    assert barra_chata.metadados_extras.get("a_ori_limite_dispensado") is False
+    assert Decimal(str(barra_chata.metadados_extras.get("a_ori_original"))) == Decimal("0.12")
+    assert barra_chata.credito == (barra_chata.base_calculo * Decimal("0.10")).quantize(Decimal("0.01"))
+    assert barra_chata.valor_devido == (barra_chata.debito - barra_chata.credito)
 
 
 def test_manter_a_ori_quando_configuracao_inativa(db_session, cenario_janeiro):
