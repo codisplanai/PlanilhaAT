@@ -58,6 +58,7 @@ import {
   processCtesLocally,
 } from './cteProcessing.ts';
 import type { NfeCteContext } from './cteProcessing.ts';
+import { resolveAutopecasMvaXml } from './autopecasMva.ts';
 import {
   acceptsRetroactiveDifal,
   classifyRevendaMva,
@@ -819,6 +820,8 @@ export async function processFiscalLocally(
   diagnostic?.event('info', 'leitura', 'Fontes fiscais interpretadas.', {
     notasLidas: sources.notes.length,
     registrosEntrada: sources.entryRecords.length,
+    registrosPlanilhaEntrada: sources.entryRecords.length,
+    notasEntradaSped: sources.notes.filter((note) => note.origemExtracao === 'sped').length,
     notasInvalidas: sources.ignoredNotes.length,
     possuiSped: hasSped,
     possuiPlanilhaEntrada: Boolean(request.input.entrySheet),
@@ -1205,7 +1208,10 @@ export async function processFiscalLocally(
           // A faixa da MVA ajustada vem da A.ORI destacada no documento, antes de
           // inferência (Simples), alíquota fixa ou limite por redução.
           const mvaResolution = resolveMvaForItem(context, item.ncm, item.cest, originalAOri, mvaColumn);
-          if (mvaResolution.status === 'pendente') {
+          const mvaAutopecas = mvaResolution.status === 'pendente'
+            ? resolveAutopecasMvaXml(context, note, item, mvaColumn, originalAOri, aOri, effectiveADst)
+            : null;
+          if (mvaResolution.status === 'pendente' && mvaAutopecas === null) {
             excluded.push(buildExcludedItem(
               note, item, destination, mvaResolution.motivo, 'mva_pendente',
               { a_ori: originalAOri, a_dst: effectiveADst },
@@ -1215,10 +1221,21 @@ export async function processFiscalLocally(
               itemNumero: item.itemNumero,
               ncm: item.ncm,
               colunaMva: mvaResolution.column ?? 'indefinida',
+              motivo: mvaResolution.motivo,
+              mvaXml: item.stXml?.mva ?? null,
             });
             continue;
           }
-          itemMva = mvaResolution.mva;
+          if (mvaResolution.status === 'ok') {
+            itemMva = mvaResolution.mva;
+          } else if (mvaAutopecas !== null) {
+            itemMva = mvaAutopecas;
+            mvaPolicySource = 'anexo1_item1.1_autopecas_xml_validado';
+            diagnostic?.event('info', 'calculo', 'MVA de autopeças validada pelo item 1.1 do Anexo 1 (caso geral).', {
+              numeroNota: note.numeroNota, itemNumero: item.itemNumero, ncm: item.ncm,
+              mva: itemMva, mvaXml: item.stXml?.mva ?? null,
+            });
+          }
         }
       }
 
