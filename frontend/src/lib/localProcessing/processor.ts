@@ -5,6 +5,7 @@ import type {
   LocalProcessingRequest,
   LocalProcessingResult,
   LocalTemplateDescriptor,
+  MvaPending,
 } from '../../types/localProcessing';
 import type {
   AvisoAvaliacao,
@@ -58,7 +59,8 @@ import {
   processCtesLocally,
 } from './cteProcessing.ts';
 import type { NfeCteContext } from './cteProcessing.ts';
-import { resolveAutopecasMvaXml } from './autopecasMva.ts';
+import { autopecasMvaSuggestions, resolveAutopecasMvaXml } from './autopecasMva.ts';
+import { manualMvaEngineValue, mvaReviewKey, validMvaDecision } from './mvaReview.ts';
 import {
   acceptsRetroactiveDifal,
   classifyRevendaMva,
@@ -898,6 +900,7 @@ export async function processFiscalLocally(
 
   const ignored: NotaIgnorada[] = [...sources.ignoredNotes as NotaIgnorada[]];
   const excluded: ItemExcluido[] = [];
+  const pendingMvas: MvaPending[] = [];
   const warnings: AvisoAvaliacao[] = [];
   const missingCfops: Record<string, number> = {};
   const rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>> = {};
@@ -1211,9 +1214,22 @@ export async function processFiscalLocally(
           const mvaAutopecas = mvaResolution.status === 'pendente'
             ? resolveAutopecasMvaXml(context, note, item, mvaColumn, originalAOri, aOri, effectiveADst)
             : null;
-          if (mvaResolution.status === 'pendente' && mvaAutopecas === null) {
+          const reviewKey = mvaReviewKey(note,item);
+          const candidateDecision = request.mvaDecisions?.[reviewKey];
+          const decision = validMvaDecision(candidateDecision) ? candidateDecision : undefined;
+          if (mvaResolution.status === 'pendente' && mvaAutopecas === null && (!decision || decision.mva === null)) {
+            if (request.reviewPendingMva && !decision) {
+              pendingMvas.push({
+                key: reviewKey, numeroNota: note.numeroNota, chaveAcesso: note.chaveAcesso,
+                itemNumero: item.itemNumero, descricao: item.descricao, ncm: item.ncm, cest: item.cest,
+                cfop: item.cfop, aOri: originalAOri, aDst: effectiveADst, column: mvaColumn,
+                mvaXml: item.stXml?.mva ?? null, motivo: mvaResolution.motivo,
+                suggestions: autopecasMvaSuggestions(context,note,item,mvaColumn,originalAOri),
+              });
+              continue;
+            }
             excluded.push(buildExcludedItem(
-              note, item, destination, mvaResolution.motivo, 'mva_pendente',
+              note, item, destination, mvaResolution.motivo + (decision ? ' Decisão do analista: manter pendente. ' + decision.justificativa : ''), 'mva_pendente',
               { a_ori: originalAOri, a_dst: effectiveADst },
             ));
             diagnostic?.event('warning', 'calculo', 'Item da Antecipação Tributária sem MVA determinável: ficou fora da planilha.', {
@@ -1235,6 +1251,13 @@ export async function processFiscalLocally(
               numeroNota: note.numeroNota, itemNumero: item.itemNumero, ncm: item.ncm,
               mva: itemMva, mvaXml: item.stXml?.mva ?? null,
             });
+          } else if (decision && decision.mva !== null) {
+            itemMva = manualMvaEngineValue(decision.mva);
+            mvaPolicySource = 'manual: ' + decision.justificativa.trim();
+            diagnostic?.event('info','validacao','MVA confirmada pelo analista.',{
+              numeroNota: note.numeroNota, itemNumero: item.itemNumero, mva: decision.mva,
+              justificativa: decision.justificativa.trim(),
+            });
           }
         }
       }
@@ -1247,7 +1270,7 @@ export async function processFiscalLocally(
         Boolean(convenio?.applied),
         itemReducao,
         fcpSeparado,
-      );
+      ) + (mvaPolicySource.startsWith('manual: ') ? '|manual|' + item.itemNumero : '');
       const group: Group = groups.get(key) ?? {
         destination,
         aOri,
@@ -1355,6 +1378,15 @@ export async function processFiscalLocally(
     });
   }
 
+  if (pendingMvas.length > 0) {
+    if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
+    diagnostic?.stage('validacao','Processamento pausado para confirmação de MVA.',{pendencias:pendingMvas.length});
+    return {
+      preAnalysis: { requer_decisao: true, notas_bonificacao: [], itens_convenio_52_91: [], itens_mva: pendingMvas },
+      notasProcessadas: [], notasIgnoradas: ignored, itensExcluidos: [], avisosAvaliacao: [],
+      cfopsSemRegra: {}, rowsByDestination: {}, artifacts: [],
+    };
+  }
   if (ctes.length > 0) {
     processCtesLocally({
       ctes,
