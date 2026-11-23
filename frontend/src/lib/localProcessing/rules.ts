@@ -972,7 +972,10 @@ export function resolveMvaForItem(
     ...new Set(entries.map((entry) => entry.item).filter((item): item is string => Boolean(item))),
   ];
 
-  let candidates = findNcmCandidates(context.mva_anexo, cleanNcm);
+  const documentCest = String(cest ?? '').replace(/\D/g, '');
+  let candidates = findNcmCandidates(context.mva_anexo.filter((entry) =>
+    !entry.autopecas || (documentCest && entryCests(entry).has(documentCest))
+  ), cleanNcm);
   if (candidates.length === 0) {
     return {
       status: 'pendente',

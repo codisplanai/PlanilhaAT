@@ -6,7 +6,13 @@ import type { LocalProcessingContext } from '../src/types/localProcessing.ts';
 
 const context = {
   empresa: { uf: 'BA', razao_social: 'Comercio Auto Pecas Teste' },
-  mva_anexo: [{ ncm: '7318', cest: ['10.058.00'] }],
+  mva_anexo: [
+    {ncm:'7318',cest:['10.058.00']},
+    ...[['8708','0107500'],['8511','0105400'],['85443000','0107300'],['90322000','0112600'],['40169990','0100900'],['','0199900']].map(([ncm,cest])=>({
+      ncm,cest:[cest],autopecas:true,vigencia_inicio:'2026-01-01',vigencia_fim:'2026-12-31',
+      mva_ajustada:[{caso:'fidelidade',aliquotas:{'12':51.16}},{caso:'demais',aliquotas:{'12':90.15}}],
+    })),
+  ],
 } as LocalProcessingContext;
 const note = { ufEmitente: 'SE', dataEmissao: '2026-10-15T10:00:00',
   rawMetadata: { crt: '3', emit_nome: 'Fornecedor Auto Pecas Teste' } } as ExtractedNote;

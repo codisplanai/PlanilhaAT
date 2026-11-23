@@ -112,9 +112,8 @@ class MvaResolver:
                             continue
                         ncm_raw = item.get("ncm") or item.get("NCM") or ""
                         ncm_clean = re.sub(r"\D", "", str(ncm_raw))
-                        if not ncm_clean:
+                        if not ncm_clean and not (item.get("autopecas") and item.get("cest") == ["01.999.00"]):
                             continue
-                        
                         entry = {
                             "ncm": ncm_clean,
                             "item": item.get("item"),
@@ -122,7 +121,10 @@ class MvaResolver:
                             "mva_ajustada": item.get("mva_ajustada"),
                             "mva_original": item.get("mva_original"),
                             "cest": item.get("cest"),
-                            "descricao": item.get("descricao")
+                            "descricao": item.get("descricao"),
+                            "autopecas": bool(item.get("autopecas")),
+                            "vigencia_inicio": item.get("vigencia_inicio"),
+                            "vigencia_fim": item.get("vigencia_fim")
                         }
                         entries.append(entry)
             elif isinstance(data, dict):
@@ -196,6 +198,8 @@ class MvaResolver:
         matches: List[Dict[str, Any]] = []
 
         for entry in entries:
+            if entry.get("autopecas"):
+                continue  # o resolvedor legado não distingue fidelidade
             entry_ncm = entry["ncm"]
             # Match exato ou prefixo: se o NCM consultado começa com entry_ncm ou vice-versa
             if clean_ncm.startswith(entry_ncm):
@@ -413,7 +417,11 @@ class MvaResolver:
                 motivo_pendencia="MVA pendente: a tabela do Anexo 1 não está disponível no sistema.",
             )
 
-        candidatos = cls._candidatos_por_ncm(entries, clean_ncm)
+        clean_cest = re.sub(r"\D", "", str(cest or ""))
+        candidatos = cls._candidatos_por_ncm(
+            [entry for entry in entries if not entry.get("autopecas") or clean_cest in cls._cests_do_item(entry)],
+            clean_ncm,
+        )
         if not candidatos:
             return ResultadoMva(
                 mva=None,

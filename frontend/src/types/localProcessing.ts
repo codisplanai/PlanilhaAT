@@ -86,6 +86,9 @@ export interface LocalMvaEntry {
   mva_original?: Array<{ caso?: string | null; valor?: number | string | null }> | null;
   cest?: string[] | null;
   descricao?: string | null;
+  autopecas?: boolean;
+  vigencia_inicio?: string | null;
+  vigencia_fim?: string | null;
 }
 
 export interface LocalFiscalInput {
