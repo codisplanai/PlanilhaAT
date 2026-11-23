@@ -3,8 +3,13 @@ import { roundCurrency } from './calculations.ts';
 
 export function totalSemStXml(note: ExtractedNote): number {
   // vNF inclui o próprio ICMS-ST. Não reaplicar MVA sobre esse imposto.
-  if (!Object.prototype.hasOwnProperty.call(note.rawMetadata,'icms_st_xml')) return note.vTotalNota;
-  return roundCurrency(note.vTotalNota - Math.max(0, note.vStNota ?? 0));
+  if (!Object.prototype.hasOwnProperty.call(note.rawMetadata,'icms_st_xml') || !(Number(note.vStNota)>0)
+      || !note.itens?.length || note.itens.some(item=>item.baseSemIpi==null || item.vIpi==null)) return note.vTotalNota;
+  // Confirmar pela soma econômica dos itens; algumas fontes legadas já
+  // representam um total líquido de ST. Não descontar duas vezes.
+  const economic=roundCurrency(note.itens.reduce((sum,item)=>sum+item.baseSemIpi!+item.vIpi!,0));
+  const net=roundCurrency(note.vTotalNota-Number(note.vStNota));
+  return Math.abs(net-economic)<0.000001 ? net : note.vTotalNota;
 }
 
 const close=(a:number,b:number)=>Math.abs(a-b)<0.000001;

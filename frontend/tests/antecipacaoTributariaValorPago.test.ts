@@ -418,3 +418,44 @@ test('NF-e mista com frete: item 6102 reclassificado para 6403 permanece na Trib
   assert.equal(Number(itemTributavel.metadados_extras?.valor_pago ?? 0), 0);
   assert.ok(itemTributavel.valor_devido > 0);
 });
+
+test('XML com vNF comprovadamente incluindo ST: não calcula MVA sobre o imposto',async()=>{
+  const context=buildContext();
+  const xml=SAMPLE_XML_WITH_ST.replace('<vNF>1000.00</vNF>','<vNF>1050.00</vNF>');
+  const fs=await import('node:fs');
+  const path=await import('node:path');
+  const templatePath=fs.existsSync('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    ? path.resolve('storage/templates/modelo_padrao_antecipacao_tributaria.xlsx')
+    : path.resolve('../storage/templates/modelo_padrao_antecipacao_tributaria.xlsx');
+  const bytes=fs.readFileSync(templatePath);
+  const result=await processFiscalLocally({
+    solicitacaoId:'teste-st-base-liquida',periodoInicio:'2026-08-01',periodoFim:'2026-08-31',context,
+    input:{xmlFiles:[new File([xml],'nota-st.xml')],entrySheet:null},
+  },new Map([[1,bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength) as ArrayBuffer]]));
+  assert.equal(result.notasProcessadas.length,1);
+  assert.equal(result.notasProcessadas[0].v_total,1000);
+  assert.equal(result.notasProcessadas[0].valor_devido,167);
+});
+test('autopeças: XML com ST integral e MVA compatível com catálogo não gera pendência nem imposto fictício',async()=>{
+  const context=buildContext();
+  const fs=await import('node:fs');
+  context.mva_anexo=JSON.parse(fs.readFileSync(new URL('../../storage/data/AnexoI.json',import.meta.url),'utf8'))
+    .filter((r:any)=>r.autopecas===true);
+  const xml=SAMPLE_XML_WITH_ST
+    .replace('<UF>SP</UF>','<UF>SE</UF>')
+    .replace('<NCM>84649090</NCM>','<NCM>87089990</NCM><CEST>0107500</CEST>')
+    .replace('<vNF>1000.00</vNF>','<vNF>1269.81</vNF>')
+    .replace('<pICMS>7.00</pICMS>','<pICMS>12.00</pICMS>')
+    .replaceAll('70.00','120.00')
+    .replace('<vBCST>1500.00</vBCST>','<modBCST>4</modBCST><pMVAST>90.15</pMVAST><vBCST>1901.50</vBCST>')
+    .replaceAll('>50.00<','>269.81<');
+  const result=await processFiscalLocally({
+    solicitacaoId:'teste-autopecas-st-integral',periodoInicio:'2026-08-01',periodoFim:'2026-08-31',context,
+    input:{xmlFiles:[new File([xml],'nota-autopecas.xml')],entrySheet:null},reviewPendingMva:true,
+  },new Map());
+  assert.equal(result.preAnalysis.requer_decisao,false);
+  assert.equal(result.artifacts.length,0);
+  assert.equal(result.itensExcluidos.length,1);
+  assert.match(result.itensExcluidos[0].motivo,/cobre integralmente/);
+  assert.match(result.mensagem??'',/ICMS-ST destacado cobre integralmente/);
+});
