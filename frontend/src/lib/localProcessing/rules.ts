@@ -1056,11 +1056,15 @@ export function industryBonusRejectedReason(cfop: string): string {
   return `Bonificação/amostra/outras entradas (CFOP ${cfop}) não confirmada como uso/consumo pelo usuário (empresa industrial).`;
 }
 
-export function noOutputMessage(excluded: Array<{ tipo_exclusao: string }>): string {
+export function noOutputMessage(excluded: Array<{ tipo_exclusao: string; destino?: string; motivo?: string }>): string {
   if (excluded.length > 0 && excluded.every((item) => item.tipo_exclusao === 'industria_sem_antecipacao')) {
     return 'Nenhuma planilha gerada: empresa industrial sem itens de uso/consumo ou ativo imobilizado (DIFAL)';
   }
   const pending = excluded.filter((item) => item.tipo_exclusao === 'mva_pendente').length;
+  if (pending === 0 && excluded.some(item => item.destino?.startsWith('antecipacao_tributaria')
+      && item.motivo?.includes('sem imposto a recolher'))) {
+    return 'Nenhuma planilha gerada: ICMS-ST destacado cobre integralmente a Antecipação Tributária apurada; não há outros itens a recolher. Confira os itens excluídos.';
+  }
   if (pending === 0) return 'Nenhum item a recolher na Parcial';
   if (pending === excluded.length) {
     return 'Nenhuma planilha gerada: itens da Antecipação Tributária com MVA pendente precisam de tratamento manual (ver itens excluídos)';

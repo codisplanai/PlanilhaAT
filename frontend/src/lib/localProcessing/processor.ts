@@ -61,6 +61,7 @@ import {
 import type { NfeCteContext } from './cteProcessing.ts';
 import { autopecasMvaSuggestions, resolveAutopecasMvaXml } from './autopecasMva.ts';
 import { manualMvaEngineValue, mvaReviewKey, validMvaDecision } from './mvaReview.ts';
+import { stIntegralmenteCobertoPorItem, totalSemStXml } from './stXmlCalculation.ts';
 import {
   acceptsRetroactiveDifal,
   classifyRevendaMva,
@@ -429,7 +430,9 @@ function consolidateNoteGroups(params: {
     const splitIndex = splitByDestination.get(group.destination) ?? 1;
     const useNoteTotal = groups.size === 1 && classifiedItems === note.itens.length && note.vTotalNota > 0;
 
-    const vTotal = useNoteTotal ? note.vTotalNota : group.items.reduce((sum, item) => sum + item.vTotal, 0);
+    const vTotal = useNoteTotal
+      ? (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? totalSemStXml(note) : note.vTotalNota)
+      : group.items.reduce((sum, item) => sum + item.vTotal, 0);
     const originalBaseXml = useNoteTotal && note.vBcNota > 0
       ? note.vBcNota
       : group.items.reduce((sum, item) => sum + Number(item.baseCalculoXml ?? item.baseCalculo), 0);
@@ -509,6 +512,19 @@ function consolidateNoteGroups(params: {
       isSimples: Boolean(context.empresa.optante_simples_nacional),
       valorPago,
     });
+
+    const stPorItem = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)
+      ? stIntegralmenteCobertoPorItem(group.items, mva, group.aOri, group.aDst,
+        group.reducao, group.fcpSeparado, vTotal, base, valorPago)
+      : null;
+    if (stPorItem) {
+      calculation.debito = stPorItem.debito;
+      calculation.credito = stPorItem.credito;
+      calculation.valorDevido = 0;
+      diagnostic?.event('info','calculo','ICMS-ST integralmente coberto: conferência independente item a item.',{
+        numeroNota:note.numeroNota, itens:group.items.length, valorPago,
+      });
+    }
 
     // Em Antecipação Tributária, se o ICMS ST destacado na nota cobrir o imposto ou resultar em <= 0,
     // remover da planilha final e registrar em itens excluídos.

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveAutopecasMvaXml } from '../src/lib/localProcessing/autopecasMva.ts';
@@ -46,4 +47,24 @@ test('não usa MVA arbitrária, benefício de fidelidade, ST de outro item ou CF
   assert.equal(resolve(item, note, { ...context, mva_anexo: [] }), null);
   assert.equal(resolve(item, note, { ...context, mva_anexo: [{ ncm: '8708', cest: ['01.075.00'] }] }), null);
   assert.equal(resolveAutopecasMvaXml(context, note, item, 'ajustada', .12, .12, .19), null);
+});
+
+test('catálogo real: 131 CESTs, item 110 revogado, residual sem NCM, duas hipóteses de MVA',()=>{
+  const data=JSON.parse(fs.readFileSync(new URL('../../storage/data/AnexoI.json',import.meta.url),'utf8'));
+  const rows=data.filter((row:any)=>row.autopecas===true);
+  assert.equal(rows.length,156);
+  assert.equal(new Set(rows.flatMap((row:any)=>row.cest)).size,131);
+  assert.equal(rows.some((row:any)=>row.cest.includes('01.110.00')),false);
+  assert.equal(rows.find((row:any)=>row.cest.includes('01.999.00')).ncm,'');
+  for(const row of rows){
+    assert.equal(row.mva,null);
+    assert.deepEqual(row.mva_ajustada.map((x:any)=>x.aliquotas['12']),[51.16,90.15]);
+    assert.deepEqual(row.mva_original.map((x:any)=>x.valor),[36.56,71.78]);
+  }
+  const actual = {...context,mva_anexo:rows};
+  assert.equal(resolve(item,note,actual),90.15);
+  assert.equal(resolve({...item,ncm:'73259100',cest:'0102100'},note,actual),null);
+  assert.equal(resolve({...item,ncm:'87169090',cest:'0112700'},note,actual),null);
+  assert.equal(resolve({...item,ncm:'73181500',cest:'0199900',descricao:'PARAFUSO AUTOMOTIVO'},note,actual),90.15);
+  assert.equal(resolve(item,{...note,dataEmissao:'2025-12-01'},actual),null);
 });
