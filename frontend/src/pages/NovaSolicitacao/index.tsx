@@ -8,6 +8,7 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { ModalConfirmacaoBonificacao } from '../../components/ModalConfirmacaoBonificacao';
 import { ModalConfirmacaoConvenio5291 } from '../../components/ModalConfirmacaoConvenio5291';
 import { ModalPendenciaCteNfe } from '../../components/ModalPendenciaCteNfe';
+import { ModalPendenciaMva } from '../../components/ModalPendenciaMva';
 import { CompanySelectionStep } from './CompanySelectionStep';
 import { PeriodSelectionStep } from './PeriodSelectionStep';
 import { FiscalFilesStep } from './FiscalFilesStep';
@@ -70,6 +71,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
     showModalConvenio5291,
     confirmarConvenio5291EProcessar,
     cancelarModalConvenio5291,
+    pendenciasMva, showModalMva, confirmarMvasEProcessar, cancelarModalMva,
     diagnosticSession,
     clearDiagnostic,
     exportDiagnosticText,
@@ -188,6 +190,13 @@ export const NovaSolicitacaoPage: React.FC = () => {
         industria={selectedEmpresa?.atividade === 'industria'}
       />
 
+      {showModalMva && <ModalPendenciaMva
+        pendencias={pendenciasMva}
+        xmlFiles={xmlFiles}
+        onClose={cancelarModalMva}
+        onConfirm={confirmarMvasEProcessar}
+        isProcessing={isProcessing}
+      />}
       <ModalConfirmacaoConvenio5291
         isOpen={showModalConvenio5291}
         onClose={cancelarModalConvenio5291}

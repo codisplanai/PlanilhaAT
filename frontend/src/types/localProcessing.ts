@@ -86,7 +86,28 @@ export interface LocalMvaEntry {
   mva_original?: Array<{ caso?: string | null; valor?: number | string | null }> | null;
   cest?: string[] | null;
   descricao?: string | null;
+  autopecas?: boolean;
+  vigencia_inicio?: string | null;
+  vigencia_fim?: string | null;
 }
+
+export interface MvaPending {
+  key: string;
+  numeroNota: string;
+  chaveAcesso: string;
+  itemNumero: number;
+  descricao: string;
+  ncm: string;
+  cest: string;
+  cfop: string;
+  aOri: number;
+  aDst: number;
+  column: 'original' | 'ajustada' | null;
+  mvaXml: number | null;
+  motivo: string;
+  suggestions: Array<{ label: string; value: number }>;
+}
+export type MvaDecision = { mva: number | null; justificativa: string };
 
 export interface LocalFiscalInput {
   xmlFiles: File[];
@@ -104,6 +125,8 @@ export interface LocalProcessingRequest {
   bonusDecisions?: Record<string, boolean>;
   convenio5291Decisions?: Record<string, Convenio5291Decision>;
   ignoreMissingCteNotes?: boolean;
+  reviewPendingMva?: boolean;
+  mvaDecisions?: Record<string, MvaDecision>;
   diagnostic?: DiagnosticRecorder;
 }
 
@@ -152,6 +175,7 @@ export interface LocalProcessingResult {
     notas_bonificacao: NotaBonificacaoPendencia[];
     itens_convenio_52_91: Convenio5291Pendencia[];
     ctes_sem_nfe?: CteSemNfePendencia[];
+    itens_mva?: MvaPending[];
   };
   solicitacao?: Solicitacao;
   notasProcessadas: Omit<NotaFiscalProcessada, 'id' | 'solicitacao_id' | 'criado_em'>[];

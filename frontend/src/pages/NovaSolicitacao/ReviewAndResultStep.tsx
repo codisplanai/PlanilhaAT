@@ -213,6 +213,9 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
             (resultadoSolicitacao.itens_excluidos && resultadoSolicitacao.itens_excluidos.length > 0) &&
             !hasCfopsSemRegra &&
             !temMvaPendente;
+          const semTributariaPorSt = todosExcluidos && Boolean(resultadoSolicitacao.itens_excluidos?.some(
+            (item) => item.destino?.startsWith('antecipacao_tributaria') && item.motivo?.includes('sem imposto a recolher')
+          ));
           const temAvisos = !todosExcluidos && (
             (resultadoSolicitacao.notas_ignoradas && resultadoSolicitacao.notas_ignoradas.length > 0) ||
             (resultadoSolicitacao.saidas && resultadoSolicitacao.saidas.some((s) => Boolean(s.aviso) || !hasLocalArtifact(s.tipo))) ||
@@ -249,7 +252,9 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
                 )}
               </div>
               <h2 className="text-lg sm:text-xl font-black tracking-tight">
-                {todosExcluidos
+                {semTributariaPorSt
+                  ? 'Sem imposto adicional a recolher'
+                  : todosExcluidos
                   ? 'Nenhum item a recolher na Parcial'
                   : semPlanilhaPorMvaPendente
                   ? 'Itens com MVA Pendente'
@@ -266,7 +271,9 @@ export const ReviewAndResultStep: React.FC<ReviewAndResultStepProps> = ({
                     : 'text-emerald-800/90'
                 }`}
               >
-                {todosExcluidos
+                {semTributariaPorSt
+                  ? 'O ICMS-ST destacado cobre integralmente o imposto apurado nos itens de Antecipação Tributária sem saldo. Confira os motivos dos itens excluídos. Não há planilha de recolhimento.'
+                  : todosExcluidos
                   ? 'Todos os itens de Antecipação Parcial foram desconsiderados conforme as regras de exclusão de commodities e/ou alíquotas iguais (A.ORI = A.DST).'
                   : temMvaPendente
                   ? 'Há itens da Antecipação Tributária com MVA pendente: eles ficaram fora da planilha e precisam de tratamento manual (veja a conferência de itens excluídos).'

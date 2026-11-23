@@ -258,6 +258,7 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
     let origemMercadoria = '';
     let cstIcms = '';
     let pRedBC = 0;
+    let stXml: ExtractedItem['stXml'];
     if (icms) {
       for (const group of Array.from(icms.children)) {
         origemMercadoria = text(group, 'orig');
@@ -274,6 +275,13 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
         if (vi > 0) vIcms = vi;
         const vst = number(group, 'vICMSST');
         if (vst > 0) vIcmsSt = vst;
+        if (text(group, 'pMVAST')) {
+          stXml = {
+            cfop: text(prod, 'CFOP'), modalidade: text(group, 'modBCST'),
+            mva: number(group, 'pMVAST'), aliquota: number(group, 'pICMSST'),
+            base: number(group, 'vBCST'), valor: vst,
+          };
+        }
         break;
       }
     }
@@ -321,6 +329,7 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
       cstIcms,
       pRedBC,
       vIcmsSt: vIcmsSt > 0 ? vIcmsSt : 0,
+      ...(stXml ? { stXml } : {}),
     });
   }
 

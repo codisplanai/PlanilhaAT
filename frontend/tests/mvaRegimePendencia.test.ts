@@ -274,3 +274,26 @@ test('processamento local: CEST do cadastro do SPED que diverge do NCM gera pend
   assert.match(pending.motivo, /divergência entre NCM e CEST/);
   assert.match(pending.motivo, /CEST 03\.003\.00/);
 });
+
+test('revisão interativa pausa sem persistir e retoma com decisão expressa por item', async () => {
+  const req = {
+    solicitacaoId: 'teste-mva-revisao', periodoInicio: '2026-03-01', periodoFim: '2026-03-31',
+    context: context(), input: { xmlFiles: [], spedFile: new File([SPED_MARCO_NCM_FORA_DO_ANEXO], 'sped.txt'), entrySheet: null },
+    reviewPendingMva: true,
+  };
+  const initial = await processFiscalLocally(req,new Map());
+  assert.equal(initial.preAnalysis.requer_decisao,true);
+  assert.equal(initial.preAnalysis.itens_mva?.length,1);
+  assert.equal(initial.artifacts.length,0);
+  assert.equal(initial.itensExcluidos.length,0);
+  const key=initial.preAnalysis.itens_mva![0].key;
+  const bad = await processFiscalLocally({...req,mvaDecisions:{[key]:{mva:NaN,justificativa:'invalida'}}},new Map());
+  assert.equal(bad.preAnalysis.requer_decisao,true);
+  const resumed=await processFiscalLocally({...req,mvaDecisions:{[key]:{mva:null,justificativa:'Aguardar confirmação da legislação'}}},new Map());
+  assert.equal(resumed.preAnalysis.requer_decisao,false);
+  assert.equal(resumed.itensExcluidos.length,1);
+  assert.match(resumed.itensExcluidos[0].motivo,/Decisão do analista/);
+  // MVA positiva deve produzir linha em vez de exclusão. Sem template o motor
+  // interrompe na etapa seguinte, comprovando que a decisão foi aplicada.
+  await assert.rejects(processFiscalLocally({...req,mvaDecisions:{[key]:{mva:90.15,justificativa:'MVA conferida'}}},new Map()),/template ativo/);
+});
