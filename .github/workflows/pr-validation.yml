@@ -144,6 +144,7 @@ jobs:
           tests/test_st_tributaria_exclusion.py
           tests/test_desconto_base_calculo.py
           tests/test_fornecedores_uso_consumo.py
+          tests/test_pipeline_multi_planilha.py
 
       - name: Enforce zero-upload fiscal processing on release PRs
         if: github.base_ref == 'main'
