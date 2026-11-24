@@ -201,8 +201,8 @@ test('Processamento Local: gera linha da planilha com v_total e base_calculo lí
   assert.equal(result.notasProcessadas.length, 1);
   const row = result.notasProcessadas[0];
   assert.equal(row.v_total, 7275.84);
-  // Antecipação Parcial: apenas o IPI abate a base; o desconto não reduz a base.
-  assert.equal(row.base_calculo, 8268);
+  // Sem IPI, a base acompanha exatamente o valor líquido da nota.
+  assert.equal(row.base_calculo, 7275.84);
 });
 
 
