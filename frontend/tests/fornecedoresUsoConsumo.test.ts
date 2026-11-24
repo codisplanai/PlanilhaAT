@@ -35,7 +35,8 @@ test('Fornecedor manual exige decisão por nota e permite recusar', async () => 
 test('Fornecedor cadastrado não redireciona operação interna', async () => {
   const ctx = buildContext();
   ctx.empresa.fornecedores_uso_consumo = [{ cnpj: '98765432000180', nome: '', modo: 'automatico' }];
-  const local = await processar(ctx, { xmls: [['123.xml', xml.replace('<UF>SP</UF>', '<UF>BA</UF>')]] });
-  assert.equal(local.notasProcessadas.length, 0);
-  assert.equal(local.preAnalysis.requer_decisao, false);
+  await assert.rejects(
+    processar(ctx, { xmls: [['123.xml', xml.replace('<UF>SP</UF>', '<UF>BA</UF>')]] }),
+    /Nenhuma NF-e válida para apuração interestadual/,
+  );
 });
