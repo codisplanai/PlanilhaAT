@@ -81,6 +81,7 @@ def avaliar_nfe_para_cte(
     revenda_tributaria_config: Any,
     is_industria: bool,
     decisoes_bonificacao: Optional[Dict[str, bool]],
+    force_uso_consumo: bool = False,
 ) -> Dict[str, Any]:
     """Classifica os itens de uma NF-e originária em modo consulta para rateio de CT-e."""
     data_entrada_resolvida, origem_data, pago_antecipadamente, cfop_auxiliar = (
@@ -152,11 +153,11 @@ def avaliar_nfe_para_cte(
             cfop_original=item.cfop,
         )
         destino_item = resolucao_cfop.destino
-        if is_cfop_uso_consumo_ativo(item.cfop):
+        if force_uso_consumo or is_cfop_uso_consumo_ativo(item.cfop):
             destino_item = DIFAL
 
         sufixo_item = _clean_digits(item.cfop)[-3:]
-        if sufixo_item in CFOP_SUFFIXES_REQUIRING_DESTINATION and decisoes_bonificacao is not None:
+        if not force_uso_consumo and sufixo_item in CFOP_SUFFIXES_REQUIRING_DESTINATION and decisoes_bonificacao is not None:
             is_revenda = None
             if nf_data.chave_acesso and nf_data.chave_acesso in decisoes_bonificacao:
                 is_revenda = decisoes_bonificacao[nf_data.chave_acesso]

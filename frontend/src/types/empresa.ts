@@ -9,6 +9,12 @@ export interface TermoAcordo {
 
 export type AtividadeEmpresa = 'comercio' | 'industria';
 
+export interface FornecedorUsoConsumo {
+  cnpj: string;
+  nome: string;
+  modo: 'confirmacao' | 'automatico';
+}
+
 export interface Empresa {
   id: number;
   razao_social: string;
@@ -21,6 +27,7 @@ export interface Empresa {
   atividade?: AtividadeEmpresa;
   /** A.ORI fixa da Antecipação Parcial (acordo com a SEFAZ); nula usa a do XML. */
   a_ori_fixa_parcial?: number | null;
+  fornecedores_uso_consumo?: FornecedorUsoConsumo[];
   ativo: boolean;
   termo_acordo?: TermoAcordo | null;
   criado_em: string;
@@ -37,6 +44,7 @@ export interface EmpresaCreate {
   /** Indústria gera apenas DIFAL (uso/consumo e ativo imobilizado). */
   atividade?: AtividadeEmpresa;
   a_ori_fixa_parcial?: number | null;
+  fornecedores_uso_consumo?: FornecedorUsoConsumo[];
   ativo?: boolean;
 }
 
@@ -50,5 +58,6 @@ export interface EmpresaUpdate {
   /** Indústria gera apenas DIFAL (uso/consumo e ativo imobilizado). */
   atividade?: AtividadeEmpresa;
   a_ori_fixa_parcial?: number | null;
+  fornecedores_uso_consumo?: FornecedorUsoConsumo[];
   ativo?: boolean;
 }

@@ -361,3 +361,36 @@ def test_desconto_abate_base_em_todas_planilhas(db_session, create_sample_excel_
     assert bases == esperados
     assert totais == esperados
     assert sum(totais.values()) == Decimal("3200.00")
+
+
+@pytest.mark.parametrize("modo,decisao,esperado", [
+    ("automatico", None, {"difal"}),
+    ("confirmacao", True, {"difal"}),
+    ("confirmacao", False, {"antecipacao_parcial", "antecipacao_tributaria", "difal"}),
+])
+def test_fornecedor_uso_consumo_nota_mista(db_session, create_sample_excel_template, modo, decisao, esperado):
+    empresa = _setup_empresa(db_session)
+    empresa.fornecedores_uso_consumo = [{"cnpj": "11222333000181", "nome": "Fornecedor", "modo": modo}]
+    db_session.commit()
+    for tipo in ["antecipacao_parcial", "antecipacao_tributaria", "difal"]:
+        _upload_template(db_session, create_sample_excel_template, tipo)
+    solicitacao = _criar_solicitacao_multi(db_session, empresa)
+    pipeline = ProcessingPipelineService(db_session)
+    files = [("nfe9999.xml", XML_NFE_TRES_DESTINOS)]
+    pre = pipeline.pre_analisar(solicitacao.id, files)
+    if modo == "confirmacao":
+        assert pre["requer_decisao"]
+        assert len(pre["notas_uso_consumo"]) == 1
+        with pytest.raises(ValidationException, match="Confirme as notas"):
+            pipeline.process_solicitacao(solicitacao.id, files)
+        decisions = {pre["notas_uso_consumo"][0]["key"]: decisao}
+    else:
+        assert not pre["notas_uso_consumo"]
+        decisions = None
+    result = pipeline.process_solicitacao(solicitacao.id, files, decisoes_uso_consumo=decisions)
+    assert result.status == "concluido"
+    assert {n.destino_planilha for n in result.notas_processadas} == esperado
+    assert sum(n.v_total for n in result.notas_processadas) == Decimal("3500.00")
+    if esperado == {"difal"}:
+        assert all(n.metadados_extras["fornecedor_uso_consumo"] in {"automatico", "confirmado"}
+                   for n in result.notas_processadas)

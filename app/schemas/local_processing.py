@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, validator
 
 from app.constants import TIPOS_PLANILHA
+from app.schemas.empresa import FornecedorUsoConsumo
 
 
 class LocalProcessedNoteIn(BaseModel):
@@ -88,6 +89,7 @@ class LocalEmpresaOut(BaseModel):
     atividade: str = "comercio"
     a_ori_fixa_parcial: Optional[float] = None
     termo_acordo: Optional[LocalTermoAcordoOut] = None
+    fornecedores_uso_consumo: List[FornecedorUsoConsumo] = Field(default_factory=list)
 
 
 class LocalPerfilOut(BaseModel):

@@ -21,6 +21,7 @@ from app.services.rules_engine.aliquota_resolver import AliquotaResolver, Resolu
 from app.services.rules_engine.cfop_resolver import CfopResolver, ResolucaoCfop
 from app.services.rules_engine.interstate_rate_resolver import InterstateRateResolver
 from app.services.rules_engine.mva_resolver import MvaResolver
+from app.services.rules_engine.supplier_usage import supplier_usage_mode, supplier_usage_pending
 from app.services.rules_engine.revenda_antecipacao_policy import RevendaAntecipacaoTributariaPolicy
 from app.services.rules_engine.st_tributaria_exclusion import (
     should_exclude_st_item_from_tributaria,
@@ -183,6 +184,7 @@ class ProcessingPipelineService:
         planilha_entradas_bytes: Optional[bytes] = None,
         planilha_entradas_filename: Optional[str] = "planilha_entradas.xlsx",
         decisoes_bonificacao: Optional[Dict[str, bool]] = None,
+        decisoes_uso_consumo: Optional[Dict[str, bool]] = None,
     ) -> Solicitacao:
         solicitacao = self.lifecycle.get_solicitacao(solicitacao_id)
         self.lifecycle.claim(solicitacao)
@@ -257,9 +259,16 @@ class ProcessingPipelineService:
             referenced_nfe_chaves = get_eligible_cte_nfe_keys(
                 raw_ctes, empresa, solicitacao
             )
+            usage_pending = supplier_usage_pending(
+                PipelinePreAnalyzer._eligible_notes(raw_nfs, empresa, solicitacao, referenced_nfe_chaves),
+                empresa, decisoes_uso_consumo,
+            )
+            if usage_pending:
+                raise ValidationException("Confirme as notas de fornecedores de uso e consumo antes de processar.")
             nfe_context_by_chave: Dict[str, Dict[str, Any]] = {}
 
             for filename, nf_data in raw_nfs:
+                usage_mode = supplier_usage_mode(nf_data, empresa, decisoes_uso_consumo)
                 clean_chave = re.sub(r"\D", "", nf_data.chave_acesso or "")
                 is_referenced_by_cte = bool(
                     clean_chave and clean_chave in referenced_nfe_chaves
@@ -277,6 +286,7 @@ class ProcessingPipelineService:
                         revenda_tributaria_config=revenda_tributaria_config,
                         is_industria=is_industria,
                         decisoes_bonificacao=decisoes_bonificacao,
+                        force_uso_consumo=bool(usage_mode),
                     )
 
                 eligibilidade = self._validar_elegibilidade_nota(
@@ -290,6 +300,8 @@ class ProcessingPipelineService:
                 if eligibilidade is None:
                     continue
                 retroativa, motivo_fora_periodo = eligibilidade
+                if usage_mode:
+                    nf_data.raw_metadata['fornecedor_uso_consumo'] = usage_mode
 
                 (
                     data_entrada_resolvida,
@@ -347,11 +359,11 @@ class ProcessingPipelineService:
                     )
                     destino_item = resolucao_cfop.destino
 
-                    if is_cfop_uso_consumo_ativo(item.cfop):
+                    if usage_mode or is_cfop_uso_consumo_ativo(item.cfop):
                         destino_item = DIFAL
 
                     sufixo_item = re.sub(r"\D", "", item.cfop or "")[-3:]
-                    if sufixo_item in CFOP_SUFFIXES_REQUIRING_DESTINATION and decisoes_bonificacao is not None:
+                    if not usage_mode and sufixo_item in CFOP_SUFFIXES_REQUIRING_DESTINATION and decisoes_bonificacao is not None:
                         is_revenda = None
                         if nf_data.chave_acesso and nf_data.chave_acesso in decisoes_bonificacao:
                             is_revenda = decisoes_bonificacao[nf_data.chave_acesso]
@@ -1415,6 +1427,7 @@ class ProcessingPipelineService:
                 credito=calc_result.credito,
                 valor_devido=calc_result.valor_devido,
                 metadados_extras={
+                    **({"fornecedor_uso_consumo": nf_data.raw_metadata["fornecedor_uso_consumo"]} if nf_data.raw_metadata.get("fornecedor_uso_consumo") else {}),
                     "desdobramento": len(grupos) > 1,
                     "subitem_index": split_index,
                     "total_subitens_destino": len(itens_objs),

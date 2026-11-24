@@ -1,3 +1,5 @@
+import { supplierUsageMode, supplierUsageRule, usageDecisionKey } from './supplierUsage.ts';
+import type { UsoConsumoPending } from '../../types/localProcessing';
 import type { LocalProcessingRequest } from '../../types/localProcessing';
 import type {
   Convenio5291Decision,
@@ -125,6 +127,27 @@ export function cteMissingNfePreAnalysis(
   return pending;
 }
 
+export function usoConsumoPreAnalysis(
+  notes: ExtractedNote[], start: string, end: string,
+  context: LocalProcessingRequest['context'], referencedKeys: ReadonlySet<string>,
+  decisions?: Record<string, boolean>,
+): UsoConsumoPending[] {
+  const pending: UsoConsumoPending[] = [];
+  for (const note of notes) {
+    const rule = supplierUsageRule(note, context.empresa);
+    if (rule?.modo !== 'confirmacao' || note.itens.length === 0) continue;
+    if (!withinPeriod(note, start, end)
+      && !acceptsRetroactiveDifal(note, start, Boolean(context.empresa.optante_simples_nacional))
+      && !referencedKeys.has(cleanDigits(note.chaveAcesso))) continue;
+    const key = usageDecisionKey(note);
+    if (typeof decisions?.[key] === 'boolean') continue;
+    pending.push({ key, chaveAcesso: note.chaveAcesso, numeroNota: note.numeroNota, serie: note.serie,
+      cnpj: note.cnpjEmitente, fornecedor: rule.nome || String(note.rawMetadata.emit_nome ?? ''),
+      quantidadeItens: note.itens.length, valorTotal: note.vTotalNota });
+  }
+  return pending;
+}
+
 export function bonusPreAnalysis(
   notes: ExtractedNote[],
   start: string,
@@ -172,6 +195,7 @@ export function convenio5291PreAnalysis(
   entryRecords: EntrySheetRecord[],
   bonusDecisions: Record<string, boolean> | undefined,
   decisions: Record<string, Convenio5291Decision> | undefined,
+  usageDecisions?: Record<string, boolean>,
 ): Convenio5291Pendencia[] {
   const savedIndustrialConfig = context.perfil.configuracoes_extras.convenio_icms_52_91_anexo_i;
   const config = effectiveConvenio5291PartialConfig(savedIndustrialConfig);
@@ -189,6 +213,7 @@ export function convenio5291PreAnalysis(
     const retroactive = !withinPeriod(note, start, end)
       && acceptsRetroactiveDifal(note, start, Boolean(context.empresa.optante_simples_nacional));
     if (!withinPeriod(note, start, end) && !retroactive) continue;
+    const forceUsage = Boolean(supplierUsageMode(note, context.empresa, usageDecisions));
     const auxiliaryCfop = note.origemExtracao !== 'sped' ? matchEntryCfop(note, entryRecords) : null;
 
     for (const originalItem of note.itens) {
@@ -197,10 +222,10 @@ export function convenio5291PreAnalysis(
 
       const cfopResolution = resolveCfop(context, item);
       let destination = cfopResolution.destino as TipoPlanilha | null;
-      if (isUsoConsumoAtivo(item.cfop)) destination = 'difal';
+      if (forceUsage || isUsoConsumoAtivo(item.cfop)) destination = 'difal';
 
       const suffix = cleanDigits(item.cfop).slice(-3);
-      if (BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
+      if (!forceUsage && BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
         const decision = bonusDecisions[note.chaveAcesso] ?? bonusDecisions[String(note.numeroNota)];
         if (decision === true && industryCompany) continue;
         if (typeof decision === 'boolean') destination = decision ? 'antecipacao_parcial' : 'difal';

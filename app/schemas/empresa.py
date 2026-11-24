@@ -1,12 +1,13 @@
 import re
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
 from app.constants import ATIVIDADE_COMERCIO, ATIVIDADES_EMPRESA, UFS_BRASIL
 from app.schemas.regra_aliquota_empresa import TermoAcordoOut
 from app.schemas.validators import clean_uf, normalizar_aliquota
+from app.services.validation.sanity_checker import validate_cnpj_digits
 
 # Compatibilidade pública para integrações que importam este nome.
 VALID_UFS = UFS_BRASIL
@@ -25,6 +26,32 @@ def clean_atividade(v: Optional[str]) -> Optional[str]:
         raise ValueError("Atividade inválida (use 'comercio' ou 'industria')")
     return clean
 
+class FornecedorUsoConsumo(BaseModel):
+    cnpj: str
+    nome: str = Field("", max_length=255)
+    modo: Literal["confirmacao", "automatico"] = "confirmacao"
+
+    @validator("cnpj")
+    def validar_cnpj(cls, value):
+        value = clean_cnpj(value)
+        if not validate_cnpj_digits(value):
+            raise ValueError("CNPJ do fornecedor inválido")
+        return value
+
+    @validator("nome")
+    def limpar_nome(cls, value):
+        return value.strip()
+
+    class Config:
+        extra = "forbid"
+
+
+def validar_fornecedores(value):
+    if value is not None and len({item.cnpj for item in value}) != len(value):
+        raise ValueError("CNPJ de fornecedor duplicado")
+    return value
+
+
 class EmpresaBase(BaseModel):
     razao_social: str = Field(..., max_length=255, example="Empresa Exemplo LTDA")
     cnpj: str = Field(..., example="12345678000195")
@@ -34,6 +61,8 @@ class EmpresaBase(BaseModel):
     optante_simples_nacional: bool = False
     atividade: str = Field(ATIVIDADE_COMERCIO, example="comercio")
     a_ori_fixa_parcial: Optional[Decimal] = Field(None, example=0.12)
+    fornecedores_uso_consumo: List[FornecedorUsoConsumo] = Field(default_factory=list, max_items=500)
+    _validar_fornecedores = validator('fornecedores_uso_consumo', allow_reuse=True)(validar_fornecedores)
     ativo: bool = True
 
     @validator("cnpj")
@@ -74,6 +103,8 @@ class EmpresaUpdate(BaseModel):
     optante_simples_nacional: Optional[bool] = None
     atividade: Optional[str] = None
     a_ori_fixa_parcial: Optional[Decimal] = None
+    fornecedores_uso_consumo: Optional[List[FornecedorUsoConsumo]] = Field(None, max_items=500)
+    _validar_fornecedores = validator('fornecedores_uso_consumo', allow_reuse=True)(validar_fornecedores)
     ativo: Optional[bool] = None
 
     @validator("atividade")

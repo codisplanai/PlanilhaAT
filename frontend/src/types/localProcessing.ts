@@ -57,6 +57,7 @@ export interface LocalProcessingContext {
     | 'optante_simples_nacional'
     | 'atividade'
     | 'a_ori_fixa_parcial'
+    | 'fornecedores_uso_consumo'
   > & {
     termo_acordo?: {
       id: number;
@@ -109,6 +110,17 @@ export interface MvaPending {
 }
 export type MvaDecision = { mva: number | null; justificativa: string };
 
+export interface UsoConsumoPending {
+  key: string;
+  chaveAcesso: string;
+  numeroNota: string;
+  serie: string;
+  cnpj: string;
+  fornecedor: string;
+  quantidadeItens: number;
+  valorTotal: number;
+}
+
 export interface LocalFiscalInput {
   xmlFiles: File[];
   spedFile?: File | null;
@@ -123,6 +135,7 @@ export interface LocalProcessingRequest {
   context: LocalProcessingContext;
   input: LocalFiscalInput;
   bonusDecisions?: Record<string, boolean>;
+  usoConsumoDecisions?: Record<string, boolean>;
   convenio5291Decisions?: Record<string, Convenio5291Decision>;
   ignoreMissingCteNotes?: boolean;
   reviewPendingMva?: boolean;
@@ -176,6 +189,7 @@ export interface LocalProcessingResult {
     itens_convenio_52_91: Convenio5291Pendencia[];
     ctes_sem_nfe?: CteSemNfePendencia[];
     itens_mva?: MvaPending[];
+    notas_uso_consumo?: UsoConsumoPending[];
   };
   solicitacao?: Solicitacao;
   notasProcessadas: Omit<NotaFiscalProcessada, 'id' | 'solicitacao_id' | 'criado_em'>[];
