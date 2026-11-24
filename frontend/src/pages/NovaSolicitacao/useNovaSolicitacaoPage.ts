@@ -13,6 +13,7 @@ import type {
   LocalTemplateDescriptor,
   MvaDecision,
   MvaPending,
+  UsoConsumoPending,
 } from '../../types/localProcessing';
 import type {
   Convenio5291Pendencia,
@@ -156,6 +157,9 @@ export function useNovaSolicitacaoPage() {
   const bonusDecisionsRef = useRef<Record<string, boolean> | undefined>(undefined);
   const convenioDecisionsRef = useRef<Record<string, Convenio5291Decision> | undefined>(undefined);
   const mvaDecisionsRef = useRef<Record<string,MvaDecision>>({});
+  const usoConsumoDecisionsRef = useRef<Record<string, boolean>>({});
+  const [pendenciasUsoConsumo, setPendenciasUsoConsumo] = useState<UsoConsumoPending[]>([]);
+  const [showModalUsoConsumo, setShowModalUsoConsumo] = useState(false);
   const [pendenciasMva, setPendenciasMva] = useState<MvaPending[]>([]);
   const [showModalMva, setShowModalMva] = useState(false);
   const [resultadoSolicitacao, setResultadoSolicitacao] = useState<Solicitacao | null>(null);
@@ -239,6 +243,7 @@ export function useNovaSolicitacaoPage() {
           entrySheet: files.planilhaEntradaFile,
         },
         bonusDecisions,
+        usoConsumoDecisions: usoConsumoDecisionsRef.current,
         convenio5291Decisions: convenio5291Decisions ?? convenioDecisionsRef.current,
         reviewPendingMva: true,
         mvaDecisions: mvaDecisionsRef.current,
@@ -269,6 +274,12 @@ export function useNovaSolicitacaoPage() {
     if (localResult.preAnalysis.requer_decisao && (localResult.preAnalysis.ctes_sem_nfe?.length ?? 0) > 0) {
       setPendenciasCteNfe(localResult.preAnalysis.ctes_sem_nfe ?? []);
       setShowModalCteNfe(true);
+      return;
+    }
+
+    if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.notas_uso_consumo?.length) {
+      setPendenciasUsoConsumo(localResult.preAnalysis.notas_uso_consumo);
+      setShowModalUsoConsumo(true);
       return;
     }
 
@@ -343,6 +354,9 @@ export function useNovaSolicitacaoPage() {
     setShowModalMva(false);
     setPendenciasMva([]);
     mvaDecisionsRef.current = {};
+    usoConsumoDecisionsRef.current = {};
+    setShowModalUsoConsumo(false);
+    setPendenciasUsoConsumo([]);
     convenioDecisionsRef.current = undefined;
     setResultadoSolicitacao(persisted);
     if (artifactStorageFailed) {
@@ -461,6 +475,9 @@ export function useNovaSolicitacaoPage() {
       bonusDecisionsRef.current = undefined;
       convenioDecisionsRef.current = undefined;
       mvaDecisionsRef.current = {};
+    usoConsumoDecisionsRef.current = {};
+    setShowModalUsoConsumo(false);
+    setPendenciasUsoConsumo([]);
       setShowModalMva(false);
       setPendenciasMva([]);
       ignoreMissingCteNotesRef.current = false;
@@ -567,6 +584,21 @@ export function useNovaSolicitacaoPage() {
     void discardPendingRequest();
   };
 
+  const confirmarUsoConsumoEProcessar = async (decisoes: Record<string, boolean>) => {
+    if (!solicitacaoIdAtiva) return;
+    const diagnostic = activeDiagnosticRef.current;
+    await runGuardedProcessing(diagnostic, 'Não foi possível retomar a apuração após confirmar uso e consumo.', async () => {
+      usoConsumoDecisionsRef.current = { ...usoConsumoDecisionsRef.current, ...decisoes };
+      setShowModalUsoConsumo(false);
+      await executeLocalProcessing(solicitacaoIdAtiva, bonusDecisionsRef.current, convenioDecisionsRef.current, diagnostic);
+    });
+  };
+  const cancelarModalUsoConsumo = () => cancelDecisionModal('Processamento cancelado na confirmação de uso e consumo.', () => {
+    setShowModalUsoConsumo(false);
+    setPendenciasUsoConsumo([]);
+    usoConsumoDecisionsRef.current = {};
+  });
+
   const confirmarMvasEProcessar = async (decisoes: Record<string,MvaDecision>) => {
     if (!solicitacaoIdAtiva) return;
     const diagnostic = activeDiagnosticRef.current;
@@ -581,6 +613,9 @@ export function useNovaSolicitacaoPage() {
       setShowModalMva(false);
       setPendenciasMva([]);
       mvaDecisionsRef.current = {};
+    usoConsumoDecisionsRef.current = {};
+    setShowModalUsoConsumo(false);
+    setPendenciasUsoConsumo([]);
       convenioDecisionsRef.current = undefined;
     });
   };
@@ -651,6 +686,9 @@ export function useNovaSolicitacaoPage() {
     setShowModalMva(false);
     setPendenciasMva([]);
     mvaDecisionsRef.current = {};
+    usoConsumoDecisionsRef.current = {};
+    setShowModalUsoConsumo(false);
+    setPendenciasUsoConsumo([]);
     convenioDecisionsRef.current = undefined;
     files.resetFiles();
     setCurrentStep(1);
@@ -707,6 +745,7 @@ export function useNovaSolicitacaoPage() {
     showModalConvenio5291,
     confirmarConvenio5291EProcessar,
     cancelarModalConvenio5291,
+    pendenciasUsoConsumo, showModalUsoConsumo, confirmarUsoConsumoEProcessar, cancelarModalUsoConsumo,
     pendenciasMva, showModalMva, confirmarMvasEProcessar, cancelarModalMva,
     errorMessage,
     setErrorMessage,

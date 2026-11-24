@@ -10,7 +10,7 @@ import { empresasApi } from '../../api/empresas';
 import { queryKeys } from '../../api/queryKeys';
 import { matchesEmpresaSearch } from '../../lib/empresaFilter';
 import { formatCNPJ, formatPercentInput, parsePercentInput } from '../../lib/formatters';
-import type { Empresa, EmpresaCreate } from '../../types/empresa';
+import type { Empresa, EmpresaCreate, FornecedorUsoConsumo } from '../../types/empresa';
 import { useEmpresasQuery, usePerfisQuery } from '../../hooks/useApiQueries';
 
 const empresaSchema = z.object({
@@ -55,6 +55,7 @@ export function useEmpresasPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [ufFilter, setUfFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [fornecedoresUsoConsumo, setFornecedoresUsoConsumo] = useState<FornecedorUsoConsumo[]>([]);
   const [editingEmpresa, setEditingEmpresa] = useState<Empresa | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [empresaParaExcluir, setEmpresaParaExcluir] = useState<Empresa | null>(null);
@@ -135,6 +136,7 @@ export function useEmpresasPage() {
   });
 
   const openCreateModal = () => {
+    setFornecedoresUsoConsumo([]);
     setEditingEmpresa(null);
     setErrorMessage(null);
     form.reset({ ...EMPTY_FORM, perfil_regras_id: perfis[0]?.id || 1 });
@@ -142,6 +144,7 @@ export function useEmpresasPage() {
   };
 
   const openEditModal = (empresa: Empresa) => {
+    setFornecedoresUsoConsumo((empresa.fornecedores_uso_consumo ?? []).map(item => ({ ...item })));
     setEditingEmpresa(empresa);
     setErrorMessage(null);
     form.reset({
@@ -160,7 +163,19 @@ export function useEmpresasPage() {
 
   const saveEmpresa = form.handleSubmit(async (data) => {
     setErrorMessage(null);
+    const fornecedores = fornecedoresUsoConsumo.map(item => ({
+      ...item, cnpj: item.cnpj.replace(/\D/g, ''), nome: item.nome.trim(),
+    }));
+    if (fornecedores.some(item => item.cnpj.length !== 14)) {
+      setErrorMessage('Informe o CNPJ completo de cada fornecedor de uso e consumo.');
+      return;
+    }
+    if (new Set(fornecedores.map(item => item.cnpj)).size !== fornecedores.length) {
+      setErrorMessage('Não é permitido cadastrar o mesmo fornecedor duas vezes.');
+      return;
+    }
     const payload: EmpresaCreate = {
+      fornecedores_uso_consumo: fornecedores,
       razao_social: data.razao_social.trim(),
       cnpj: data.cnpj.replace(/\D/g, ''),
       inscricao_estadual:
@@ -308,6 +323,7 @@ export function useEmpresasPage() {
     saveEmpresa,
     definirTermoAcordo,
     removerTermoAcordo,
+    fornecedoresUsoConsumo, setFornecedoresUsoConsumo,
     register: form.register,
     errors: form.formState.errors,
     isSaving:

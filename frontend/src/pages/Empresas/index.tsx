@@ -73,6 +73,7 @@ export const EmpresasPage: React.FC = () => {
     openEditModal: handleOpenEditModal,
     closeModal: handleCloseModal,
     saveEmpresa,
+    fornecedoresUsoConsumo, setFornecedoresUsoConsumo,
     register,
     errors,
     isSaving,
@@ -465,6 +466,38 @@ export const EmpresasPage: React.FC = () => {
               helperText="Acordo com a SEFAZ. Substitui a alíquota de origem do XML em todas as planilhas de Antecipação Parcial. Informe em percentual, ex: 12."
             />
           </div>
+
+          <details className="rounded-lg border border-slate-200 p-3">
+            <summary className="cursor-pointer font-semibold text-sm text-slate-800">
+              Fornecedores de uso e consumo ({fornecedoresUsoConsumo.length})
+            </summary>
+            <p className="mt-2 text-xs text-slate-500">CNPJs exclusivos desta empresa. Direcionam os itens de NF-e interestadual para DIFAL.</p>
+            <div className="mt-3 space-y-3">
+              {fornecedoresUsoConsumo.map((item, index) => (
+                <div key={index} className="rounded-lg border border-slate-200 p-3 space-y-2">
+                  <Input label="CNPJ do fornecedor" value={maskCNPJ(item.cnpj)} maxLength={18}
+                    onChange={e => setFornecedoresUsoConsumo(prev => prev.map((v, i) => i === index ? { ...v, cnpj: e.target.value.replace(/\D/g, '').slice(0, 14) } : v))} />
+                  <Input label="Nome (opcional)" value={item.nome} maxLength={255}
+                    onChange={e => setFornecedoresUsoConsumo(prev => prev.map((v, i) => i === index ? { ...v, nome: e.target.value } : v))} />
+                  <label className="block text-xs font-medium text-slate-700">
+                    Modo de direcionamento
+                    <select className="mt-1 block w-full rounded-lg border border-slate-300 p-2 text-sm" value={item.modo}
+                      onChange={e => setFornecedoresUsoConsumo(prev => prev.map((v, i) => i === index ? { ...v, modo: e.target.value === 'automatico' ? 'automatico' : 'confirmacao' } : v))}>
+                      <option value="confirmacao">Solicitar confirmação</option>
+                      <option value="automatico">Direcionar automaticamente</option>
+                    </select>
+                  </label>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setFornecedoresUsoConsumo(prev => prev.filter((_, i) => i !== index))}>
+                    Remover fornecedor
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" disabled={fornecedoresUsoConsumo.length >= 500}
+                onClick={() => setFornecedoresUsoConsumo(prev => [...prev, { cnpj: '', nome: '', modo: 'confirmacao' }])}>
+                + Adicionar fornecedor
+              </Button>
+            </div>
+          </details>
 
           <div className="pt-2 flex items-center gap-2.5">
             <input

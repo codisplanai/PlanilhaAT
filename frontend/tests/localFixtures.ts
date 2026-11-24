@@ -141,6 +141,7 @@ export async function processar(
   context: LocalProcessingContext,
   input: { sped?: string; xmls?: Array<[nome: string, conteudo: string]> },
   bonusDecisions?: Record<string, boolean>,
+  usoConsumoDecisions?: Record<string, boolean>,
 ) {
   return processFiscalLocally(
     {
@@ -154,6 +155,7 @@ export async function processar(
         entrySheet: null,
       },
       bonusDecisions,
+      usoConsumoDecisions,
     },
     new Map(),
     loadTemplate,

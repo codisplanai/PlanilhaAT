@@ -43,6 +43,7 @@ def criar_empresa(payload: EmpresaCreate, db: Session = Depends(get_db)):
         optante_simples_nacional=payload.optante_simples_nacional,
         atividade=payload.atividade,
         a_ori_fixa_parcial=payload.a_ori_fixa_parcial,
+        fornecedores_uso_consumo=[item.dict() for item in payload.fornecedores_uso_consumo],
         ativo=payload.ativo
     )
     db.add(empresa)
@@ -95,6 +96,8 @@ def atualizar_empresa(id: int, payload: EmpresaUpdate, db: Session = Depends(get
     # Nulo explícito remove o acordo; campo ausente mantém o valor atual.
     if "a_ori_fixa_parcial" in payload.__fields_set__:
         empresa.a_ori_fixa_parcial = payload.a_ori_fixa_parcial
+    if payload.fornecedores_uso_consumo is not None:
+        empresa.fornecedores_uso_consumo = [item.dict() for item in payload.fornecedores_uso_consumo]
     if payload.ativo is not None:
         empresa.ativo = payload.ativo
 
