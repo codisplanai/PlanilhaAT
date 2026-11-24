@@ -329,8 +329,8 @@ def test_nota_emissao_propria_desconsiderada_completamente(db_session, create_sa
 
 
 
-def test_desconto_nao_abate_base_em_nenhuma_planilha(db_session, create_sample_excel_template):
-    """Apenas o IPI abate a base; vDesc nao reduz a base em Parcial, Tributaria e DIFAL."""
+def test_desconto_abate_base_em_todas_planilhas(db_session, create_sample_excel_template):
+    """Cada grupo mantém seu desconto na base em Parcial, Tributária e DIFAL."""
     xml = XML_NFE_TRES_DESTINOS.decode("utf-8")
     for vprod, cfop in (("1000.00", "6102"), ("2000.00", "6405"), ("500.00", "6556")):
         xml = xml.replace(
@@ -338,7 +338,7 @@ def test_desconto_nao_abate_base_em_nenhuma_planilha(db_session, create_sample_e
             f"<vProd>{vprod}</vProd>\n          <vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vDesc>100.00</vDesc>",
         )
     assert xml.count("<vDesc>100.00</vDesc>") == 3
-    xml = xml.replace("<vNF>3500.00</vNF>", "<vNF>3200.00</vNF>")
+    xml = xml.replace("<vNF>3500.00</vNF>", "<vNF>3200.00</vNF><vDesc>300.00</vDesc>")
 
     empresa = _setup_empresa(db_session)
     for tipo in ["antecipacao_parcial", "antecipacao_tributaria", "difal"]:
@@ -353,7 +353,11 @@ def test_desconto_nao_abate_base_em_nenhuma_planilha(db_session, create_sample_e
     assert resultado.status == "concluido"
     bases = {n.destino_planilha: n.base_calculo for n in resultado.notas_processadas}
     totais = {n.destino_planilha: n.v_total for n in resultado.notas_processadas}
-    assert bases["antecipacao_parcial"] == Decimal("1000.00")
-    assert bases["antecipacao_tributaria"] == Decimal("2000.00")
-    assert bases["difal"] == Decimal("500.00")
-    assert totais["antecipacao_parcial"] == Decimal("900.00")
+    esperados = {
+        "antecipacao_parcial": Decimal("900.00"),
+        "antecipacao_tributaria": Decimal("1900.00"),
+        "difal": Decimal("400.00"),
+    }
+    assert bases == esperados
+    assert totais == esperados
+    assert sum(totais.values()) == Decimal("3200.00")

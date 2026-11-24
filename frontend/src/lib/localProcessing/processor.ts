@@ -449,11 +449,12 @@ function consolidateNoteGroups(params: {
       (item) => fullIcmsCode(item).endsWith('20') || Number(item.pRedBC ?? 0) > 0,
     );
 
-    // Todas as planilhas: apenas o IPI é abatido da base; o desconto comercial não reduz a base.
+    // V.Total já contém o desconto comercial; não o reincorporar à base.
+    // Preservar a separação do IPI e o valor líquido de cada grupo.
     const descTotal = useNoteTotal
       ? (note.vDescNota ?? 0)
       : group.items.reduce((sum, item) => sum + Number(item.vDesc ?? 0), 0);
-    if (descTotal > 0) base = Math.max(0, vTotal + descTotal - ipi);
+    if (descTotal > 0) base = maxBaseLiquida;
 
     if (base <= 0) base = vTotal - ipi;
 
