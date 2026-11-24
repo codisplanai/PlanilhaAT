@@ -1,4 +1,4 @@
-> **ATUALIZAÇÃO 2026-11-19:** a regra de base foi alterada. Em todas as planilhas (Parcial, Tributária e DIFAL) o desconto comercial **não** abate mais a Base de Cálculo; apenas o IPI é abatido (`base = V.Total + desconto − IPI`). O V.Total continua líquido de desconto. Os trechos abaixo que mandam abater o desconto da base estão superados.
+> **ATUALIZAÇÃO 2026-11-24:** revertida a regra de 19/11 que reincorporava o desconto comercial. Em todas as planilhas, quando há desconto, a base parte do V.Total líquido (vNF para nota integral, total líquido dos itens para grupos), preservando a separação do IPI (`base = V.Total − IPI`). Sem IPI, a base deve coincidir com o V.Total. Não deduzir o desconto novamente. Notas sem desconto mantêm o comportamento anterior.
 
 # Desconto Comercial no Valor Total e Base de Cálculo das Planilhas Implementation Plan
 
