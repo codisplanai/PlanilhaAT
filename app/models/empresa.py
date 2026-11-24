@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, Integer, String, Boolean, DateTime, ForeignKey, Numeric
+from sqlalchemy import CheckConstraint, Column, Integer, String, Boolean, DateTime, ForeignKey, Numeric, JSON, text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -19,6 +19,7 @@ class Empresa(Base):
     # Acordo com a SEFAZ: A.ORI usada em toda a Antecipação Parcial no lugar da
     # alíquota do XML/SPED. Nula mantém a alíquota do documento fiscal.
     a_ori_fixa_parcial = Column(Numeric(6, 4), nullable=True)
+    fornecedores_uso_consumo = Column(JSON, default=list, server_default=text("'[]'"), nullable=False)
     ativo = Column(Boolean, default=True, nullable=False)
     criado_em = Column(DateTime, default=utcnow_naive, nullable=False)
     atualizado_em = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)

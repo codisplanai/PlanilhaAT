@@ -23,6 +23,7 @@ import {
   TAX_SUBSTITUTION_DESTINATIONS,
   normalizeDescription,
 } from './domain.ts';
+import { supplierUsageMode } from './supplierUsage.ts';
 import { calculateTax, roundCurrency } from './calculations.ts';
 import {
   buildFcpMetadata,
@@ -45,6 +46,7 @@ import {
 } from './convenio5291.ts';
 import {
   bonusPreAnalysis,
+  usoConsumoPreAnalysis,
   cleanDigits,
   convenio5291PreAnalysis,
   cteMissingNfePreAnalysis,
@@ -614,6 +616,7 @@ function consolidateNoteGroups(params: {
     const cfopDetails = [...new Set(group.cfopResolutions.map((item) => item.motivo).filter(Boolean))].sort();
 
     const metadadosExtras: JsonObject = {
+      ...(note.rawMetadata.fornecedor_uso_consumo ? { fornecedor_uso_consumo: note.rawMetadata.fornecedor_uso_consumo } : {}),
       desdobramento: groups.size > 1,
       subitem_index: splitIndex,
       total_subitens_destino: group.items.length,
@@ -895,8 +898,18 @@ export async function processFiscalLocally(
     context.empresa.cnpj,
     context.empresa.uf,
   );
+  const usagePending = usoConsumoPreAnalysis(sources.notes, periodoInicio, periodoFim, context, referencedNfeKeys, request.usoConsumoDecisions);
+  if (usagePending.length > 0) {
+    if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
+    diagnostic?.stage('validacao', 'Processamento pausado para confirmação de fornecedores de uso e consumo.', { pendencias: usagePending.length });
+    return {
+      preAnalysis: { requer_decisao: true, notas_bonificacao: [], itens_convenio_52_91: [], notas_uso_consumo: usagePending },
+      notasProcessadas: [], notasIgnoradas: sources.ignoredNotes, itensExcluidos: [], avisosAvaliacao: [],
+      cfopsSemRegra: {}, rowsByDestination: {}, artifacts: [],
+    };
+  }
   const pending = bonusPreAnalysis(
-    sources.notes, periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany, referencedNfeKeys,
+    sources.notes.filter(note => !supplierUsageMode(note, context.empresa, request.usoConsumoDecisions)), periodoInicio, periodoFim, context.empresa.uf, context.empresa.cnpj, isSimplesCompany, referencedNfeKeys,
   );
   if (pending.length > 0 && !request.bonusDecisions) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
@@ -946,6 +959,7 @@ export async function processFiscalLocally(
     sources.entryRecords,
     request.bonusDecisions,
     request.convenio5291Decisions,
+    request.usoConsumoDecisions,
   );
   if (convenioPending.length > 0) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
@@ -965,6 +979,7 @@ export async function processFiscalLocally(
   }
 
   for (const note of sources.notes) {
+    const usageMode = supplierUsageMode(note, context.empresa, request.usoConsumoDecisions);
     const cleanChave = cleanDigits(note.chaveAcesso);
     const isReferencedByCte = Boolean(cleanChave && referencedNfeKeys.has(cleanChave));
     if (isReferencedByCte && isNfeAvailableForCte(note)) {
@@ -976,6 +991,7 @@ export async function processFiscalLocally(
           entryRecords: sources.entryRecords,
           hasEntrySource,
           bonusDecisions: request.bonusDecisions,
+          forceUsoConsumo: Boolean(usageMode),
         }),
       );
     }
@@ -1034,6 +1050,10 @@ export async function processFiscalLocally(
     // supplierIsSimples (o CRT 2 conta como Simples para A.ORI e DIFAL, mas usa a
     // MVA ajustada). A política especial do passo a passo segue com supplierIsSimples.
     const mvaColumn = mvaColumnForNote(note);
+    if (usageMode) {
+      note.rawMetadata.fornecedor_uso_consumo = usageMode;
+      diagnostic?.event('info', 'validacao', 'Fornecedor de uso e consumo: nota direcionada para DIFAL.', { numeroNota: note.numeroNota, modo: usageMode });
+    }
     const groups = new Map<string, Group>();
     let classifiedItems = 0;
 
@@ -1047,10 +1067,10 @@ export async function processFiscalLocally(
       const cfopResolution = resolveCfop(context, item);
       let destination = cfopResolution.destino as TipoPlanilha | null;
 
-      if (isUsoConsumoAtivo(item.cfop)) destination = 'difal';
+      if (usageMode || isUsoConsumoAtivo(item.cfop)) destination = 'difal';
 
       const suffix = cleanDigits(item.cfop).slice(-3);
-      if (BONUS_SUFFIXES.has(suffix) && request.bonusDecisions) {
+      if (!usageMode && BONUS_SUFFIXES.has(suffix) && request.bonusDecisions) {
         const decision = request.bonusDecisions[note.chaveAcesso]
           ?? request.bonusDecisions[String(note.numeroNota)];
         if (decision === true && isIndustryCompany) {

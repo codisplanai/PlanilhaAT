@@ -11,6 +11,7 @@ from app.services.extraction.base import (
     ExtractedNFData,
     extrair_numero_serie_chave_nfe,
 )
+from app.services.rules_engine.supplier_usage import supplier_usage_mode, supplier_usage_pending
 from app.services.pipeline_helpers import aceita_difal_retroativa, is_emissao_propria
 from app.services.validation.sanity_checker import SanityChecker
 
@@ -35,14 +36,20 @@ class PipelinePreAnalyzer:
         empresa: Empresa,
         solicitacao: Solicitacao,
         ctes: Optional[List[Tuple[str, ExtractedCTeData]]] = None,
+        decisoes_uso_consumo: Optional[Dict[str, bool]] = None,
     ) -> Dict[str, Any]:
         ctes_list = ctes or []
         pending_ctes = cls.detect_missing_cte_nfes(ctes_list, notes, empresa, solicitacao)
         referenced_chaves = cls._eligible_cte_nfe_keys(ctes_list, empresa, solicitacao)
         eligible_notes = cls._eligible_notes(notes, empresa, solicitacao, referenced_chaves)
-        pending = cls.detect_destination_decisions(eligible_notes)
+        usage_pending = supplier_usage_pending(eligible_notes, empresa, decisoes_uso_consumo)
+        pending = cls.detect_destination_decisions([
+            (filename, note) for filename, note in eligible_notes
+            if not supplier_usage_mode(note, empresa, decisoes_uso_consumo)
+        ])
         return {
-            "requer_decisao": bool(pending or pending_ctes),
+            "requer_decisao": bool(pending or pending_ctes or usage_pending),
+            "notas_uso_consumo": usage_pending,
             "notas_bonificacao": pending,
             "ctes_sem_nfe": pending_ctes,
         }

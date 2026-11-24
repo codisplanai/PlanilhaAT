@@ -8,6 +8,7 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { ModalConfirmacaoBonificacao } from '../../components/ModalConfirmacaoBonificacao';
 import { ModalConfirmacaoConvenio5291 } from '../../components/ModalConfirmacaoConvenio5291';
 import { ModalPendenciaCteNfe } from '../../components/ModalPendenciaCteNfe';
+import { ModalConfirmacaoUsoConsumo } from '../../components/ModalConfirmacaoUsoConsumo';
 import { ModalPendenciaMva } from '../../components/ModalPendenciaMva';
 import { CompanySelectionStep } from './CompanySelectionStep';
 import { PeriodSelectionStep } from './PeriodSelectionStep';
@@ -71,6 +72,7 @@ export const NovaSolicitacaoPage: React.FC = () => {
     showModalConvenio5291,
     confirmarConvenio5291EProcessar,
     cancelarModalConvenio5291,
+    pendenciasUsoConsumo, showModalUsoConsumo, confirmarUsoConsumoEProcessar, cancelarModalUsoConsumo,
     pendenciasMva, showModalMva, confirmarMvasEProcessar, cancelarModalMva,
     diagnosticSession,
     clearDiagnostic,
@@ -180,6 +182,13 @@ export const NovaSolicitacaoPage: React.FC = () => {
         isProcessing={isProcessing}
       />
 
+      {showModalUsoConsumo && <ModalConfirmacaoUsoConsumo
+        notas={pendenciasUsoConsumo}
+        xmlFiles={xmlFiles}
+        onClose={cancelarModalUsoConsumo}
+        onConfirm={confirmarUsoConsumoEProcessar}
+        isProcessing={isProcessing}
+      />}
       <ModalConfirmacaoBonificacao
         isOpen={showModalBonificacao}
         onClose={cancelarModalBonificacao}

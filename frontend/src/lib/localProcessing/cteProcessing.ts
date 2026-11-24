@@ -84,8 +84,9 @@ export function evaluateNfeForCte(params: {
   entryRecords: EntrySheetRecord[];
   hasEntrySource: boolean;
   bonusDecisions?: Record<string, boolean>;
+  forceUsoConsumo?: boolean;
 }): NfeCteContext {
-  const { note, context, entryRecords, hasEntrySource, bonusDecisions } = params;
+  const { note, context, entryRecords, hasEntrySource, bonusDecisions, forceUsoConsumo } = params;
   const chaveAcesso = cleanDigits(note.chaveAcesso);
 
   let entryDate = matchEntryDate(note, entryRecords);
@@ -144,10 +145,10 @@ export function evaluateNfeForCte(params: {
 
     const cfopResolution = resolveCfop(context, item);
     let destination = cfopResolution.destino as TipoPlanilha | null;
-    if (isUsoConsumoAtivo(item.cfop)) destination = 'difal';
+    if (forceUsoConsumo || isUsoConsumoAtivo(item.cfop)) destination = 'difal';
 
     const suffix = cleanDigits(item.cfop).slice(-3);
-    if (BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
+    if (!forceUsoConsumo && BONUS_SUFFIXES.has(suffix) && bonusDecisions) {
       const decision = bonusDecisions[note.chaveAcesso] ?? bonusDecisions[String(note.numeroNota)];
       if (decision === true && isIndustryCompany) {
         hasOtherOrExcluded = true;
