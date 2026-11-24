@@ -81,6 +81,8 @@ export interface ExtractedItem {
   vDesc?: number;
   /** ICMS ST retido na origem / destacado no item (tag vICMSST). */
   vIcmsSt?: number;
+  /** Evidência declarada por item no XML; não constitui MVA fiscal automaticamente. */
+  stXml?: { cfop: string; modalidade: string; mva: number; aliquota: number; base: number; valor: number };
 }
 
 export interface ExtractedNote {

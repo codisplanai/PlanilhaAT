@@ -11,6 +11,8 @@ import type {
   LocalProcessingPersistPayload,
   LocalProcessingResult,
   LocalTemplateDescriptor,
+  MvaDecision,
+  MvaPending,
 } from '../../types/localProcessing';
 import type {
   Convenio5291Pendencia,
@@ -152,6 +154,10 @@ export function useNovaSolicitacaoPage() {
   const [pendenciasConvenio5291, setPendenciasConvenio5291] = useState<Convenio5291Pendencia[]>([]);
   const [showModalConvenio5291, setShowModalConvenio5291] = useState(false);
   const bonusDecisionsRef = useRef<Record<string, boolean> | undefined>(undefined);
+  const convenioDecisionsRef = useRef<Record<string, Convenio5291Decision> | undefined>(undefined);
+  const mvaDecisionsRef = useRef<Record<string,MvaDecision>>({});
+  const [pendenciasMva, setPendenciasMva] = useState<MvaPending[]>([]);
+  const [showModalMva, setShowModalMva] = useState(false);
   const [resultadoSolicitacao, setResultadoSolicitacao] = useState<Solicitacao | null>(null);
   const [localArtifactTypes, setLocalArtifactTypes] = useState<TipoPlanilha[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -233,7 +239,9 @@ export function useNovaSolicitacaoPage() {
           entrySheet: files.planilhaEntradaFile,
         },
         bonusDecisions,
-        convenio5291Decisions,
+        convenio5291Decisions: convenio5291Decisions ?? convenioDecisionsRef.current,
+        reviewPendingMva: true,
+        mvaDecisions: mvaDecisionsRef.current,
         ignoreMissingCteNotes,
         diagnostic: diagnostic ?? undefined,
       },
@@ -279,6 +287,11 @@ export function useNovaSolicitacaoPage() {
       return;
     }
 
+    if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.itens_mva?.length) {
+      setPendenciasMva(localResult.preAnalysis.itens_mva);
+      setShowModalMva(true);
+      return;
+    }
     diagnostic?.stage('registro', 'Registro do resultado estruturado iniciado.', {
       registros: localResult.notasProcessadas.length,
       saidas: localResult.artifacts.length,
@@ -327,6 +340,10 @@ export function useNovaSolicitacaoPage() {
     setShowModalConvenio5291(false);
     setPendenciasConvenio5291([]);
     bonusDecisionsRef.current = undefined;
+    setShowModalMva(false);
+    setPendenciasMva([]);
+    mvaDecisionsRef.current = {};
+    convenioDecisionsRef.current = undefined;
     setResultadoSolicitacao(persisted);
     if (artifactStorageFailed) {
       diagnostic?.finish('parcialmente_concluido', 'Processamento concluído parcialmente: resultado registrado sem arquivo disponível para download.');
@@ -442,6 +459,10 @@ export function useNovaSolicitacaoPage() {
       diagnostic.attempt.requestId = requestId;
       diagnostic.event('info', 'solicitacao', 'Solicitação criada.', { solicitacaoId: requestId });
       bonusDecisionsRef.current = undefined;
+      convenioDecisionsRef.current = undefined;
+      mvaDecisionsRef.current = {};
+      setShowModalMva(false);
+      setPendenciasMva([]);
       ignoreMissingCteNotesRef.current = false;
       xmlFilesOverrideRef.current = undefined;
       await executeLocalProcessing(requestId, undefined, undefined, diagnostic);
@@ -519,6 +540,7 @@ export function useNovaSolicitacaoPage() {
           quantidadeDecisoes: Object.keys(decisoes).length,
         });
         setShowModalConvenio5291(false);
+        convenioDecisionsRef.current = decisoes;
         await executeLocalProcessing(
           solicitacaoIdAtiva,
           bonusDecisionsRef.current,
@@ -545,6 +567,23 @@ export function useNovaSolicitacaoPage() {
     void discardPendingRequest();
   };
 
+  const confirmarMvasEProcessar = async (decisoes: Record<string,MvaDecision>) => {
+    if (!solicitacaoIdAtiva) return;
+    const diagnostic = activeDiagnosticRef.current;
+    await runGuardedProcessing(diagnostic,'O processamento não pôde ser retomado após confirmar as MVAs.',async()=>{
+      mvaDecisionsRef.current = {...mvaDecisionsRef.current,...decisoes};
+      diagnostic?.event('info','validacao','Decisões de MVA recebidas.',{quantidadeDecisoes:Object.keys(decisoes).length});
+      await executeLocalProcessing(solicitacaoIdAtiva,bonusDecisionsRef.current,convenioDecisionsRef.current,diagnostic);
+    });
+  };
+  const cancelarModalMva = () => {
+    cancelDecisionModal('Processamento cancelado durante a revisão de MVA.',()=>{
+      setShowModalMva(false);
+      setPendenciasMva([]);
+      mvaDecisionsRef.current = {};
+      convenioDecisionsRef.current = undefined;
+    });
+  };
   const cancelarModalConvenio5291 = () => {
     cancelDecisionModal(
       'Processamento cancelado durante a confirmação do Convênio ICMS 52/91.',
@@ -609,6 +648,10 @@ export function useNovaSolicitacaoPage() {
     setShowModalConvenio5291(false);
     bonusDecisionsRef.current = undefined;
     setLocalArtifactTypes([]);
+    setShowModalMva(false);
+    setPendenciasMva([]);
+    mvaDecisionsRef.current = {};
+    convenioDecisionsRef.current = undefined;
     files.resetFiles();
     setCurrentStep(1);
   };
@@ -664,6 +707,7 @@ export function useNovaSolicitacaoPage() {
     showModalConvenio5291,
     confirmarConvenio5291EProcessar,
     cancelarModalConvenio5291,
+    pendenciasMva, showModalMva, confirmarMvasEProcessar, cancelarModalMva,
     errorMessage,
     setErrorMessage,
     downloadError,

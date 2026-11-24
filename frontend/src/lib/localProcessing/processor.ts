@@ -5,6 +5,7 @@ import type {
   LocalProcessingRequest,
   LocalProcessingResult,
   LocalTemplateDescriptor,
+  MvaPending,
 } from '../../types/localProcessing';
 import type {
   AvisoAvaliacao,
@@ -58,6 +59,9 @@ import {
   processCtesLocally,
 } from './cteProcessing.ts';
 import type { NfeCteContext } from './cteProcessing.ts';
+import { autopecasMvaSuggestions, resolveAutopecasMvaXml } from './autopecasMva.ts';
+import { manualMvaEngineValue, mvaReviewKey, validMvaDecision } from './mvaReview.ts';
+import { stIntegralmenteCobertoPorItem, totalSemStXml } from './stXmlCalculation.ts';
 import {
   acceptsRetroactiveDifal,
   classifyRevendaMva,
@@ -426,7 +430,9 @@ function consolidateNoteGroups(params: {
     const splitIndex = splitByDestination.get(group.destination) ?? 1;
     const useNoteTotal = groups.size === 1 && classifiedItems === note.itens.length && note.vTotalNota > 0;
 
-    const vTotal = useNoteTotal ? note.vTotalNota : group.items.reduce((sum, item) => sum + item.vTotal, 0);
+    const vTotal = useNoteTotal
+      ? (TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? totalSemStXml(note) : note.vTotalNota)
+      : group.items.reduce((sum, item) => sum + item.vTotal, 0);
     const originalBaseXml = useNoteTotal && note.vBcNota > 0
       ? note.vBcNota
       : group.items.reduce((sum, item) => sum + Number(item.baseCalculoXml ?? item.baseCalculo), 0);
@@ -506,6 +512,19 @@ function consolidateNoteGroups(params: {
       isSimples: Boolean(context.empresa.optante_simples_nacional),
       valorPago,
     });
+
+    const stPorItem = TAX_SUBSTITUTION_DESTINATIONS.has(group.destination)
+      ? stIntegralmenteCobertoPorItem(group.items, mva, group.aOri, group.aDst,
+        group.reducao, group.fcpSeparado, vTotal, base, valorPago)
+      : null;
+    if (stPorItem) {
+      calculation.debito = stPorItem.debito;
+      calculation.credito = stPorItem.credito;
+      calculation.valorDevido = 0;
+      diagnostic?.event('info','calculo','ICMS-ST integralmente coberto: conferência independente item a item.',{
+        numeroNota:note.numeroNota, itens:group.items.length, valorPago,
+      });
+    }
 
     // Em Antecipação Tributária, se o ICMS ST destacado na nota cobrir o imposto ou resultar em <= 0,
     // remover da planilha final e registrar em itens excluídos.
@@ -819,6 +838,8 @@ export async function processFiscalLocally(
   diagnostic?.event('info', 'leitura', 'Fontes fiscais interpretadas.', {
     notasLidas: sources.notes.length,
     registrosEntrada: sources.entryRecords.length,
+    registrosPlanilhaEntrada: sources.entryRecords.length,
+    notasEntradaSped: sources.notes.filter((note) => note.origemExtracao === 'sped').length,
     notasInvalidas: sources.ignoredNotes.length,
     possuiSped: hasSped,
     possuiPlanilhaEntrada: Boolean(request.input.entrySheet),
@@ -895,6 +916,7 @@ export async function processFiscalLocally(
 
   const ignored: NotaIgnorada[] = [...sources.ignoredNotes as NotaIgnorada[]];
   const excluded: ItemExcluido[] = [];
+  const pendingMvas: MvaPending[] = [];
   const warnings: AvisoAvaliacao[] = [];
   const missingCfops: Record<string, number> = {};
   const rowsByDestination: Partial<Record<TipoPlanilha, LocalOutputRow[]>> = {};
@@ -1205,9 +1227,25 @@ export async function processFiscalLocally(
           // A faixa da MVA ajustada vem da A.ORI destacada no documento, antes de
           // inferência (Simples), alíquota fixa ou limite por redução.
           const mvaResolution = resolveMvaForItem(context, item.ncm, item.cest, originalAOri, mvaColumn);
-          if (mvaResolution.status === 'pendente') {
+          const mvaAutopecas = mvaResolution.status === 'pendente'
+            ? resolveAutopecasMvaXml(context, note, item, mvaColumn, originalAOri, aOri, effectiveADst)
+            : null;
+          const reviewKey = mvaReviewKey(note,item);
+          const candidateDecision = request.mvaDecisions?.[reviewKey];
+          const decision = validMvaDecision(candidateDecision) ? candidateDecision : undefined;
+          if (mvaResolution.status === 'pendente' && mvaAutopecas === null && (!decision || decision.mva === null)) {
+            if (request.reviewPendingMva && !decision) {
+              pendingMvas.push({
+                key: reviewKey, numeroNota: note.numeroNota, chaveAcesso: note.chaveAcesso,
+                itemNumero: item.itemNumero, descricao: item.descricao, ncm: item.ncm, cest: item.cest,
+                cfop: item.cfop, aOri: originalAOri, aDst: effectiveADst, column: mvaColumn,
+                mvaXml: item.stXml?.mva ?? null, motivo: mvaResolution.motivo,
+                suggestions: autopecasMvaSuggestions(context,note,item,mvaColumn,originalAOri),
+              });
+              continue;
+            }
             excluded.push(buildExcludedItem(
-              note, item, destination, mvaResolution.motivo, 'mva_pendente',
+              note, item, destination, mvaResolution.motivo + (decision ? ' Decisão do analista: manter pendente. ' + decision.justificativa : ''), 'mva_pendente',
               { a_ori: originalAOri, a_dst: effectiveADst },
             ));
             diagnostic?.event('warning', 'calculo', 'Item da Antecipação Tributária sem MVA determinável: ficou fora da planilha.', {
@@ -1215,10 +1253,28 @@ export async function processFiscalLocally(
               itemNumero: item.itemNumero,
               ncm: item.ncm,
               colunaMva: mvaResolution.column ?? 'indefinida',
+              motivo: mvaResolution.motivo,
+              mvaXml: item.stXml?.mva ?? null,
             });
             continue;
           }
-          itemMva = mvaResolution.mva;
+          if (mvaResolution.status === 'ok') {
+            itemMva = mvaResolution.mva;
+          } else if (mvaAutopecas !== null) {
+            itemMva = mvaAutopecas;
+            mvaPolicySource = 'anexo1_item1.1_autopecas_xml_validado';
+            diagnostic?.event('info', 'calculo', 'MVA de autopeças validada pelo item 1.1 do Anexo 1 (caso geral).', {
+              numeroNota: note.numeroNota, itemNumero: item.itemNumero, ncm: item.ncm,
+              mva: itemMva, mvaXml: item.stXml?.mva ?? null,
+            });
+          } else if (decision && decision.mva !== null) {
+            itemMva = manualMvaEngineValue(decision.mva);
+            mvaPolicySource = 'manual: ' + decision.justificativa.trim();
+            diagnostic?.event('info','validacao','MVA confirmada pelo analista.',{
+              numeroNota: note.numeroNota, itemNumero: item.itemNumero, mva: decision.mva,
+              justificativa: decision.justificativa.trim(),
+            });
+          }
         }
       }
 
@@ -1230,7 +1286,7 @@ export async function processFiscalLocally(
         Boolean(convenio?.applied),
         itemReducao,
         fcpSeparado,
-      );
+      ) + (mvaPolicySource.startsWith('manual: ') ? '|manual|' + item.itemNumero : '');
       const group: Group = groups.get(key) ?? {
         destination,
         aOri,
@@ -1338,6 +1394,15 @@ export async function processFiscalLocally(
     });
   }
 
+  if (pendingMvas.length > 0) {
+    if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
+    diagnostic?.stage('validacao','Processamento pausado para confirmação de MVA.',{pendencias:pendingMvas.length});
+    return {
+      preAnalysis: { requer_decisao: true, notas_bonificacao: [], itens_convenio_52_91: [], itens_mva: pendingMvas },
+      notasProcessadas: [], notasIgnoradas: ignored, itensExcluidos: [], avisosAvaliacao: [],
+      cfopsSemRegra: {}, rowsByDestination: {}, artifacts: [],
+    };
+  }
   if (ctes.length > 0) {
     processCtesLocally({
       ctes,

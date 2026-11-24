@@ -225,6 +225,9 @@ class LocalMvaEntryOut(BaseModel):
     mva_original: Optional[List[LocalMvaOriginalOut]] = None
     cest: Optional[List[str]] = None
     descricao: Optional[str] = None
+    autopecas: bool = False
+    vigencia_inicio: Optional[str] = None
+    vigencia_fim: Optional[str] = None
 
 
 class LocalProcessingContextOut(BaseModel):
