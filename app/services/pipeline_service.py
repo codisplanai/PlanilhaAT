@@ -924,13 +924,13 @@ class ProcessingPipelineService:
             except RuleResolutionException:
                 a_dst_controle = None
             row = build_controle_row(
-                    nf_data,
-                    item,
-                    decisao_mercadoria,
-                    a_dst_controle,
-                    None
-                    if destino_item in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
-                    else data_entrada_resolvida,
+                nf_data,
+                item,
+                decisao_mercadoria,
+                a_dst_controle,
+                None
+                if destino_item in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
+                else data_entrada_resolvida,
             )
             row["a_ori"] = a_ori_controle
             rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA].append(row)
