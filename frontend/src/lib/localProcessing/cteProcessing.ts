@@ -191,12 +191,12 @@ export function evaluateNfeForCte(params: {
       continue;
     }
 
-    // CT-e é rateado com o total da NF-e como denominador; ST paga
-    // só elimina a parcela de frete atribuível ao próprio item retido.
-    if (
-      TAX_SUBSTITUTION_DESTINATIONS.has(destination)
-      && shouldExcludeStItemFromTributaria(context.empresa.razao_social, note, originalItem)
-    ) {
+    // ST da mercadoria não cobre automaticamente o frete FOB contratado à parte.
+    // Apenas reabrir a parcela com evidência positiva de BC-ST sem frete no XML.
+    const stPaid = TAX_SUBSTITUTION_DESTINATIONS.has(destination)
+      && shouldExcludeStItemFromTributaria(context.empresa.razao_social, note, originalItem);
+    const fobMva = stPaid ? originalItem.freteFobStMva : undefined;
+    if (stPaid && fobMva === undefined) {
       hasOtherOrExcluded = true;
       continue;
     }
@@ -213,7 +213,10 @@ export function evaluateNfeForCte(params: {
       );
       const aOri = resolveSimpleOriginReference(note, item, context.empresa.uf, false).rate;
       let itemMva = 0;
-      if (revendaConfig) {
+      if (fobMva !== undefined) {
+        itemMva = fobMva;
+        mvaPolicySource = 'frete_fob_st_xml';
+      } else if (revendaConfig) {
         itemMva = resolveRevendaMva(revendaConfig, mvaPolicyGroup || 'demais', aOri, supplierIsSimples);
       } else {
         const mvaRes = resolveMvaForItem(context, item.ncm, item.cest, item.aOri, mvaColumn);
@@ -717,6 +720,7 @@ function processCteTributaria(params: {
     destino: destinoTrib,
     valorRateado: vTotalCteTrib,
     mvaHerdada: maxMva,
+    complementoFreteFobSt: allCandidates.some((cand) => cand.mvaFonte === 'frete_fob_st_xml'),
   });
 }
 

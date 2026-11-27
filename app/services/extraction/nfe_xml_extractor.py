@@ -143,6 +143,10 @@ class NFeXMLExtractor(BaseNFEExtractor):
             p_cred_sn_item = Decimal("0.00")
             v_icms_item = Decimal("0.00")
             v_icms_st_item = Decimal("0.00")
+            st_mva = None
+            st_base = Decimal("0.00")
+            st_mod = ""
+            st_reduction = Decimal("0.00")
             origem_mercadoria = None
             csosn_item = None
             icms_elem = self._find_elem(imposto, "ICMS")
@@ -175,6 +179,11 @@ class NFeXMLExtractor(BaseNFEExtractor):
                     v_icms_st_item = max(
                         Decimal("0.00"), self._get_decimal(icms_group, "vICMSST")
                     )
+                    if self._get_text(icms_group, "pMVAST"):
+                        st_mva = self._get_decimal(icms_group, "pMVAST")
+                        st_base = self._get_decimal(icms_group, "vBCST")
+                        st_mod = self._get_text(icms_group, "modBCST")
+                        st_reduction = self._get_decimal(icms_group, "pRedBCST")
                     v_icms_st_itens += v_icms_st_item
                     v_icms_val = self._get_decimal(icms_group, "vICMS")
                     if v_icms_val > 0:
@@ -191,6 +200,18 @@ class NFeXMLExtractor(BaseNFEExtractor):
             # V.Total = vProd + vFrete + vSeg + vOutro + vIPI - vDesc
             v_total_item = v_prod + v_despesas + v_ipi - v_desc
             base_sem_ipi = max(Decimal("0.00"), v_total_item - v_ipi)
+            # Exigir BC-ST por MVA reproduzível sem frete, além de FOB e frete zero declarado.
+            frete_fob_st_mva = None
+            if (
+                self._get_text(self._find_elem(inf_nfe, "transp"), "modFrete") == "1"
+                and self._get_text(icms_tot, "vFrete")
+                and self._get_decimal(icms_tot, "vFrete") == 0
+                and v_frete == 0 and st_mva is not None and st_mva >= 0
+                and st_mod == "4" and st_reduction == 0
+                and v_icms_st_item > 0 and st_base > 0 and v_total_item > 0
+                and abs(st_base - v_total_item * (1 + st_mva / 100)) <= Decimal("0.03")
+            ):
+                frete_fob_st_mva = st_mva
 
             # A base total da capa nunca pode ser atribuída arbitrariamente a um
             # dos itens de uma NF-e com múltiplos produtos.
@@ -218,6 +239,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 p_cred_sn=p_cred_sn_item / Decimal("100.0") if p_cred_sn_item > 1 else p_cred_sn_item,
                 v_icms=v_icms_item,
                 v_icms_st=v_icms_st_item,
+                frete_fob_st_mva=frete_fob_st_mva,
                 origem_mercadoria=origem_mercadoria,
                 csosn=csosn_item,
                 v_desc=v_desc,
