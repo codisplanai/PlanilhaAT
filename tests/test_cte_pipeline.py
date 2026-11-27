@@ -599,3 +599,37 @@ def test_cte_interno_mesma_uf_emitente_tomador_ignorado_na_pre_analise_e_process
     assert "Operação interna estadual desconsiderada" in ignoradas_por_num["4402"]
 
 
+def test_pre_analisar_rejeita_nfe_com_cnpj_destinatario_diferente_antes_de_pendencias(db_session):
+    from app.core.exceptions import ValidationException
+
+    sol, _emp, _perfil = _setup_cenario_oficial(db_session)
+    chv_faltante = chave_nfe("2601", 999)
+    xml_cte = build_xml_cte(
+        numero="1200",
+        chave=chave_cte("2601", 1200),
+        v_tprest="250.00",
+        toma="3",
+        chaves_nfe=[chv_faltante],
+    )
+    xml_bonus = build_xml_nfe("901", chave_nfe("2601", 901), "500.00", "12", cfop="6910")
+    xml_outro_dest = build_xml_nfe(
+        "461118",
+        chave_nfe("2601", 461118),
+        "1000.00",
+        "12",
+        cfop="6102",
+    ).replace(b"<CNPJ>12345678000195</CNPJ>", b"<CNPJ>14679062000186</CNPJ>")
+
+    service = ProcessingPipelineService(db_session)
+    with pytest.raises(ValidationException, match="não corresponde ao CNPJ da empresa selecionada"):
+        service.pre_analisar(
+            solicitacao_id=sol.id,
+            xml_files_bytes=[
+                ("cte1200.xml", xml_cte),
+                ("901.xml", xml_bonus),
+                ("461118.xml", xml_outro_dest),
+            ],
+        )
+
+
+

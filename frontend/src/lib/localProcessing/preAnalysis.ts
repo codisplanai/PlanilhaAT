@@ -39,6 +39,32 @@ export function cleanDigits(value: string): string {
   return value.replace(/\D/g, '');
 }
 
+/**
+ * Valida o CNPJ destinatário de todas as NF-es antes dos diálogos de pré-análise.
+ * Notas de emissão própria (ignoradas) e NF-es fora do período referenciadas
+ * apenas para rateio de CT-e seguem as mesmas exceções do processamento.
+ */
+export function assertNotesDestinatarioBelongsToCompany(
+  notes: ExtractedNote[],
+  companyCnpj: string,
+  start: string,
+  end: string,
+  referencedKeys: ReadonlySet<string>,
+): void {
+  const expectedCnpj = cleanDigits(companyCnpj);
+  for (const note of notes) {
+    if (isOwnEmissionNote(note, companyCnpj)) continue;
+    const cleanChave = cleanDigits(note.chaveAcesso);
+    const isReferencedByCte = Boolean(cleanChave && referencedKeys.has(cleanChave));
+    const inPeriod = withinPeriod(note, start, end);
+    if (!(isReferencedByCte && !inPeriod) && cleanDigits(note.cnpjDestinatario) !== expectedCnpj) {
+      throw new Error(
+        `NF-e ${note.numeroNota} possui CNPJ destinatário ${note.cnpjDestinatario}, diferente da empresa selecionada.`,
+      );
+    }
+  }
+}
+
 export function withinPeriod(note: ExtractedNote, start: string, end: string): boolean {
   const date = note.dataEmissao.slice(0, 10);
   return date >= start && date <= end;

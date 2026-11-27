@@ -15,6 +15,7 @@ import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { formatCurrency } from '../lib/formatters';
+import { mergeCteAttachedFiles } from '../lib/cteAttachment';
 import { useManagedTimeout } from '../hooks/useManagedTimeout';
 import type { CteSemNfePendencia } from '../types/solicitacao';
 
@@ -32,6 +33,8 @@ export interface ModalPendenciaCteNfeProps {
   onAttachFiles: (files: File[]) => void;
   onIgnorePending: () => void;
   isProcessing?: boolean;
+  feedbackMessage?: string | null;
+  onClearFeedback?: () => void;
 }
 
 export const ModalPendenciaCteNfe: React.FC<ModalPendenciaCteNfeProps> = ({
@@ -41,6 +44,8 @@ export const ModalPendenciaCteNfe: React.FC<ModalPendenciaCteNfeProps> = ({
   onAttachFiles,
   onIgnorePending,
   isProcessing = false,
+  feedbackMessage = null,
+  onClearFeedback,
 }) => {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -61,14 +66,15 @@ export const ModalPendenciaCteNfe: React.FC<ModalPendenciaCteNfeProps> = ({
     const valid = incoming.filter(
       (file) => isXmlOrZip(file) && file.size > 0 && file.size <= MAX_FILE_BYTES,
     );
-    const keyOf = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
-    const existing = new Set(attachedFiles.map(keyOf));
-    const added = valid.filter((file) => !existing.has(keyOf(file)));
+    const { merged, added, duplicateCount } = mergeCteAttachedFiles(attachedFiles, valid);
     if (added.length > 0) {
-      setAttachedFiles((prev) => [...prev, ...added]);
+      setAttachedFiles(merged);
+      onClearFeedback?.();
     }
     if (valid.length < incoming.length) {
       setFileError('Use apenas arquivos .xml ou .zip não vazios (até 20 MB por arquivo).');
+    } else if (added.length === 0 && duplicateCount > 0) {
+      setFileError('O(s) arquivo(s) selecionado(s) já foi(ram) adicionado(s) à lista.');
     } else {
       setFileError(null);
     }
@@ -235,6 +241,16 @@ export const ModalPendenciaCteNfe: React.FC<ModalPendenciaCteNfeProps> = ({
               </p>
             </div>
           </div>
+
+          {feedbackMessage && (
+            <div
+              role="status"
+              className="text-xs font-medium text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 flex items-start gap-2"
+            >
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>{feedbackMessage}</span>
+            </div>
+          )}
 
           {fileError && (
             <p role="alert" className="text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">

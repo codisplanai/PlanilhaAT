@@ -478,4 +478,130 @@ test('CT-e integralmente vinculado a item com ST paga não gera antecipação tr
   assert.equal(res.notasProcessadas.length, 0);
 });
 
+test('rejeita NF-e de outro CNPJ destinatário antes de pausar para CT-e, bonificação ou Convênio 52/91', async () => {
+  const ctx = buildCteContext();
+  const chvFaltante = chaveNfe('2601', 999);
+  const cteXml = buildCteXml({
+    numero: '15420',
+    chave: chaveCte('2601', 15420),
+    vTPrest: '300.00',
+    toma: '3',
+    chavesNfe: [chvFaltante],
+  });
+
+  const chvBonus = chaveNfe('2601', 901);
+  const nfBonusXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvBonus}">
+  <ide><nNF>901</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${FORNECEDOR_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+  <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <total><ICMSTot><vNF>500.00</vNF><vBC>500.00</vBC></ICMSTot></total>
+  <det nItem="1"><prod><NCM>21069090</NCM><CFOP>6910</CFOP><xProd>BONIFICACAO</xProd><vProd>500.00</vProd></prod>
+    <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>500.00</vBC><pICMS>12.00</pICMS></ICMS00></ICMS></imposto>
+  </det>
+</infNFe></NFe></nfeProc>`;
+
+  const chvOutroCnpj = chaveNfe('2601', 461118);
+  const nfOutroCnpjXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvOutroCnpj}">
+  <ide><nNF>461118</nNF><serie>1</serie><dhEmi>2026-01-12T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${FORNECEDOR_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+  <dest><CNPJ>14679062000186</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <total><ICMSTot><vNF>1000.00</vNF><vBC>1000.00</vBC></ICMSTot></total>
+  <det nItem="1"><prod><NCM>21069090</NCM><CFOP>6102</CFOP><xProd>PRODUTO</xProd><vProd>1000.00</vProd></prod>
+    <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>1000.00</vBC><pICMS>12.00</pICMS></ICMS00></ICMS></imposto>
+  </det>
+</infNFe></NFe></nfeProc>`;
+
+  await assert.rejects(
+    () => processFiscalLocally(
+      {
+        solicitacaoId: 'teste-cnpj-precoce-com-cte',
+        periodoInicio: '2026-01-01',
+        periodoFim: '2026-01-31',
+        context: ctx,
+        input: {
+          xmlFiles: [
+            new File([cteXml], 'cte15420.xml', { type: 'text/xml' }),
+            new File([nfBonusXml], '901.xml', { type: 'text/xml' }),
+            new File([nfOutroCnpjXml], '461118.xml', { type: 'text/xml' }),
+          ],
+        },
+      },
+      new Map(),
+      loadTemplate,
+    ),
+    /NF-e 461118 possui CNPJ destinatário 14679062000186, diferente da empresa selecionada\./,
+  );
+
+  // Sem CT-e, também deve falhar antes da confirmação de bonificação.
+  await assert.rejects(
+    () => processFiscalLocally(
+      {
+        solicitacaoId: 'teste-cnpj-precoce-sem-cte',
+        periodoInicio: '2026-01-01',
+        periodoFim: '2026-01-31',
+        context: ctx,
+        input: {
+          xmlFiles: [
+            new File([nfBonusXml], '901.xml', { type: 'text/xml' }),
+            new File([nfOutroCnpjXml], '461118.xml', { type: 'text/xml' }),
+          ],
+        },
+      },
+      new Map(),
+      loadTemplate,
+    ),
+    /NF-e 461118 possui CNPJ destinatário 14679062000186, diferente da empresa selecionada\./,
+  );
+});
+
+test('emissão própria para outro CNPJ continua sendo ignorada sem erro na validação precoce', async () => {
+  const ctx = buildCteContext();
+  const chvSaida = `292601${EMPRESA_CNPJ}550010000001111000001110`;
+  const nfSaidaXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvSaida}">
+  <ide><nNF>111</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${EMPRESA_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>BA</UF></enderEmit></emit>
+  <dest><CNPJ>14679062000186</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <total><ICMSTot><vNF>500.00</vNF><vBC>500.00</vBC></ICMSTot></total>
+  <det nItem="1"><prod><NCM>21069090</NCM><CFOP>5102</CFOP><xProd>VENDA</xProd><vProd>500.00</vProd></prod>
+    <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>500.00</vBC><pICMS>12.00</pICMS></ICMS00></ICMS></imposto>
+  </det>
+</infNFe></NFe></nfeProc>`;
+  const chvEntrada = chaveNfe('2601', 112);
+  const nfEntradaXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvEntrada}">
+  <ide><nNF>112</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${FORNECEDOR_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+  <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <total><ICMSTot><vNF>1000.00</vNF><vBC>1000.00</vBC></ICMSTot></total>
+  <det nItem="1"><prod><NCM>21069090</NCM><CFOP>6102</CFOP><xProd>REVENDA</xProd><vProd>1000.00</vProd></prod>
+    <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>1000.00</vBC><pICMS>12.00</pICMS></ICMS00></ICMS></imposto>
+  </det>
+</infNFe></NFe></nfeProc>`;
+
+  const res = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-emissao-propria-precoce',
+      periodoInicio: '2026-01-01',
+      periodoFim: '2026-01-31',
+      context: ctx,
+      input: {
+        xmlFiles: [
+          new File([nfSaidaXml], '111.xml', { type: 'text/xml' }),
+          new File([nfEntradaXml], '112.xml', { type: 'text/xml' }),
+        ],
+      },
+    },
+    new Map(),
+    loadTemplate,
+  );
+
+  assert.equal(res.notasProcessadas.length, 1);
+  assert.equal(res.notasIgnoradas.length, 1);
+  assert.match(res.notasIgnoradas[0].motivo, /emissão própria/);
+});
+
+
 

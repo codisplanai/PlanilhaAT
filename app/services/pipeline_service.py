@@ -43,6 +43,8 @@ from app.services.pipeline_analysis import (
     CFOP_SUFFIXES_REQUIRING_DESTINATION,
     PipelinePreAnalyzer,
     _nfe_disponivel_para_cte,
+    validate_note_destinatario,
+    validate_notes_destinatario,
 )
 from app.services.pipeline_cte import (
     avaliar_nfe_para_cte,
@@ -259,6 +261,7 @@ class ProcessingPipelineService:
             referenced_nfe_chaves = get_eligible_cte_nfe_keys(
                 raw_ctes, empresa, solicitacao
             )
+            validate_notes_destinatario(raw_nfs, empresa, solicitacao, referenced_nfe_chaves)
             usage_pending = supplier_usage_pending(
                 PipelinePreAnalyzer._eligible_notes(raw_nfs, empresa, solicitacao, referenced_nfe_chaves),
                 empresa, decisoes_uso_consumo,
@@ -751,11 +754,10 @@ class ProcessingPipelineService:
             )
             return None
 
+        validate_note_destinatario(nf_data, empresa, solicitacao, is_referenced_by_cte)
         dentro_do_periodo = SanityChecker.is_within_period(
             nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
         )
-        if not (is_referenced_by_cte and not dentro_do_periodo):
-            SanityChecker.validate_nf_destinatario(nf_data, empresa.cnpj)
 
         uf_fornecedor = (nf_data.uf_emitente or "").strip().upper()
         uf_empresa_dest = (empresa.uf or "").strip().upper()
