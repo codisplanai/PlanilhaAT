@@ -28,6 +28,35 @@ def _nfe_disponivel_para_cte(note: ExtractedNFData) -> bool:
     return len(note.itens) > 0 and any(bool((it.cfop or "").strip()) for it in note.itens)
 
 
+def validate_note_destinatario(
+    nf_data: ExtractedNFData,
+    empresa: Empresa,
+    solicitacao: Solicitacao,
+    is_referenced_by_cte: bool,
+) -> None:
+    """Valida CNPJ destinatário da NF-e, preservando exceção de CT-e fora do período."""
+    dentro_do_periodo = SanityChecker.is_within_period(
+        nf_data.data_emissao, solicitacao.periodo_inicio, solicitacao.periodo_fim
+    )
+    if not (is_referenced_by_cte and not dentro_do_periodo):
+        SanityChecker.validate_nf_destinatario(nf_data, empresa.cnpj)
+
+
+def validate_notes_destinatario(
+    notes: List[Tuple[str, ExtractedNFData]],
+    empresa: Empresa,
+    solicitacao: Solicitacao,
+    referenced_chaves: Set[str],
+) -> None:
+    """Impede que NF-e de outro CNPJ chegue às etapas interativas de pré-análise."""
+    for _filename, nf_data in notes:
+        if is_emissao_propria(nf_data, empresa.cnpj):
+            continue
+        clean_chave = re.sub(r"\D", "", nf_data.chave_acesso or "")
+        is_referenced_by_cte = bool(clean_chave and clean_chave in referenced_chaves)
+        validate_note_destinatario(nf_data, empresa, solicitacao, is_referenced_by_cte)
+
+
 class PipelinePreAnalyzer:
     @classmethod
     def analyze(
@@ -39,8 +68,9 @@ class PipelinePreAnalyzer:
         decisoes_uso_consumo: Optional[Dict[str, bool]] = None,
     ) -> Dict[str, Any]:
         ctes_list = ctes or []
-        pending_ctes = cls.detect_missing_cte_nfes(ctes_list, notes, empresa, solicitacao)
         referenced_chaves = cls._eligible_cte_nfe_keys(ctes_list, empresa, solicitacao)
+        validate_notes_destinatario(notes, empresa, solicitacao, referenced_chaves)
+        pending_ctes = cls.detect_missing_cte_nfes(ctes_list, notes, empresa, solicitacao)
         eligible_notes = cls._eligible_notes(notes, empresa, solicitacao, referenced_chaves)
         usage_pending = supplier_usage_pending(eligible_notes, empresa, decisoes_uso_consumo)
         pending = cls.detect_destination_decisions([

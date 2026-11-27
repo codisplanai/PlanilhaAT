@@ -45,6 +45,7 @@ import {
   resolveConvenio5291Application,
 } from './convenio5291.ts';
 import {
+  assertNotesDestinatarioBelongsToCompany,
   bonusPreAnalysis,
   usoConsumoPreAnalysis,
   cleanDigits,
@@ -859,6 +860,20 @@ export async function processFiscalLocally(
     });
   }
   const ctes = sources.ctes ?? [];
+  const referencedNfeKeys = eligibleCteNfeKeys(
+    ctes,
+    periodoInicio,
+    periodoFim,
+    context.empresa.cnpj,
+    context.empresa.uf,
+  );
+  assertNotesDestinatarioBelongsToCompany(
+    sources.notes,
+    context.empresa.cnpj,
+    periodoInicio,
+    periodoFim,
+    referencedNfeKeys,
+  );
   const pendingCtes = cteMissingNfePreAnalysis(
     ctes,
     sources.notes,
@@ -891,13 +906,6 @@ export async function processFiscalLocally(
 
   const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
   const isIndustryCompany = isIndustria(context);
-  const referencedNfeKeys = eligibleCteNfeKeys(
-    ctes,
-    periodoInicio,
-    periodoFim,
-    context.empresa.cnpj,
-    context.empresa.uf,
-  );
   const usagePending = usoConsumoPreAnalysis(sources.notes, periodoInicio, periodoFim, context, referencedNfeKeys, request.usoConsumoDecisions);
   if (usagePending.length > 0) {
     if (diagnostic) diagnostic.attempt.status = 'aguardando_decisao';
@@ -1005,11 +1013,6 @@ export async function processFiscalLocally(
 
     const periodReason = `Data de emissão fora do período informado (${periodoInicio} a ${periodoFim}).`;
     const inPeriod = withinPeriod(note, periodoInicio, periodoFim);
-    if (!(isReferencedByCte && !inPeriod) && cleanDigits(note.cnpjDestinatario) !== cleanDigits(context.empresa.cnpj)) {
-      throw new Error(
-        `NF-e ${note.numeroNota} possui CNPJ destinatário ${note.cnpjDestinatario}, diferente da empresa selecionada.`,
-      );
-    }
 
     if (isSameUfNote(note, context.empresa.uf)) {
       if (!(isReferencedByCte && !inPeriod)) {
