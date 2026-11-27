@@ -71,6 +71,32 @@ os componentes de página concentram a composição e a apresentação. Etapas e
 assistentes devem ser componentes da própria feature; sessão persistida, montagem multipart,
 períodos e parsing de entradas textuais ficam em utilitários puros compartilhados.
 
+## Servidor MCP local
+
+```text
+mcp/
+├── src/                 # Servidor MCP (stdio): ferramentas, cliente da API, orquestração da geração
+├── test/                # node:test com API simulada
+├── scripts/             # build da extensão .mcpb, e2e contra API local, suíte do motor no Node
+└── manifest.base.json   # base do manifesto da extensão do Claude Desktop
+```
+
+O `mcp/` permite que um assistente de IA (Claude Desktop, Claude Code ou outro cliente MCP)
+execute configurações fiscais e gere planilhas. Ele roda no computador do usuário, não no
+servidor, e preserva as fronteiras acima:
+
+- configurações e histórico passam pela API REST com o login do usuário, então valem as mesmas
+  permissões do site;
+- a geração importa o motor de `frontend/src/lib/localProcessing` (sem cópia) e lê XML, ZIP e
+  SPED apenas em pastas liberadas pelo usuário; a API recebe somente o resultado estruturado em
+  `/processamento-local/solicitacoes/{id}/resultado`, como no navegador;
+- decisões de pré-análise (CT-e sem NF-e, uso e consumo, bonificação, Convênio 52/91, MVA) são
+  devolvidas como pendências para o usuário responder; o servidor MCP não decide por ele.
+
+Como o MCP depende do motor do frontend, mudanças em `frontend/src/lib/localProcessing` ou em
+`frontend/src/types` devem rodar também `cd mcp && npm test && npm run test:motor && npm run typecheck`.
+Detalhes de instalação e ferramentas em [`mcp/README.md`](../mcp/README.md).
+
 ## Regras de evolução
 
 - Adicionar termos fiscais em `app/constants.py` e `frontend/src/constants/domain.ts`.

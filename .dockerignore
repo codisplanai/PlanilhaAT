@@ -17,6 +17,9 @@ frontend/.vite/
 frontend/*.tsbuildinfo
 frontend/.env*
 
+# Servidor MCP local: não faz parte da imagem do backend.
+mcp/
+
 tests/
 docs/
 *.db

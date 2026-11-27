@@ -1,0 +1,29 @@
+{
+  "name": "planaut-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Servidor MCP local do Planaut: configurações fiscais e geração de planilhas pelo Claude.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types --no-warnings src/index.ts",
+    "test": "node --experimental-strip-types --no-warnings --test test/*.test.ts",
+    "test:motor": "node scripts/test-engine-dom.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
+    "e2e": "node scripts/e2e-local.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@xmldom/xmldom": "^0.9.12",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "^2.1.2",
+    "@types/node": "^24.19.4",
+    "esbuild": "^0.28.2",
+    "typescript": "~6.0.2"
+  }
+}

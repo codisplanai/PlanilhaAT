@@ -122,6 +122,14 @@ uvicorn app.main:app --reload --port 8000
 - **Documentação Swagger Interativa:** `http://localhost:8000/docs`
 - **Documentação Redoc:** `http://localhost:8000/redoc`
 
+## Integração com IA (MCP)
+
+O diretório [`mcp/`](mcp/README.md) contém um servidor MCP local que conecta o Claude Desktop,
+o Claude Code ou outro cliente MCP ao Planaut. A IA consulta e altera empresas, perfis e regras
+fiscais com o login do usuário e gera as planilhas a partir dos XMLs/SPEDs do computador, com o
+mesmo motor do site e sem enviar arquivos fiscais ao servidor. `cd mcp && npm ci && npm run build`
+gera a extensão `mcp/dist/planaut.mcpb` para instalar no Claude Desktop.
+
 ## Diagnóstico de processamento
 
 A etapa de geração mantém um histórico temporário das tentativas na memória da página. A área **Acompanhamento da execução** informa etapa, contagens, avisos e erros e oferece exportação em `.txt` e `.json`, inclusive quando a geração falha.
