@@ -39,6 +39,7 @@ import {
   downloadDiagnosticText,
 } from '../../lib/processingDiagnostics';
 import type { DiagnosticRecorder } from '../../lib/processingDiagnostics';
+import { cteAttachmentFeedback, mergeCteAttachedFiles } from '../../lib/cteAttachment';
 import { useFiscalInputFiles } from './useFiscalInputFiles';
 
 function buildPersistPayload(
@@ -148,6 +149,7 @@ export function useNovaSolicitacaoPage() {
   } | null>(null);
   const [pendenciasCteNfe, setPendenciasCteNfe] = useState<CteSemNfePendencia[]>([]);
   const [showModalCteNfe, setShowModalCteNfe] = useState(false);
+  const [cteModalFeedback, setCteModalFeedback] = useState<string | null>(null);
   const ignoreMissingCteNotesRef = useRef(false);
   const xmlFilesOverrideRef = useRef<File[] | undefined>(undefined);
   const [pendenciasBonificacao, setPendenciasBonificacao] = useState<NotaBonificacaoPendencia[]>([]);
@@ -209,8 +211,8 @@ export function useNovaSolicitacaoPage() {
       overrideXmlFiles?: File[];
       ignoreMissingCteNotes?: boolean;
     },
-  ): Promise<void> => {
-    if (!selectedEmpresa) return;
+  ): Promise<'pending_cte' | 'pending_other' | 'completed'> => {
+    if (!selectedEmpresa) return 'completed';
 
     if (diagnostic) {
       diagnostic.attempt.requestId = requestId;
@@ -274,19 +276,19 @@ export function useNovaSolicitacaoPage() {
     if (localResult.preAnalysis.requer_decisao && (localResult.preAnalysis.ctes_sem_nfe?.length ?? 0) > 0) {
       setPendenciasCteNfe(localResult.preAnalysis.ctes_sem_nfe ?? []);
       setShowModalCteNfe(true);
-      return;
+      return 'pending_cte';
     }
 
     if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.notas_uso_consumo?.length) {
       setPendenciasUsoConsumo(localResult.preAnalysis.notas_uso_consumo);
       setShowModalUsoConsumo(true);
-      return;
+      return 'pending_other';
     }
 
     if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.notas_bonificacao.length > 0) {
       setPendenciasBonificacao(localResult.preAnalysis.notas_bonificacao);
       setShowModalBonificacao(true);
-      return;
+      return 'pending_other';
     }
 
     if (
@@ -295,13 +297,13 @@ export function useNovaSolicitacaoPage() {
     ) {
       setPendenciasConvenio5291(localResult.preAnalysis.itens_convenio_52_91);
       setShowModalConvenio5291(true);
-      return;
+      return 'pending_other';
     }
 
     if (localResult.preAnalysis.requer_decisao && localResult.preAnalysis.itens_mva?.length) {
       setPendenciasMva(localResult.preAnalysis.itens_mva);
       setShowModalMva(true);
-      return;
+      return 'pending_other';
     }
     diagnostic?.stage('registro', 'Registro do resultado estruturado iniciado.', {
       registros: localResult.notasProcessadas.length,
@@ -381,6 +383,7 @@ export function useNovaSolicitacaoPage() {
         refreshDiagnostic();
       }
     }
+    return 'completed';
   };
 
   /** Remove, em melhor esforço, uma solicitação criada mas nunca concluída. */
@@ -482,6 +485,7 @@ export function useNovaSolicitacaoPage() {
       setPendenciasMva([]);
       ignoreMissingCteNotesRef.current = false;
       xmlFilesOverrideRef.current = undefined;
+      setCteModalFeedback(null);
       await executeLocalProcessing(requestId, undefined, undefined, diagnostic);
     });
   };
@@ -493,21 +497,33 @@ export function useNovaSolicitacaoPage() {
       diagnostic,
       'O processamento não pôde ser concluído após anexar as NF-es.',
       async () => {
-        const keyOf = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
         const existingFiles = xmlFilesOverrideRef.current ?? files.xmlFiles;
-        const existingKeys = new Set(existingFiles.map(keyOf));
-        const added = novosArquivos.filter((file) => !existingKeys.has(keyOf(file)));
-        const merged = [...existingFiles, ...added];
+        const { merged, added, duplicateCount } = mergeCteAttachedFiles(existingFiles, novosArquivos);
+        if (added.length === 0) {
+          setCteModalFeedback(
+            cteAttachmentFeedback({ addedCount: 0, duplicateCount, stillPending: true }),
+          );
+          diagnostic?.event('warning', 'validacao', 'Arquivos ignorados por já estarem anexados na tentativa.', {
+            arquivosDuplicados: duplicateCount,
+          });
+          return;
+        }
+        setCteModalFeedback(null);
         xmlFilesOverrideRef.current = merged;
         files.setXmlFiles(merged);
         diagnostic?.event('info', 'validacao', 'NF-es complementares anexadas para CT-e; processamento retomado.', {
           arquivosAdicionados: added.length,
         });
         setShowModalCteNfe(false);
-        await executeLocalProcessing(solicitacaoIdAtiva, undefined, undefined, diagnostic, {
+        const outcome = await executeLocalProcessing(solicitacaoIdAtiva, undefined, undefined, diagnostic, {
           overrideXmlFiles: merged,
           ignoreMissingCteNotes: false,
         });
+        if (outcome === 'pending_cte') {
+          setCteModalFeedback(
+            cteAttachmentFeedback({ addedCount: added.length, duplicateCount, stillPending: true }),
+          );
+        }
       },
     );
   };
@@ -520,6 +536,7 @@ export function useNovaSolicitacaoPage() {
       'O processamento não pôde ser concluído após ignorar os CT-es pendentes.',
       async () => {
         ignoreMissingCteNotesRef.current = true;
+        setCteModalFeedback(null);
         diagnostic?.event('info', 'validacao', 'Usuário optou por continuar sem as NF-es originárias faltantes dos CT-es.');
         setShowModalCteNfe(false);
         await executeLocalProcessing(solicitacaoIdAtiva, undefined, undefined, diagnostic, {
@@ -645,6 +662,7 @@ export function useNovaSolicitacaoPage() {
       () => {
         setShowModalCteNfe(false);
         setPendenciasCteNfe([]);
+        setCteModalFeedback(null);
         ignoreMissingCteNotesRef.current = false;
         xmlFilesOverrideRef.current = undefined;
       },
@@ -675,6 +693,7 @@ export function useNovaSolicitacaoPage() {
     setSolicitacaoIdAtiva(null);
     setPendenciasCteNfe([]);
     setShowModalCteNfe(false);
+    setCteModalFeedback(null);
     ignoreMissingCteNotesRef.current = false;
     xmlFilesOverrideRef.current = undefined;
     setPendenciasBonificacao([]);
@@ -734,6 +753,8 @@ export function useNovaSolicitacaoPage() {
     hasAnyLocalArtifact: localArtifactTypes.length > 0,
     pendenciasCteNfe,
     showModalCteNfe,
+    cteModalFeedback,
+    clearCteModalFeedback: () => setCteModalFeedback(null),
     anexarNfesFaltantesEProcessar,
     ignorarCtesSemNfeEProcessar,
     cancelarModalCteNfe,

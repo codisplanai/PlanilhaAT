@@ -61,6 +61,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
     startNewRequest,
     pendenciasCteNfe,
     showModalCteNfe,
+    cteModalFeedback,
+    clearCteModalFeedback,
     anexarNfesFaltantesEProcessar,
     ignorarCtesSemNfeEProcessar,
     cancelarModalCteNfe,
@@ -180,6 +182,8 @@ export const NovaSolicitacaoPage: React.FC = () => {
         onAttachFiles={anexarNfesFaltantesEProcessar}
         onIgnorePending={ignorarCtesSemNfeEProcessar}
         isProcessing={isProcessing}
+        feedbackMessage={cteModalFeedback}
+        onClearFeedback={clearCteModalFeedback}
       />
 
       {showModalUsoConsumo && <ModalConfirmacaoUsoConsumo

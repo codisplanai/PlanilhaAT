@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
+import { fiscalFileKey } from '../../lib/cteAttachment';
 
 function isXmlOrZip(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -28,9 +29,8 @@ export function useFiscalInputFiles() {
     const validFiles = newFiles.filter(
       (file) => isXmlOrZip(file) && file.size > 0 && file.size <= MAX_FILE_BYTES,
     );
-    const fileKey = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
-    const existingKeys = new Set(xmlFiles.map(fileKey));
-    const addedFiles = validFiles.filter((file) => !existingKeys.has(fileKey(file)));
+    const existingKeys = new Set(xmlFiles.map(fiscalFileKey));
+    const addedFiles = validFiles.filter((file) => !existingKeys.has(fiscalFileKey(file)));
     const nextFiles = [...xmlFiles, ...addedFiles];
 
     if (nextFiles.reduce((sum, file) => sum + file.size, 0) > MAX_TOTAL_BYTES) {
@@ -69,9 +69,8 @@ export function useFiscalInputFiles() {
     const validFiles = newFiles.filter(
       (file) => file.name.toLowerCase().endsWith('.txt') && file.size > 0 && file.size <= MAX_SPED_BYTES,
     );
-    const fileKey = (file: File) => `${file.name}|${file.size}|${file.lastModified}`;
-    const existingKeys = new Set(spedFiles.map(fileKey));
-    const addedFiles = validFiles.filter((file) => !existingKeys.has(fileKey(file)));
+    const existingKeys = new Set(spedFiles.map(fiscalFileKey));
+    const addedFiles = validFiles.filter((file) => !existingKeys.has(fiscalFileKey(file)));
     const nextFiles = [...spedFiles, ...addedFiles];
 
     if (addedFiles.length > 0) setSpedFiles(nextFiles);
