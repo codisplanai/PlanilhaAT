@@ -31,6 +31,7 @@ import { useAdminTemplatesPage } from './useAdminTemplatesPage';
 
 /** Nomes dos campos do mapeamento como o administrador os conhece. */
 const CAMPO_LABELS: Record<string, string> = {
+  item_index: 'Nº do item',
   numero_nota: 'Nº da nota',
   data_entrada: 'Data de entrada',
   data_emissao: 'Data de emissão',
@@ -39,6 +40,8 @@ const CAMPO_LABELS: Record<string, string> = {
   ipi_despesas: 'IPI + despesas',
   mva: 'MVA',
   reducao: 'Redução',
+  red: 'RED. (S/N)',
+  aliq_simples: 'Alíq. Simples',
   a_dst: 'A.DST',
   a_ori: 'A.ORI',
   valor_pago: 'VR. PG.',
@@ -580,6 +583,12 @@ export const AdminTemplatesPage: React.FC = () => {
                 error={errors.header_cell?.message}
               />
               <Input
+                label="Nº do item"
+                placeholder="Ex: A"
+                {...register('col_item_index')}
+                error={errors.col_item_index?.message}
+              />
+              <Input
                 label="Nº da nota"
                 placeholder="Ex: D"
                 {...register('col_numero_nota')}
@@ -626,8 +635,22 @@ export const AdminTemplatesPage: React.FC = () => {
                       {...register('col_reducao')}
                       error={errors.col_reducao?.message}
                     />
+                    <Input
+                      label="RED. (S/N)"
+                      placeholder="Ex: L"
+                      {...register('col_red')}
+                      error={errors.col_red?.message}
+                    />
                   </>
                 )}
+              {(tipoUpload === 'difal' || tipoUpload === 'difal_antecipado') && (
+                <Input
+                  label="Alíq. Simples"
+                  placeholder="Ex: G"
+                  {...register('col_aliq_simples')}
+                  error={errors.col_aliq_simples?.message}
+                />
+              )}
               <Input
                 label="A.DST (destino)"
                 placeholder="Ex: H"

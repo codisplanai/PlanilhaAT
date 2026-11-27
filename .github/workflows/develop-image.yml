@@ -51,7 +51,9 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            frontend/package-lock.json
+            mcp/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -80,6 +82,20 @@ jobs:
           node --check frontend/public/sw.js
           node --check frontend/public/runtime-config.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
+
+      # O conector do Claude importa o motor fiscal do site: uma mudança no motor
+      # que o quebre aparece aqui, e não só na release.
+      - name: Install connector dependencies
+        working-directory: mcp
+        run: npm ci
+
+      - name: Connector tests, typecheck and build
+        working-directory: mcp
+        run: |
+          npm test
+          npm run typecheck
+          npm run test:motor
+          npm run build
 
   publish:
     name: Publish develop build image to GHCR

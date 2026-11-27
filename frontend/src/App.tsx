@@ -35,6 +35,9 @@ const UsuariosPage = lazy(() =>
 const PreencherDatasEntradaPage = lazy(() =>
   import('./pages/PreencherDatasEntrada').then(({ PreencherDatasEntradaPage: page }) => ({ default: page }))
 );
+const IntegracaoIaPage = lazy(() =>
+  import('./pages/IntegracaoIa').then(({ IntegracaoIaPage: page }) => ({ default: page }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -117,6 +120,14 @@ export function App() {
                   element={
                     <AdminRoute user={user}>
                       <UsuariosPage user={user} />
+                    </AdminRoute>
+                  }
+                />
+                <Route
+                  path="/integracao-ia"
+                  element={
+                    <AdminRoute user={user} allowSenior>
+                      <IntegracaoIaPage />
                     </AdminRoute>
                   }
                 />

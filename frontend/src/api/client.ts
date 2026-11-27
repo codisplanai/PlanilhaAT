@@ -5,7 +5,8 @@ import { createSessionRefresher, isSessionEndpoint, shouldAttemptRefresh } from 
 import type { LoginResponse, User } from '../types/auth';
 
 const rawApiUrl = runtimeConfig.apiUrl || import.meta.env.VITE_API_URL || '';
-const baseApiUrl = String(rawApiUrl).trim().replace(/\/+$/, '');
+/** Base da API sem ``/api/v1`` (vazia quando a API está no mesmo domínio do site). */
+export const baseApiUrl = String(rawApiUrl).trim().replace(/\/+$/, '');
 
 export const apiClient = axios.create({
   baseURL: baseApiUrl ? `${baseApiUrl}/api/v1` : '/api/v1',

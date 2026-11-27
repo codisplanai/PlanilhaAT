@@ -40,35 +40,6 @@ export function registerConsultaTools({ server, api, policy }: ToolContext, past
     };
   }));
 
-  server.registerTool('listar_templates', {
-    title: 'Listar modelos de planilha',
-    description: 'Lista os modelos oficiais (.xlsx) cadastrados por tipo de planilha, com versão, se é global ou exclusivo de uma empresa e capacidade de linhas. '
-      + 'Somente leitura: o envio e a promoção de modelos continuam pelo site.',
-    inputSchema: {
-      tipo: z.string().optional().describe('Ex.: antecipacao_parcial, antecipacao_tributaria, difal.'),
-      empresa_id: z.number().int().positive().optional().describe('Só modelos exclusivos desta empresa.'),
-      apenas_ativos: z.boolean().default(true),
-    },
-    annotations: READ_ONLY,
-  }, safe(async ({ tipo, empresa_id, apenas_ativos }) => {
-    const templates = await api.get<JsonRecord[]>('/templates', {
-      tipo,
-      empresa_id,
-      ativo: apenas_ativos ? true : undefined,
-    });
-    return templates.map((template) => ({
-      id: template.id,
-      tipo: template.tipo,
-      planilha: label(PLANILHA_LABELS, template.tipo),
-      versao: template.versao,
-      escopo: template.empresa_id ? `empresa ${template.empresa_id}` : 'global',
-      ativo: template.ativo,
-      capacidade_linhas: template.capacidade_linhas ?? null,
-      observacoes: template.observacoes ?? null,
-      criado_em: template.criado_em,
-    }));
-  }));
-
   server.registerTool('listar_solicitacoes', {
     title: 'Histórico de solicitações',
     description: 'Lista as solicitações de processamento do histórico (mais recentes primeiro), com empresa, período, status e quantidade de registros. '

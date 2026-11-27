@@ -16,10 +16,13 @@ import {
   X,
   Sparkles,
   CalendarCheck2,
+  Bot,
+  type LucideIcon,
 } from 'lucide-react';
 import { PlanAutLogo } from '../ui/PlanAutLogo';
 import { CodisplanLogo } from '../ui/CodisplanLogo';
 import { AlterarSenhaModal } from '../auth/AlterarSenhaModal';
+import { isAdminOrSenior } from '../../lib/permissions';
 import type { User } from '../../types/auth';
 
 interface SidebarProps {
@@ -38,13 +41,24 @@ const MAIN_NAV_ITEMS = [
   { to: '/perfis-regras', label: 'Perfis e Alíquotas', icon: Sliders },
 ];
 
-const ADMIN_NAV_ITEMS = [
-  { to: '/templates', label: 'Modelos de Planilha', icon: FileCode2 },
-  { to: '/usuarios', label: 'Usuários', icon: Users },
+interface AdminNavItem {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  canSee: (user: User | null) => boolean;
+}
+
+const isAdminRole = (user: User | null) => user?.role === 'admin';
+
+const ADMIN_NAV_ITEMS: AdminNavItem[] = [
+  { to: '/templates', label: 'Modelos de Planilha', icon: FileCode2, canSee: isAdminRole },
+  { to: '/usuarios', label: 'Usuários', icon: Users, canSee: isAdminRole },
+  { to: '/integracao-ia', label: 'Integração com IA', icon: Bot, canSee: isAdminOrSenior },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavigate, onClose }) => {
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isAdminRole(user);
+  const adminNavItems = ADMIN_NAV_ITEMS.filter((item) => item.canSee(user));
   const [isAlterarSenhaOpen, setIsAlterarSenhaOpen] = useState(false);
   const sidebarRef = React.useRef<HTMLElement>(null);
 
@@ -174,14 +188,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onNavi
         </div>
 
         {/* Administration Section */}
-        {isAdmin && (
+        {adminNavItems.length > 0 && (
           <div>
             <div className="px-3 mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
               <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
               <span>Área Administrativa</span>
             </div>
             <nav className="space-y-1">
-              {ADMIN_NAV_ITEMS.map((item) => (
+              {adminNavItems.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
