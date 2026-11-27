@@ -1,0 +1,163 @@
+{
+ "empresa": {
+  "id": 1,
+  "razao_social": "Cliente BA E2E",
+  "cnpj": "12345678000195",
+  "inscricao_estadual": "123456",
+  "uf": "BA",
+  "perfil_regras_id": 2,
+  "optante_simples_nacional": false,
+  "atividade": "comercio",
+  "a_ori_fixa_parcial": null,
+  "termo_acordo": null,
+  "fornecedores_uso_consumo": []
+ },
+ "perfil": {
+  "id": 2,
+  "nome": "Perfil E2E mwyz9nix",
+  "descricao": "Criado pelo teste do MCP",
+  "configuracoes_extras": {}
+ },
+ "regras_aliquotas": [
+  {
+   "id": 2,
+   "perfil_regras_id": 2,
+   "uf": "BA",
+   "ncm": null,
+   "aliquota": 0.205,
+   "descricao": "Padrão BA",
+   "parametros_extras": {}
+  }
+ ],
+ "regras_cfop": [
+  {
+   "id": 1,
+   "perfil_regras_id": null,
+   "cfop_sufixo": "102",
+   "destino": "antecipacao_parcial",
+   "descricao": "Compra para comercialização — produto tributado"
+  },
+  {
+   "id": 2,
+   "perfil_regras_id": null,
+   "cfop_sufixo": "403",
+   "destino": "antecipacao_tributaria",
+   "descricao": "Mercadoria sujeita a ST — conferir com o contador"
+  },
+  {
+   "id": 3,
+   "perfil_regras_id": null,
+   "cfop_sufixo": "404",
+   "destino": "antecipacao_tributaria",
+   "descricao": "ST com imposto retido anteriormente — conferir com o contador"
+  },
+  {
+   "id": 4,
+   "perfil_regras_id": null,
+   "cfop_sufixo": "405",
+   "destino": "antecipacao_tributaria",
+   "descricao": "Compra para comercialização — produto antecipado (substituído)"
+  },
+  {
+   "id": 5,
+   "perfil_regras_id": null,
+   "cfop_sufixo": "407",
+   "destino": "difal",
+   "descricao": "Compra de mercadoria para uso ou consumo com ST"
+  },
+  {
+   "id": 6,
+   "perfil_regras_id": null,
+   "cfop_sufixo": "551",
+   "destino": "difal",
+   "descricao": "Aquisição de bem para o ativo imobilizado"
+  },
+  {
+   "id": 7,
+   "perfil_regras_id": null,
+   "cfop_sufixo": "556",
+   "destino": "difal",
+   "descricao": "Aquisição de material para uso/consumo"
+  }
+ ],
+ "regras_reducao": [],
+ "regras_reclassificacao": [],
+ "regras_exclusao_parcial": [],
+ "regras_fcp": [],
+ "margens_seguranca_templates": {
+  "antecipacao_parcial": 0,
+  "antecipacao_parcial_antecipado": 0,
+  "antecipacao_parcial_simples": 0,
+  "antecipacao_parcial_antecipado_simples": 0,
+  "antecipacao_tributaria": 0,
+  "antecipacao_tributaria_antecipado": 0,
+  "difal": 0,
+  "difal_antecipado": 0,
+  "controle_imposto_pago_entrada": 0
+ },
+ "templates_ativos": [
+  {
+   "id": 1,
+   "empresa_id": null,
+   "tipo": "antecipacao_parcial",
+   "versao": 1,
+   "capacidade_linhas": null,
+   "arquivo_hash": "4f0339ce2c9128b7436832197610f71dd347382d91a435eb95edbf16696cc982",
+   "mapeamento_campos": {
+    "start_row": 4,
+    "columns": {
+     "item_index": "A",
+     "data_entrada": "B",
+     "data_emissao": "C",
+     "numero_nota": "D",
+     "v_total": "E",
+     "base_calculo": "F",
+     "ipi_despesas": "G",
+     "a_dst": "H",
+     "a_ori": "I"
+    },
+    "sheet_name": null,
+    "header_cell": "A2",
+    "aliquota_format": null,
+    "extra_options": {
+     "header_cell": "A2",
+     "aliquota_format": "percent_number",
+     "margem_seguranca_linhas": 0
+    }
+   },
+   "observacoes": "Modelo oficial pré-definido de Antecipação Parcial (RP-153)"
+  },
+  {
+   "id": 4,
+   "empresa_id": null,
+   "tipo": "difal",
+   "versao": 1,
+   "capacidade_linhas": null,
+   "arquivo_hash": "7d684210a452ad23c9cb9a352ae5ab58d28c78455284d17c126bd2a0285f8d33",
+   "mapeamento_campos": {
+    "start_row": 4,
+    "columns": {
+     "item_index": "A",
+     "data_entrada": "B",
+     "data_emissao": "C",
+     "numero_nota": "D",
+     "v_total": "E",
+     "ipi_despesas": "F",
+     "aliq_simples": "G",
+     "a_dst": "I",
+     "a_ori": "J"
+    },
+    "sheet_name": null,
+    "header_cell": "A2",
+    "aliquota_format": null,
+    "extra_options": {
+     "header_cell": "A2",
+     "aliquota_format": "percent_number",
+     "margem_seguranca_linhas": 0
+    }
+   },
+   "observacoes": "Modelo oficial pré-definido de DIFAL (RP-158)"
+  }
+ ],
+ "mva_anexo": []
+}

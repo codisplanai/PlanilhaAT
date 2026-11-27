@@ -17,6 +17,10 @@ frontend/*.tsbuildinfo
 frontend/.env
 frontend/.env.*
 
+# Servidor MCP
+mcp/build/
+mcp/dist/
+
 # Environment / secrets
 .env
 .env.*
