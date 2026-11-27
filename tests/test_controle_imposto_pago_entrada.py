@@ -204,3 +204,34 @@ def test_controle_desdobra_somente_quando_a_aliquota_de_origem_difere(db_session
     assert linhas[1]["v_total"] == 50 and linhas[1]["a_ori"] == 0.07
     assert not str(linhas[0]["nota"]).endswith("*")
     assert str(linhas[1]["nota"]).endswith("*")
+
+def test_controle_respeita_limite_a_ori(db_session, create_sample_excel_template, tmp_path):
+    from app.models.regra_aliquota_empresa import RegraAliquotaEmpresa
+    from app.models.regra_reducao_produto import RegraReducaoProduto
+
+    empresa, perfil = _setup_ambiente(db_session, create_sample_excel_template, politica_aliquotas_iguais=False)
+    perfil.configuracoes_extras = {"limitar_a_ori_reducoes": True}
+    db_session.add(RegraAliquotaEmpresa(
+        empresa_id=empresa.id, aliquota=Decimal("0.1206"), descricao="Termo teste",
+    ))
+    db_session.add(RegraReducaoProduto(
+        perfil_regras_id=perfil.id, ncm="17019900", termos_inclusao=["ACUCAR"],
+        termos_exclusao=[], aliquota=Decimal("0.1200"), descricao="Redução teste",
+    ))
+    db_session.commit()
+    _subir_template_controle(db_session, tmp_path)
+    itens = [
+        _det_item(1, "02102000", "CHARQUE BOVINO", "100.00", "12.00"),
+        _det_item(2, "02102000", "CHARQUE BOVINO", "80.00", "7.00"),
+        _det_item(3, "02102000", "CHARQUE BOVINO", "50.00", "4.00"),
+        _det_item(4, "17019900", "ACUCAR CRISTAL", "40.00", "12.00"),
+    ]
+    res = _processar(db_session, empresa, itens, "270.00")
+    assert res.total_notas_processadas == 0
+    controle = _saida(res, CONTROLE_IMPOSTO_PAGO_ENTRADA)
+    assert controle.total_valor_devido == Decimal("0.00")
+    ws = openpyxl.load_workbook(controle.arquivo_path, data_only=False).worksheets[0]
+    assert {(ws[f"H{r}"].value, ws[f"I{r}"].value) for r in range(4, 8)} == {
+        (0.1206, 0.10), (0.1206, 0.07), (0.1206, 0.04), (0.12, 0.12),
+    }
+    ws.parent.close()
