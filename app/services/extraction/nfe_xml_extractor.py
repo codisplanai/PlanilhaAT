@@ -207,9 +207,9 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 and self._get_text(icms_tot, "vFrete")
                 and self._get_decimal(icms_tot, "vFrete") == 0
                 and v_frete == 0 and st_mva is not None and st_mva >= 0
-                and st_mod == "4" and st_reduction == 0
+                and st_mod == "4" and 0 <= st_reduction < 100
                 and v_icms_st_item > 0 and st_base > 0 and v_total_item > 0
-                and abs(st_base - v_total_item * (1 + st_mva / 100)) <= Decimal("0.03")
+                and abs(st_base - v_total_item * (1 + st_mva / 100) * (1 - st_reduction / 100)) <= Decimal("0.03")
             ):
                 frete_fob_st_mva = st_mva
 
@@ -240,6 +240,7 @@ class NFeXMLExtractor(BaseNFEExtractor):
                 v_icms=v_icms_item,
                 v_icms_st=v_icms_st_item,
                 frete_fob_st_mva=frete_fob_st_mva,
+                frete_fob_st_reducao=st_reduction / 100 if frete_fob_st_mva is not None else None,
                 origem_mercadoria=origem_mercadoria,
                 csosn=csosn_item,
                 v_desc=v_desc,

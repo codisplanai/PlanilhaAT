@@ -528,7 +528,118 @@ test('CT-e FOB com BC-ST comprovadamente sem frete complementa apenas transporte
   assert.equal(rows[0].numero_nota, '3001');
   assert.equal(rows[0].v_total, 200);
   assert.equal(rows[0].mva, 45);
+  assert.equal(rows[0].red, 'N');
   assert.equal(res.notasProcessadas.length, 1);
+});
+
+test('CT-e FOB com redução de BC-ST comprovada herda redução e não reinclui mercadoria', async () => {
+  const ctx = buildCteContext();
+  ctx.empresa.razao_social = 'Armazém Comércio LTDA';
+  const chvNfSt = chaveNfe('2601', 701);
+  const nfStXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvNfSt}">
+  <ide><nNF>701</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${FORNECEDOR_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+  <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <transp><modFrete>1</modFrete></transp>
+  <total><ICMSTot><vNF>1177.25</vNF><vBC>1000.00</vBC><vFrete>0.00</vFrete><vST>177.25</vST></ICMSTot></total>
+  <det nItem="1"><prod><NCM>73170090</NCM><CEST>1005700</CEST><CFOP>6403</CFOP><xProd>PREGO</xProd><vProd>1000.00</vProd></prod>
+    <imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>1000.00</vBC><pICMS>12.00</pICMS><vICMS>120.00</vICMS><modBCST>4</modBCST><pMVAST>45.00</pMVAST><pRedBCST>41.46</pRedBCST><vBCST>848.83</vBCST><pICMSST>20.50</pICMSST><vICMSST>177.25</vICMSST></ICMS10></ICMS></imposto>
+  </det>
+</infNFe></NFe></nfeProc>`;
+
+  const cteXml = buildCteXml({
+    numero: '3001',
+    chave: chaveCte('2601', 3001),
+    vTPrest: '200.00',
+    toma: '3',
+    chavesNfe: [chvNfSt],
+  });
+
+  const res = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-cte-nf-st-excluida',
+      periodoInicio: '2026-01-01',
+      periodoFim: '2026-01-31',
+      context: ctx,
+      input: {
+        xmlFiles: [
+          new File([nfStXml], '701.xml', { type: 'text/xml' }),
+          new File([cteXml], 'cte3001.xml', { type: 'text/xml' }),
+        ],
+      },
+    },
+    new Map(),
+    loadTemplate,
+  );
+
+  assert.equal(res.itensExcluidos.length, 1);
+  assert.equal(res.itensExcluidos[0].numero_nota, '701');
+  assert.match(res.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
+
+  const rows = res.rowsByDestination.antecipacao_tributaria ?? [];
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].numero_nota, '3001');
+  assert.equal(rows[0].v_total, 200);
+  assert.equal(rows[0].mva, 45);
+  assert.equal(rows[0].reducao, 0.4146);
+  assert.equal(rows[0].red, 'S');
+  assert.equal(res.notasProcessadas.length, 1);
+});
+
+test('CT-e FOB misto usa ST no peso do rateio quando a capa reconcilia', async () => {
+  const ctx = buildCteContext();
+  ctx.empresa.razao_social = 'Armazém Comércio LTDA';
+  const chvNfSt = chaveNfe('2601', 701);
+  const nfStXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${chvNfSt}">
+  <ide><nNF>701</nNF><serie>1</serie><dhEmi>2026-01-10T10:00:00-03:00</dhEmi></ide>
+  <emit><CNPJ>${FORNECEDOR_CNPJ}</CNPJ><CRT>3</CRT><enderEmit><UF>SP</UF></enderEmit></emit>
+  <dest><CNPJ>${EMPRESA_CNPJ}</CNPJ><enderDest><UF>BA</UF></enderDest></dest>
+  <transp><modFrete>1</modFrete></transp>
+  <total><ICMSTot><vNF>1377.25</vNF><vBC>1000.00</vBC><vFrete>0.00</vFrete><vST>177.25</vST></ICMSTot></total>
+  <det nItem="1"><prod><NCM>73170090</NCM><CEST>1005700</CEST><CFOP>6403</CFOP><xProd>PREGO</xProd><vProd>1000.00</vProd></prod>
+    <imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>1000.00</vBC><pICMS>12.00</pICMS><vICMS>120.00</vICMS><modBCST>4</modBCST><pMVAST>45.00</pMVAST><vBCST>1450.00</vBCST><pICMSST>20.50</pICMSST><vICMSST>177.25</vICMSST></ICMS10></ICMS></imposto>
+  </det>
+  <det nItem="2"><prod><NCM>21069090</NCM><CFOP>6102</CFOP><xProd>REVENDA</xProd><vProd>200.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>200.00</vBC><pICMS>7.00</pICMS></ICMS00></ICMS></imposto></det>
+</infNFe></NFe></nfeProc>`;
+
+  const cteXml = buildCteXml({
+    numero: '3001',
+    chave: chaveCte('2601', 3001),
+    vTPrest: '200.00',
+    toma: '3',
+    chavesNfe: [chvNfSt],
+  });
+
+  const res = await processFiscalLocally(
+    {
+      solicitacaoId: 'teste-cte-nf-st-excluida',
+      periodoInicio: '2026-01-01',
+      periodoFim: '2026-01-31',
+      context: ctx,
+      input: {
+        xmlFiles: [
+          new File([nfStXml], '701.xml', { type: 'text/xml' }),
+          new File([cteXml], 'cte3001.xml', { type: 'text/xml' }),
+        ],
+      },
+    },
+    new Map(),
+    loadTemplate,
+  );
+
+  assert.equal(res.itensExcluidos.length, 1);
+  assert.equal(res.itensExcluidos[0].numero_nota, '701');
+  assert.match(res.itensExcluidos[0].motivo, /ICMS ST já destacado no XML/);
+
+  const rows = res.rowsByDestination.antecipacao_tributaria ?? [];
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].numero_nota, '3001');
+  assert.equal(rows[0].v_total, 170.96);
+  assert.equal(rows[0].mva, 45);
+  assert.equal(rows[0].red, 'N');
+  assert.ok(res.notasProcessadas.length >= 1);
 });
 
 test('rejeita NF-e de outro CNPJ destinatário antes de pausar para CT-e, bonificação ou Convênio 52/91', async () => {

@@ -696,7 +696,7 @@ function consolidateNoteGroups(params: {
       ipi_despesas: ipi,
       mva,
       reducao: group.reducao,
-      red: '',
+      red: TAX_SUBSTITUTION_DESTINATIONS.has(group.destination) ? (group.reducao != null && group.reducao > 0 ? 'S' : 'N') : '',
       aliq_simples: aliqSimples,
       a_ori: isDifalDestination(group.destination) && !group.aOriHighlighted ? null : group.aOri,
       a_dst: group.aDst,
