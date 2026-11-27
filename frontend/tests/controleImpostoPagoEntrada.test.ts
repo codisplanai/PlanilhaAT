@@ -83,7 +83,14 @@ test('controle soma os itens da mesma nota com as mesmas alíquotas (sem desdobr
   assert.equal(rows[0].numero_nota, '901');
 });
 
-test('controle desdobra a nota somente quando a A.ORI difere', async () => {
+for (const scenario of [
+  { name: 'sem limitador', limit: false, agreement: 0.1206, expected: 0.12 },
+  { name: 'limite ativo e termo 12,06%', limit: true, agreement: 0.1206, expected: 0.10 },
+  { name: 'alíquotas iguais', limit: true, agreement: 0.12, expected: 0.12 },
+  { name: 'sem redução ou termo', limit: true, agreement: null, expected: 0.12 },
+  { name: 'redução por produto', limit: true, agreement: null, reduction: 0.1206, expected: 0.10 },
+]) {
+test(`controle desdobra por A.ORI efetiva: ${scenario.name}`, async () => {
   const det = (n: number, valor: string, pIcms: string) => `<det nItem="${n}"><prod><cProd>P1</cProd><xProd>PRODUTO</xProd><NCM>21069090</NCM><CFOP>6102</CFOP><vProd>${valor}</vProd></prod>
     <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>${valor}</vBC><pICMS>${pIcms}</pICMS></ICMS00></ICMS></imposto></det>`;
   const xml = `<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe>
@@ -94,7 +101,15 @@ test('controle desdobra a nota somente quando a A.ORI difere', async () => {
     <total><ICMSTot><vProd>1000.00</vProd><vBC>1000.00</vBC><vNF>1000.00</vNF></ICMSTot></total>
     ${det(1, '600.00', '12.00')}${det(2, '300.00', '12.00')}${det(3, '100.00', '7.00')}
   </infNFe></NFe></nfeProc>`;
-  const result = await processar(comRegra('imposto_pago_entrada'), {
+  const context = comRegra('imposto_pago_entrada');
+  context.perfil.configuracoes_extras.limitar_a_ori_reducoes = scenario.limit;
+  if (scenario.agreement != null) context.empresa.termo_acordo = { id: 1, aliquota: scenario.agreement };
+  if (scenario.reduction != null) context.regras_reducao = [{
+    id: 1, perfil_regras_id: 1, ncm: '21069090', termos_inclusao: ['PRODUTO'],
+    termos_exclusao: [], aliquota: scenario.reduction, escopo: 'antecipacao_parcial',
+    descricao: null, excecoes: [],
+  } as never];
+  const result = await processar(context, {
     sped: spedJaneiro([
       { numero: '901', chave: chave('2601', 901), dtDoc: '10012026', dtEntrada: '20012026', itens: [['2102', '600,00'], ['2102', '300,00'], ['2102', '100,00']] },
     ]),
@@ -104,9 +119,12 @@ test('controle desdobra a nota somente quando a A.ORI difere', async () => {
   const rows = result.rowsByDestination[CONTROLE]!;
   assert.equal(rows.length, 2);
   assert.equal(rows[0].v_total, 900);
-  assert.equal(rows[0].a_ori, 0.12);
+  assert.equal(rows[0].a_ori, scenario.expected);
+  assert.equal(rows[0].a_dst, scenario.reduction ?? scenario.agreement ?? 0.205);
+  assert.equal(result.notasProcessadas.length, 0);
   assert.equal(rows[0].numero_nota, '901');
   assert.equal(rows[1].v_total, 100);
   assert.equal(rows[1].a_ori, 0.07);
   assert.equal(rows[1].numero_nota, '901*');
 });
+}
