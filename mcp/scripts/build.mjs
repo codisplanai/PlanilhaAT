@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 /**
- * Gera a extensão do Claude Desktop (dist/planaut.mcpb).
+ * Gera o conector do Planaut:
+ *
+ * - dist/planaut.mcpb: extensão do Claude Desktop;
+ * - dist/planaut-mcp.mjs: o mesmo servidor num arquivo só, para o Claude Code
+ *   e outros clientes MCP (`node planaut-mcp.mjs <pastas>`).
  *
  * 1. Empacota o servidor e o motor fiscal do site num único server/index.js (esbuild).
  * 2. Monta o manifest.json a partir de manifest.base.json, com a lista de
  *    ferramentas lida do próprio servidor (nunca fica desatualizada).
  * 3. Valida e compacta com o CLI oficial do MCPB.
+ *
+ * A versão vem de PLANAUT_MCP_VERSION (a release do site define a mesma
+ * versão do Planaut); sem ela, usa a do package.json.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -17,6 +24,11 @@ import { build } from 'esbuild';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const version = (process.env.PLANAUT_MCP_VERSION || pkg.version).trim();
+if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  console.error(`Versão inválida para o conector: "${version}" (use MAJOR.MINOR.PATCH).`);
+  process.exit(1);
+}
 const stage = path.join(root, 'build', 'mcpb');
 const dist = path.join(root, 'dist');
 const mcpbCli = path.join(root, 'node_modules', '@anthropic-ai', 'mcpb', 'dist', 'cli', 'cli.js');
@@ -34,6 +46,8 @@ const shared = {
   logLevel: 'warning',
   // Dependências CommonJS (xmldom) dentro de um bundle ESM precisam de require.
   banner: { js: "import { createRequire as __planautCreateRequire } from 'node:module';\nconst require = __planautCreateRequire(import.meta.url);" },
+  // A versão fica gravada no arquivo: o processo do cliente MCP não define a variável.
+  define: { 'process.env.PLANAUT_MCP_VERSION': JSON.stringify(version) },
 };
 
 await build({
@@ -80,7 +94,7 @@ const firstSentence = (text) => {
 const base = JSON.parse(fs.readFileSync(path.join(root, 'manifest.base.json'), 'utf8'));
 const manifest = {
   ...base,
-  version: pkg.version,
+  version,
   tools: tools.map((tool) => ({ name: tool.name, description: firstSentence(tool.description) })),
 };
 fs.writeFileSync(path.join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -88,7 +102,7 @@ fs.copyFileSync(path.join(root, 'assets', 'icon.png'), path.join(stage, 'icon.pn
 fs.copyFileSync(path.join(root, 'README.md'), path.join(stage, 'README.md'));
 fs.writeFileSync(
   path.join(stage, 'package.json'),
-  `${JSON.stringify({ name: pkg.name, version: pkg.version, private: true, type: 'module' }, null, 2)}\n`,
+  `${JSON.stringify({ name: pkg.name, version, private: true, type: 'module' }, null, 2)}\n`,
 );
 
 function mcpb(args) {
@@ -100,4 +114,11 @@ mcpb(['validate', path.join(stage, 'manifest.json')]);
 const output = path.join(dist, 'planaut.mcpb');
 fs.rmSync(output, { force: true });
 mcpb(['pack', stage, output]);
-console.log(`\nExtensão gerada: ${path.relative(process.cwd(), output)} (${tools.length} ferramentas)`);
+
+// Arquivo único para o Claude Code: a extensão .mjs dispensa o package.json com "type": "module".
+const standalone = path.join(dist, 'planaut-mcp.mjs');
+fs.copyFileSync(path.join(stage, 'server', 'index.js'), standalone);
+
+console.log(`\nConector ${version} (${tools.length} ferramentas):`);
+console.log(`- ${path.relative(process.cwd(), output)} (Claude Desktop)`);
+console.log(`- ${path.relative(process.cwd(), standalone)} (Claude Code e outros clientes MCP)`);

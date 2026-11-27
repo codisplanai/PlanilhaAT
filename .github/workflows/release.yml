@@ -174,9 +174,55 @@ jobs:
           node --check frontend/public/runtime-config.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/public/manifest.webmanifest','utf8'))"
 
+  connector:
+    name: Build Claude connector
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.version.outputs.target_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: Install connector dependencies
+        working-directory: mcp
+        run: npm ci
+
+      - name: Connector tests and typecheck
+        working-directory: mcp
+        run: |
+          npm test
+          npm run typecheck
+          npm run test:motor
+
+      - name: Build connector with the release version
+        working-directory: mcp
+        env:
+          PLANAUT_MCP_VERSION: ${{ needs.version.outputs.version }}
+        run: npm run build
+
+      - name: Keep connector files for the GitHub Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: planaut-connector
+          path: |
+            mcp/dist/planaut.mcpb
+            mcp/dist/planaut-mcp.mjs
+          if-no-files-found: error
+          retention-days: 7
+
   candidate:
     name: Build production container artifact
-    needs: [version, tests]
+    needs: [version, tests, connector]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -371,7 +417,7 @@ jobs:
 
   release:
     name: Create Git tag and GitHub Release
-    needs: [version, candidate, promote]
+    needs: [version, connector, candidate, promote]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -381,6 +427,12 @@ jobs:
         with:
           ref: ${{ needs.version.outputs.target_sha }}
           fetch-depth: 0
+
+      - name: Download Claude connector
+        uses: actions/download-artifact@v4
+        with:
+          name: planaut-connector
+          path: connector
 
       - name: Create semantic tag and GitHub Release
         env:
@@ -419,13 +471,23 @@ jobs:
             printf -- '- Container image: \x60%s\x60\n' "$RELEASE_REF"
             printf -- '- Build digest: \x60%s\x60\n' "$APP_DIGEST"
             echo "- CloudPanel, Docker Compose, Dockge and Portainer remain manual deployment artifacts only."
+            echo
+            echo "Claude connector $VERSION (same fiscal engine as this release):"
+            echo "- \`planaut.mcpb\`: Claude Desktop extension"
+            echo "- \`planaut-mcp.mjs\`: single-file server for Claude Code and other MCP clients"
           } > release-notes.md
 
+          CONNECTOR_FILES=(connector/planaut.mcpb connector/planaut-mcp.mjs)
+
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "GitHub Release $TAG already exists; keeping it."
+            echo "GitHub Release $TAG already exists; keeping it and refreshing the connector files."
+            gh release upload "$TAG" "${CONNECTOR_FILES[@]}" --clobber
           else
+            # Arquivos anexados na criação: o link releases/latest/download/planaut.mcpb
+            # nunca aponta para uma release sem o conector.
             gh release create "$TAG" \
               --target "$TARGET_SHA" \
               --title "PlanAut $TAG" \
-              --notes-file release-notes.md
+              --notes-file release-notes.md \
+              "${CONNECTOR_FILES[@]}"
           fi

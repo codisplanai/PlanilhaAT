@@ -1,6 +1,7 @@
 import type { PlanautMcpConfig } from './config.ts';
 
-export const MCP_VERSION = '1.0.0';
+// O build da extensão grava aqui a versão da release do Planaut (esbuild define).
+export const MCP_VERSION: string = process.env.PLANAUT_MCP_VERSION || '1.0.0';
 const API_PREFIX = '/api/v1';
 const REFRESH_COOKIE = 'planaut_refresh';
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -39,6 +40,8 @@ type QueryValue = string | number | boolean | null | undefined;
 export interface RequestOptions {
   query?: Record<string, QueryValue>;
   body?: unknown;
+  /** Envio multipart (upload de arquivo); exclusivo com `body`. */
+  form?: FormData;
   timeoutMs?: number;
 }
 
@@ -124,14 +127,15 @@ export class PlanautApi {
       Accept: 'application/json',
       'User-Agent': `planaut-mcp/${MCP_VERSION}`,
     };
-    if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+    // Com FormData o fetch define o Content-Type multipart com o boundary.
+    if (options.body !== undefined && !options.form) headers['Content-Type'] = 'application/json';
     if (options.auth !== false && this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
     if (options.cookie) headers.Cookie = `${REFRESH_COOKIE}=${options.cookie}`;
     try {
       return await this.fetchImpl(this.url(pathname, options.query), {
         method,
         headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: options.form ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
         signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
         redirect: 'error',
       });
@@ -264,6 +268,10 @@ export class PlanautApi {
 
   post<T = unknown>(pathname: string, body?: unknown, options: Omit<RequestOptions, 'body'> = {}): Promise<T> {
     return this.request<T>('POST', pathname, { ...options, body: body ?? {} });
+  }
+
+  postForm<T = unknown>(pathname: string, form: FormData, timeoutMs = 120_000): Promise<T> {
+    return this.request<T>('POST', pathname, { form, timeoutMs });
   }
 
   put<T = unknown>(pathname: string, body: unknown): Promise<T> {
