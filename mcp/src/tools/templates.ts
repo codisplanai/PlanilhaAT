@@ -230,7 +230,7 @@ export function registerTemplateTools({ server, api, policy }: ToolContext): voi
       observacoes: z.string().max(500).optional(),
       mapeamento_base: z.enum(['modelo_em_uso', 'padrao_do_site', 'copiar_de_template']).default('modelo_em_uso')
         .describe('modelo_em_uso: o mapeamento do modelo em uso do mesmo tipo e escopo (ou o global, para modelo de empresa). '
-          + 'padrao_do_site: o layout sugerido pelo formulário do site, que não inclui colunas extras como item_index, red e aliq_simples. '
+          + 'padrao_do_site: o layout que o formulário do site sugere para o tipo (o dos modelos oficiais). '
           + 'copiar_de_template: o mapeamento de um modelo cadastrado.'),
       copiar_de_template_id: z.number().int().positive().optional().describe('Obrigatório com mapeamento_base=copiar_de_template.'),
       ajustes: z.object({

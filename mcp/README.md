@@ -47,7 +47,7 @@ Convenções:
 - Regra de CFOP **global** (vale para todos os perfis) só é criada com `global: true`.
 - `configurar_perfil` altera uma chave de `configuracoes_extras` por vez e preserva as demais.
 - Ferramentas de exclusão são marcadas como destrutivas (o cliente pede confirmação).
-- `enviar_template` copia por padrão o mapeamento do modelo em uso do mesmo tipo (ou parte do padrão do formulário do site, `frontend/src/lib/templateMapping.ts`, ou de um modelo escolhido), aplica ajustes, confere as colunas obrigatórias do tipo e as abas do .xlsx e mostra as diferenças para o modelo em uso; com `simular: true`, faz tudo isso sem enviar. O padrão do formulário do site não traz `item_index`, `red` e `aliq_simples`, que os modelos oficiais usam: por isso não é o ponto de partida padrão. O arquivo precisa estar numa pasta liberada. Enviar, promover e desativar exigem administrador ou Contador Sênior (a API decide).
+- `enviar_template` copia por padrão o mapeamento do modelo em uso do mesmo tipo (ou parte do padrão do formulário do site, `frontend/src/lib/templateMapping.ts`, ou de um modelo escolhido), aplica ajustes, confere as colunas obrigatórias do tipo e as abas do .xlsx e mostra as diferenças para o modelo em uso; com `simular: true`, faz tudo isso sem enviar. Partir do modelo em uso preserva ajustes que o layout sugerido pelo site (o dos modelos oficiais) não conhece, como a aba fixa. O arquivo precisa estar numa pasta liberada. Enviar, promover e desativar exigem administrador ou Contador Sênior (a API decide).
 - Fora do escopo, de propósito: gestão de usuários (continua no site).
 
 ## Instalação

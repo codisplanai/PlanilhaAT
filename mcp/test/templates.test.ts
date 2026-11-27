@@ -78,8 +78,8 @@ test('simulação da Tributária com o layout padrão do site não envia nada', 
   assert.equal(result.isError, false, result.text);
   assert.equal(result.data.acao, 'simulacao');
   assert.deepEqual(result.data.mapeamento.columns, {
-    numero_nota: 'D', data_emissao: 'C', v_total: 'E', a_dst: 'J', a_ori: 'K', data_entrada: 'B',
-    base_calculo: 'F', ipi_despesas: 'G', mva: 'H', reducao: 'I', valor_pago: 'S',
+    numero_nota: 'D', data_emissao: 'C', v_total: 'E', a_dst: 'J', a_ori: 'K', item_index: 'A', data_entrada: 'B',
+    base_calculo: 'F', ipi_despesas: 'G', mva: 'H', reducao: 'I', red: 'L', valor_pago: 'S',
   });
   assert.equal(result.data.mapeamento.start_row, 4);
   assert.match(result.data.efeito, /entra em uso/);
@@ -88,7 +88,7 @@ test('simulação da Tributária com o layout padrão do site não envia nada', 
   assert.equal(uploads.length, 0);
 });
 
-test('por padrão copia o mapeamento do modelo em uso e mostra o que o padrão do site perderia', async () => {
+test('por padrão copia o mapeamento do modelo em uso e mostra as diferenças de outro ponto de partida', async () => {
   const { root, call, uploads } = await setup();
   const base = {
     arquivo: path.join(root, 'modelo_padrao_antecipacao_parcial.xlsx'),
@@ -106,7 +106,7 @@ test('por padrão copia o mapeamento do modelo em uso e mostra o que o padrão d
   assert.match(padrao.data.efeito, /no lugar da v3/);
 
   const site = await call('enviar_template', { ...base, mapeamento_base: 'padrao_do_site' });
-  assert.deepEqual(site.data.diferencas, ['item_index: sai (era A)', 'aba: JANEIRO -> automática']);
+  assert.deepEqual(site.data.diferencas, ['aba: JANEIRO -> automática']);
 
   const semModelo = await call('enviar_template', {
     ...base,
