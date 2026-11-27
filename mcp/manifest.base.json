@@ -3,8 +3,8 @@
   "name": "planaut",
   "display_name": "Planaut",
   "version": "0.0.0",
-  "description": "Configure empresas e regras fiscais do Planaut e gere as planilhas de ICMS a partir dos XMLs e do SPED do seu computador.",
-  "long_description": "Conecta o Claude ao Planaut com o seu login. A IA consulta e altera empresas, perfis e regras fiscais (alíquotas de destino, roteamento de CFOP, reduções, reclassificações, exclusões e FCP) e gera as planilhas de Antecipação Parcial, Antecipação Tributária e DIFAL com o mesmo motor de cálculo e os mesmos modelos do site. Os XMLs, ZIPs e SPEDs são lidos só neste computador, dentro das pastas que você liberar; para o servidor vai apenas o resultado estruturado, como no site. Quando a apuração depende de uma decisão (bonificações, uso e consumo, Convênio 52/91, MVA, CT-e sem NF-e), a IA pergunta a você em vez de decidir.",
+  "description": "Configure empresas, regras fiscais e modelos de planilha do Planaut e gere as planilhas de ICMS a partir dos XMLs e do SPED do seu computador.",
+  "long_description": "Conecta o Claude ao Planaut com o seu login. A IA consulta e altera empresas, perfis e regras fiscais (alíquotas de destino, roteamento de CFOP, reduções, reclassificações, exclusões e FCP), envia novas versões dos modelos de planilha a partir de um .xlsx do computador e gera as planilhas de Antecipação Parcial, Antecipação Tributária e DIFAL com o mesmo motor de cálculo e os mesmos modelos do site. Os XMLs, ZIPs e SPEDs são lidos só neste computador, dentro das pastas que você liberar; para o servidor vai apenas o resultado estruturado, como no site. Quando a apuração depende de uma decisão (bonificações, uso e consumo, Convênio 52/91, MVA, CT-e sem NF-e), a IA pergunta a você em vez de decidir.",
   "author": {
     "name": "Codisplan"
   },

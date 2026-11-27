@@ -13,12 +13,13 @@ installNodeDom();
 
 const EXPECTED_TOOLS = [
   'adicionar_excecao_regra', 'aplicar_preset_fcp_bebidas_ba', 'cancelar_geracao', 'carregar_exclusoes_padrao_ba',
-  'configurar_perfil', 'copiar_regras_entre_perfis', 'definir_termo_acordo', 'duplicar_perfil', 'excluir_empresa',
-  'excluir_perfil', 'excluir_regra', 'gerar_planilhas', 'listar_arquivos_fiscais', 'listar_empresas', 'listar_perfis',
-  'listar_regras', 'listar_solicitacoes', 'listar_templates', 'obter_empresa', 'obter_perfil', 'obter_solicitacao',
-  'planaut_status', 'preencher_datas_entrada', 'remover_excecao_regra', 'remover_termo_acordo', 'responder_pendencias',
-  'salvar_empresa', 'salvar_perfil', 'salvar_regra_aliquota', 'salvar_regra_cfop', 'salvar_regra_exclusao',
-  'salvar_regra_fcp', 'salvar_regra_reclassificacao', 'salvar_regra_reducao',
+  'configurar_perfil', 'copiar_regras_entre_perfis', 'definir_termo_acordo', 'desativar_template', 'duplicar_perfil',
+  'enviar_template', 'excluir_empresa', 'excluir_perfil', 'excluir_regra', 'gerar_planilhas', 'listar_arquivos_fiscais',
+  'listar_empresas', 'listar_perfis', 'listar_regras', 'listar_solicitacoes', 'listar_templates', 'obter_empresa',
+  'obter_perfil', 'obter_solicitacao', 'obter_template', 'planaut_status', 'preencher_datas_entrada', 'promover_template',
+  'remover_excecao_regra', 'remover_termo_acordo', 'responder_pendencias', 'salvar_empresa', 'salvar_perfil',
+  'salvar_regra_aliquota', 'salvar_regra_cfop', 'salvar_regra_exclusao', 'salvar_regra_fcp',
+  'salvar_regra_reclassificacao', 'salvar_regra_reducao',
 ];
 
 async function connect(routes: Parameters<typeof fakePlanaut>[0] = {}) {

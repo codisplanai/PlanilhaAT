@@ -98,7 +98,18 @@ export function fakePlanaut(routes: Record<string, Handler> = {}) {
     const url = new URL(String(input));
     const pathname = url.pathname.replace(/^\/api\/v1/, '');
     const headers = Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>));
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    let body: unknown;
+    if (typeof init?.body === 'string') {
+      body = JSON.parse(init.body);
+    } else if (init?.body instanceof FormData) {
+      const fields: Record<string, unknown> = {};
+      for (const [key, value] of init.body.entries()) {
+        fields[key] = typeof value === 'string'
+          ? value
+          : { name: (value as File).name, size: value.size, type: value.type };
+      }
+      body = fields;
+    }
     const call: FakeCall = {
       method: (init?.method ?? 'GET').toUpperCase(),
       path: pathname,
