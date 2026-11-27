@@ -210,3 +210,39 @@ def test_pipeline_nfe_mista_reclassificada_mantem_valor_da_mercadoria_e_frete(
     assert notas[0].base_calculo == 220
     assert notas[0].ipi_despesas == 0
     assert notas[0].valor_devido > 0
+
+
+def test_cte_fob_st_complementa_apenas_frete(db_session, cenario_janeiro):
+    from decimal import Decimal
+    from app.models.empresa import Empresa
+    from app.models.regra_cfop import RegraCfopDestino
+    from app.services.pipeline_service import ProcessingPipelineService
+    from app.services.pipeline_cte import avaliar_nfe_para_cte
+
+    solicitacao = cenario_janeiro(tipos=("antecipacao_tributaria",))
+    empresa = db_session.query(Empresa).filter_by(id=solicitacao.empresa_id).one()
+    empresa.razao_social = "Bahia Ferro Salvador"
+    db_session.add(RegraCfopDestino(perfil_regras_id=empresa.perfil_regras_id, cfop_sufixo="403", destino="antecipacao_tributaria"))
+    db_session.commit()
+    xml = _xml(st_total="22.73", st_item="22.73").replace(
+        b"<total>", b"<transp><modFrete>1</modFrete></transp><total>"
+    ).replace(b"<vNF>100.00</vNF>", b"<vNF>122.73</vNF><vFrete>0.00</vFrete>").replace(
+        b"<vICMSST>", b"<modBCST>4</modBCST><pMVAST>45.00</pMVAST><vBCST>145.00</vBCST><pICMSST>20.50</pICMSST><vICMSST>"
+    )
+    pipeline = ProcessingPipelineService(db_session)
+    for document, eligible in ((xml, True), (xml.replace(b"<vBCST>145.00", b"<vBCST>174.00"), False)):
+        nf = NFeXMLExtractor().extract_from_xml(document)
+        nf.cnpj_destinatario = empresa.cnpj
+        assert should_exclude_st_item_from_tributaria(empresa.razao_social, nf, nf.itens[0])
+        assert nf.itens[0].frete_fob_st_mva == (Decimal("45.00") if eligible else None)
+        ctx = avaliar_nfe_para_cte(
+            pipeline=pipeline, nf_data=nf, filename="fob.xml",
+            empresa=empresa, planilha_records=[], has_sped=False, modo_legado=False,
+            configuracoes_perfil={}, revenda_tributaria_config=None,
+            is_industria=False, decisoes_bonificacao=None,
+        )
+        assert ctx["todos_itens_tributaria"] is eligible
+        if eligible:
+            assert ctx["trib_candidates"][0]["mva"] == Decimal("45.00")
+        else:
+            assert ctx["soma_trib"] == 0

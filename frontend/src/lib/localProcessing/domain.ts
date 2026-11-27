@@ -81,6 +81,8 @@ export interface ExtractedItem {
   vDesc?: number;
   /** ICMS ST retido na origem / destacado no item (tag vICMSST). */
   vIcmsSt?: number;
+  /** MVA comprovada em ST sobre mercadoria sem frete FOB, exclusivamente para CT-e. */
+  freteFobStMva?: number;
   /** Evidência declarada por item no XML; não constitui MVA fiscal automaticamente. */
   stXml?: { cfop: string; modalidade: string; mva: number; aliquota: number; base: number; valor: number };
 }

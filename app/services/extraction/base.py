@@ -30,6 +30,7 @@ class ExtractedItemNF(BaseModel):
     p_cred_sn: Decimal = Decimal("0.00")  # Percentual de crédito do Simples, distinto da A.ORI
     v_icms: Decimal = Decimal("0.00")  # Valor do ICMS destacado (crédito) extraído do documento/item
     v_icms_st: Decimal = Decimal("0.00")  # ST destacada no item do XML, nunca inferida pelo CFOP
+    frete_fob_st_mva: Optional[Decimal] = None  # MVA comprovada para complemento do frete FOB
     origem_mercadoria: Optional[str] = None  # Dígito 0 a 8 indicativo da procedência (nacional, importada, etc.)
     csosn: Optional[str] = None  # Código de Situação da Operação no Simples Nacional (ex: 101, 102, 500)
     v_desc: Decimal = Decimal("0.00")  # Desconto comercial destacado no item (tag vDesc)
