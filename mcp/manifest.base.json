@@ -1,0 +1,72 @@
+{
+  "manifest_version": "0.3",
+  "name": "planaut",
+  "display_name": "Planaut",
+  "version": "0.0.0",
+  "description": "Configure empresas e regras fiscais do Planaut e gere as planilhas de ICMS a partir dos XMLs e do SPED do seu computador.",
+  "long_description": "Conecta o Claude ao Planaut com o seu login. A IA consulta e altera empresas, perfis e regras fiscais (alíquotas de destino, roteamento de CFOP, reduções, reclassificações, exclusões e FCP) e gera as planilhas de Antecipação Parcial, Antecipação Tributária e DIFAL com o mesmo motor de cálculo e os mesmos modelos do site. Os XMLs, ZIPs e SPEDs são lidos só neste computador, dentro das pastas que você liberar; para o servidor vai apenas o resultado estruturado, como no site. Quando a apuração depende de uma decisão (bonificações, uso e consumo, Convênio 52/91, MVA, CT-e sem NF-e), a IA pergunta a você em vez de decidir.",
+  "author": {
+    "name": "Codisplan"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codisplanai/PlanilhaAT"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js", "${user_config.pastas}"],
+      "env": {
+        "PLANAUT_URL": "${user_config.planaut_url}",
+        "PLANAUT_EMAIL": "${user_config.email}",
+        "PLANAUT_SENHA": "${user_config.senha}",
+        "PLANAUT_PASTA_SAIDA": "${user_config.pasta_saida}"
+      }
+    }
+  },
+  "keywords": ["icms", "antecipacao", "difal", "nfe", "sped", "contabilidade", "planilhas"],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  },
+  "user_config": {
+    "email": {
+      "type": "string",
+      "title": "E-mail do Planaut",
+      "description": "O mesmo e-mail que você usa para entrar no Planaut. A IA terá as mesmas permissões do seu usuário.",
+      "required": true
+    },
+    "senha": {
+      "type": "string",
+      "title": "Senha do Planaut",
+      "description": "Guardada no cofre de senhas do sistema operacional.",
+      "sensitive": true,
+      "required": true
+    },
+    "pastas": {
+      "type": "directory",
+      "title": "Pastas dos arquivos fiscais",
+      "description": "Pastas onde ficam os XMLs, ZIPs e SPEDs dos clientes. O Planaut só lê arquivos e grava planilhas dentro delas.",
+      "multiple": true,
+      "required": true
+    },
+    "pasta_saida": {
+      "type": "directory",
+      "title": "Pasta das planilhas geradas (opcional)",
+      "description": "Em branco, cada planilha é gravada na pasta dos XMLs usados. Precisa estar dentro de uma das pastas dos arquivos fiscais.",
+      "required": false
+    },
+    "planaut_url": {
+      "type": "string",
+      "title": "Endereço do Planaut",
+      "description": "Altere apenas para usar o ambiente de desenvolvimento (https://planaut.dev.codisplan.com.br).",
+      "default": "https://planaut.codisplan.com.br",
+      "required": false
+    }
+  }
+}
