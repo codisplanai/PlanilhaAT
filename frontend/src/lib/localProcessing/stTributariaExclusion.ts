@@ -38,4 +38,4 @@ export function shouldExcludeStItemFromTributaria(
 }
 
 export const ST_TRIBUTARIA_EXCLUSION_REASON =
-  'Antecipação Tributária excluída: ICMS ST já destacado no XML para este item (regra específica da empresa; frete do item fica fora da apuração).';
+  'Antecipação Tributária excluída: ICMS ST já destacado no XML para este item (regra específica da empresa; frete FOB separado avaliado independentemente).';

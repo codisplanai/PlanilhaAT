@@ -217,11 +217,12 @@ def avaliar_nfe_para_cte(
             has_other_or_excluded = True
             continue
 
-        # Excluir do rateio da Tributária a parcela de CT-e vinculada a
-        # mercadorias já tributadas na origem; o denominador é a NF-e inteira.
-        if destino_item in DESTINOS_TRIBUTARIA and should_exclude_st_item_from_tributaria(
+        # ST da mercadoria não cobre automaticamente o frete FOB separado.
+        st_paid = destino_item in DESTINOS_TRIBUTARIA and should_exclude_st_item_from_tributaria(
             empresa.razao_social, nf_data, orig_item
-        ):
+        )
+        fob_mva = orig_item.frete_fob_st_mva if st_paid else None
+        if st_paid and fob_mva is None:
             has_other_or_excluded = True
             continue
 
@@ -239,20 +240,24 @@ def avaliar_nfe_para_cte(
                 is_operacao_interestadual=is_operacao_interestadual,
                 avisos_avaliacao=[],
             )
-            mva_item = pipeline._resolver_mva_item(
-                nf_data=nf_data,
-                item=item,
-                filename=filename,
-                destino_item=destino_item,
-                a_ori=aliq.a_ori,
-                a_dst=aliq.a_dst,
-                a_ori_original=aliq.a_ori_original,
-                is_fornecedor_simples=is_fornecedor_simples,
-                coluna_mva_nota=coluna_mva_nota,
-                revenda_tributaria_config=revenda_tributaria_config,
-                mva_policy_group=mva_policy_group,
-                itens_excluidos=[],
-            )
+            if fob_mva is not None:
+                mva_item = fob_mva
+                mva_policy_source = "frete_fob_st_xml"
+            else:
+                mva_item = pipeline._resolver_mva_item(
+                    nf_data=nf_data,
+                    item=item,
+                    filename=filename,
+                    destino_item=destino_item,
+                    a_ori=aliq.a_ori,
+                    a_dst=aliq.a_dst,
+                    a_ori_original=aliq.a_ori_original,
+                    is_fornecedor_simples=is_fornecedor_simples,
+                    coluna_mva_nota=coluna_mva_nota,
+                    revenda_tributaria_config=revenda_tributaria_config,
+                    mva_policy_group=mva_policy_group,
+                    itens_excluidos=[],
+                )
             if mva_item is None:
                 has_other_or_excluded = True
                 continue
