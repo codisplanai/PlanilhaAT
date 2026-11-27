@@ -484,6 +484,7 @@ class ProcessingPipelineService:
                         filename=filename,
                         destino_item=destino_item,
                         empresa=empresa,
+                        configuracoes_perfil=configuracoes_perfil,
                         data_entrada_resolvida=data_entrada_resolvida,
                         avisos_avaliacao=avisos_avaliacao,
                         itens_excluidos=itens_excluidos,
@@ -856,6 +857,7 @@ class ProcessingPipelineService:
         filename: str,
         destino_item: str,
         empresa: Empresa,
+        configuracoes_perfil: Dict[str, Any],
         data_entrada_resolvida: Any,
         avisos_avaliacao: List[Dict[str, Any]],
         itens_excluidos: List[Dict[str, Any]],
@@ -905,28 +907,49 @@ class ProcessingPipelineService:
             serialize_excluded_item(nf_data, item, filename, destino_item, decisao_mercadoria)
         )
         if is_imposto_pago_entrada(decisao_mercadoria):
+            a_ori_controle = decisao_mercadoria.a_ori
             try:
-                a_dst_controle = self.resolver.resolve_a_dst(
+                resolucao_controle = self.resolver.resolve_a_dst(
                     perfil_regras_id=empresa.perfil_regras_id,
                     uf=empresa.uf,
                     ncm=item.ncm,
                     descricao=item.descricao if item.descricao_confiavel else None,
                     empresa_id=empresa.id,
-                ).aliquota
+                )
+                a_dst_controle = resolucao_controle.aliquota
+                a_ori_controle, _, _ = self._limitar_a_ori_reducoes(
+                    configuracoes_perfil, destino_item, a_ori_controle,
+                    a_dst_controle, resolucao_controle.origem,
+                )
             except RuleResolutionException:
                 a_dst_controle = None
-            rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA].append(
-                build_controle_row(
-                    nf_data,
-                    item,
-                    decisao_mercadoria,
-                    a_dst_controle,
-                    None
-                    if destino_item in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
-                    else data_entrada_resolvida,
-                )
+            row = build_controle_row(
+                nf_data,
+                item,
+                decisao_mercadoria,
+                a_dst_controle,
+                None
+                if destino_item in (ANTECIPACAO_PARCIAL_ANTECIPADO, ANTECIPACAO_PARCIAL_ANTECIPADO_SIMPLES)
+                else data_entrada_resolvida,
             )
+            row["a_ori"] = a_ori_controle
+            rows_por_destino[CONTROLE_IMPOSTO_PAGO_ENTRADA].append(row)
         return True
+
+    @staticmethod
+    def _limitar_a_ori_reducoes(configuracoes_perfil, destino_item, a_ori, a_dst, origem):
+        """Mesma política de limite de crédito na apuração e no controle."""
+        if (
+            destino_item in DESTINOS_PARCIAL
+            and configuracoes_perfil.get("limitar_a_ori_reducoes")
+            and (origem or "").startswith(("reducao_produto:", "excecao:", "termo_acordo:"))
+            and a_ori is not None
+            and a_ori > Decimal("0.10")
+        ):
+            if abs(a_ori - a_dst) <= Decimal("1e-10"):
+                return a_ori, False, True
+            return Decimal("0.10"), True, False
+        return a_ori, False, False
 
     def _resolver_aliquotas_item(
         self,
@@ -1072,28 +1095,9 @@ class ProcessingPipelineService:
         if destino_item in DESTINOS_DIFAL and not a_ori_destacada:
             a_ori = Decimal("0.00")
 
-        limitar_a_ori_reducoes = bool(configuracoes_perfil.get("limitar_a_ori_reducoes"))
-        origem_resolucao = resolucao.origem or ""
-        teve_reducao_ou_acordo = (
-            origem_resolucao.startswith("reducao_produto:")
-            or origem_resolucao.startswith("excecao:")
-            or origem_resolucao.startswith("termo_acordo:")
+        a_ori, a_ori_limitada, a_ori_limite_dispensado = self._limitar_a_ori_reducoes(
+            configuracoes_perfil, destino_item, a_ori, a_dst, resolucao.origem,
         )
-        a_ori_limitada = False
-        a_ori_limite_dispensado = False
-        if (
-            destino_item in DESTINOS_PARCIAL
-            and limitar_a_ori_reducoes
-            and teve_reducao_ou_acordo
-            and a_ori > Decimal("0.10")
-        ):
-            # Na Parcial prevalece o tratamento mais benéfico: com A.ORI igual à
-            # A.DST efetiva (incluindo FCP) o imposto zera e alíquotas iguais pode excluir.
-            if abs(a_ori - a_dst) <= Decimal("1e-10"):
-                a_ori_limite_dispensado = True
-            else:
-                a_ori = Decimal("0.10")
-                a_ori_limitada = True
 
         return ResolucaoAliquotasItem(
             a_ori=a_ori,

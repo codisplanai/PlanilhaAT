@@ -1167,8 +1167,13 @@ export async function processFiscalLocally(
           // imposto pago na entrada (Valor pago e Data de pagamento são manuais).
           if (merchandise.regras?.[0]?.motivo === 'imposto_pago_entrada') {
             let controlADst: number | undefined;
+            let controlAOri = item.aOri;
             try {
-              controlADst = resolveDestinationRate(context, item, destination).aliquota;
+              const controlRate = resolveDestinationRate(context, item, destination);
+              controlADst = controlRate.aliquota;
+              // O controle não é apuração, mas deve respeitar o limite de crédito do perfil.
+              const origin = resolveOriginRate(context, destination, item.aOri, controlADst, controlRate.origem);
+              if (origin.limited) controlAOri = origin.aOri;
             } catch {
               controlADst = undefined; // sem regra de alíquota: A.DST em branco, sem bloquear o controle
             }
@@ -1193,7 +1198,7 @@ export async function processFiscalLocally(
               reducao: null,
               red: '',
               aliq_simples: 'N',
-              a_ori: item.aOri,
+              a_ori: controlAOri,
               a_dst: controlADst,
               debito: 0,
               credito: 0,
