@@ -10,7 +10,8 @@ import { queryKeys } from '../../api/queryKeys';
 import { templatesApi } from '../../api/templates';
 import { TIPOS_PLANILHA_OPTIONS } from '../../constants/domain';
 import { useEmpresasQuery, useTemplatesQuery } from '../../hooks/useApiQueries';
-import type { TemplateMapping, TemplateXlsx } from '../../types/template';
+import { buildTemplateMapping, getDefaultTemplateLayout } from '../../lib/templateMapping';
+import type { TemplateXlsx } from '../../types/template';
 import type { TipoPlanilha } from '../../types/solicitacao';
 
 export interface Faixa {
@@ -73,33 +74,9 @@ const templateUploadSchema = z.object({
 type TemplateUploadFormData = z.infer<typeof templateUploadSchema>;
 
 function getDefaultMapping(tipo: TipoPlanilha): TemplateUploadFormData {
-  const isAntecipado =
-    tipo === 'antecipacao_parcial_antecipado' ||
-    tipo === 'antecipacao_parcial_antecipado_simples' ||
-    tipo === 'controle_imposto_pago_entrada';
-  const isParcial =
-    tipo === 'antecipacao_parcial' ||
-    tipo === 'antecipacao_parcial_simples';
-  const isTributaria =
-    tipo === 'antecipacao_tributaria'
-    || tipo === 'antecipacao_tributaria_antecipado';
-  const isDifal = tipo === 'difal' || tipo === 'difal_antecipado';
   return {
     tipo,
-    capacidade_linhas: tipo === 'antecipacao_tributaria_antecipado' ? 35 : 100,
-    start_row: 4,
-    col_numero_nota: 'D',
-    col_data_entrada: 'B',
-    col_data_emissao: 'C',
-    col_v_total: 'E',
-    col_base_calculo: isAntecipado || isTributaria || isParcial ? 'F' : '',
-    col_ipi_despesas: isDifal ? 'F' : 'G',
-    col_mva: isTributaria ? 'H' : '',
-    col_reducao: isTributaria ? 'I' : '',
-    col_a_dst: isTributaria ? 'J' : isDifal ? 'I' : 'H',
-    col_a_ori: isTributaria ? 'K' : isDifal ? 'J' : 'I',
-    header_cell: 'A2',
-    aliquota_format: 'percent_number',
+    ...getDefaultTemplateLayout(tipo),
     observacoes: '',
     promover_ativo: true,
   };
@@ -284,33 +261,7 @@ export function useAdminTemplatesPage() {
       return;
     }
 
-    const columns: Record<string, string> = {
-      numero_nota: data.col_numero_nota.toUpperCase(),
-      data_emissao: data.col_data_emissao.toUpperCase(),
-      v_total: data.col_v_total.toUpperCase(),
-      a_dst: data.col_a_dst.toUpperCase(),
-      a_ori: data.col_a_ori.toUpperCase(),
-    };
-    if (data.col_data_entrada) columns.data_entrada = data.col_data_entrada.toUpperCase();
-    if (data.col_base_calculo) columns.base_calculo = data.col_base_calculo.toUpperCase();
-    if (data.col_ipi_despesas) columns.ipi_despesas = data.col_ipi_despesas.toUpperCase();
-    if (data.col_mva) columns.mva = data.col_mva.toUpperCase();
-    if (data.col_reducao) columns.reducao = data.col_reducao.toUpperCase();
-    if (data.tipo === 'antecipacao_tributaria' || data.tipo === 'antecipacao_tributaria_antecipado') {
-      if (!columns.reducao) columns.reducao = 'I';
-      columns.valor_pago = 'S';
-    }
-
-    const headerCell = data.header_cell || 'A2';
-    const mapping: TemplateMapping = {
-      start_row: data.start_row,
-      columns,
-      header_cell: headerCell,
-      extra_options: {
-        header_cell: headerCell,
-        aliquota_format: data.aliquota_format,
-      },
-    };
+    const mapping = buildTemplateMapping(data.tipo, data);
     const payload = new FormData();
     payload.append('tipo', data.tipo);
     payload.append('capacidade_linhas', String(data.capacidade_linhas));
