@@ -1487,7 +1487,7 @@ class ProcessingPipelineService:
                 "ipi_despesas": ipi_despesas_grupo,
                 "mva": mva_grupo,
                 "reducao": reducao_grupo,
-                "red": "",
+                "red": ("S" if reducao_grupo is not None and reducao_grupo > 0 else "N") if destino_grupo in DESTINOS_TRIBUTARIA else "",
                 "aliq_simples": aliq_simples,
                 "a_ori": a_ori_planilha,
                 "a_dst": a_dst,

@@ -83,6 +83,8 @@ export interface ExtractedItem {
   vIcmsSt?: number;
   /** MVA comprovada em ST sobre mercadoria sem frete FOB, exclusivamente para CT-e. */
   freteFobStMva?: number;
+  /** Redução de BC-ST comprovada no XML, em fração. */
+  freteFobStReducao?: number;
   /** Evidência declarada por item no XML; não constitui MVA fiscal automaticamente. */
   stXml?: { cfop: string; modalidade: string; mva: number; aliquota: number; base: number; valor: number };
 }

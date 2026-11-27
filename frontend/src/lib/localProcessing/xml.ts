@@ -297,12 +297,12 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
     const ipiDespesas = vIpi;
     const vTotal = vProd + vDespesas + vIpi - vDesc;
     // FOB: exigir frete zero declarado na capa e BC-ST reproduzível sem o CT-e.
-    // Não inferir ausência de frete de uma tag ausente, pauta ou BC reduzida.
+    // Não inferir ausência de frete de uma tag ausente ou pauta; validar redução declarada.
     const freteFobStMva = text(child(infNFe, 'transp'), 'modFrete') === '1'
       && Boolean(text(icmsTot, 'vFrete')) && number(icmsTot, 'vFrete') === 0 && vFrete === 0
       && stXml && stXml.modalidade === '4' && stXml.valor > 0 && stXml.base > 0
-      && stXml.mva >= 0 && stReduction === 0 && vTotal > 0
-      && Math.abs(stXml.base - vTotal * (1 + stXml.mva / 100)) <= 0.03
+      && stXml.mva >= 0 && stReduction >= 0 && stReduction < 100 && vTotal > 0
+      && Math.abs(stXml.base - vTotal * (1 + stXml.mva / 100) * (1 - stReduction / 100)) <= 0.03
       ? stXml.mva : undefined;
     const baseCalculoXml = baseCalculo;
     const baseSemIpi = Math.max(0, vProd + vDespesas - vDesc);
@@ -340,7 +340,7 @@ export function parseNfeXmlFromDoc(doc: XMLDocument, filename: string): Extracte
       pRedBC,
       vIcmsSt: vIcmsSt > 0 ? vIcmsSt : 0,
       ...(stXml ? { stXml } : {}),
-      ...(freteFobStMva !== undefined ? { freteFobStMva } : {}),
+      ...(freteFobStMva !== undefined ? { freteFobStMva, freteFobStReducao: stReduction / 100 } : {}),
     });
   }
 

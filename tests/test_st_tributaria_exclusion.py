@@ -230,7 +230,8 @@ def test_cte_fob_st_complementa_apenas_frete(db_session, cenario_janeiro):
         b"<vICMSST>", b"<modBCST>4</modBCST><pMVAST>45.00</pMVAST><vBCST>145.00</vBCST><pICMSST>20.50</pICMSST><vICMSST>"
     )
     pipeline = ProcessingPipelineService(db_session)
-    for document, eligible in ((xml, True), (xml.replace(b"<vBCST>145.00", b"<vBCST>174.00"), False)):
+    reduced = xml.replace(b"<vBCST>145.00", b"<pRedBCST>41.46</pRedBCST><vBCST>84.88")
+    for document, eligible in ((xml, True), (reduced, True), (xml.replace(b"<vBCST>145.00", b"<vBCST>174.00"), False)):
         nf = NFeXMLExtractor().extract_from_xml(document)
         nf.cnpj_destinatario = empresa.cnpj
         assert should_exclude_st_item_from_tributaria(empresa.razao_social, nf, nf.itens[0])
@@ -244,5 +245,8 @@ def test_cte_fob_st_complementa_apenas_frete(db_session, cenario_janeiro):
         assert ctx["todos_itens_tributaria"] is eligible
         if eligible:
             assert ctx["trib_candidates"][0]["mva"] == Decimal("45.00")
+            if document == reduced:
+                assert nf.itens[0].frete_fob_st_reducao == Decimal("0.4146")
+                assert ctx["trib_candidates"][0]["reducao"] == Decimal("0.4146")
         else:
             assert ctx["soma_trib"] == 0

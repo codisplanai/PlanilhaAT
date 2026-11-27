@@ -128,6 +128,12 @@ export function evaluateNfeForCte(params: {
   const isIndustryCompany = isIndustria(context);
   const isSimplesCompany = Boolean(context.empresa.optante_simples_nacional);
 
+  // Acrescentar ST ao peso apenas quando a capa reconcilia os itens + ST.
+  // Evita duplicar ST no item único que já recebeu o total da NF-e.
+  const somaItens = note.itens.reduce((sum, it) => sum + it.vTotal, 0);
+  const somaSt = note.itens.reduce((sum, it) => sum + Math.max(0, it.vIcmsSt ?? 0), 0);
+  const incluiStNoPeso = Object.prototype.hasOwnProperty.call(note.rawMetadata, 'icms_st_xml')
+    && somaSt > 0 && Math.abs(vTotalNota - somaItens - somaSt) <= 0.03;
   let somaTrib = 0;
   let somaDifal = 0;
   const tribCandidates: TribCandidateForCte[] = [];
@@ -137,6 +143,7 @@ export function evaluateNfeForCte(params: {
 
   for (const originalItem of note.itens) {
     const item = { ...originalItem };
+    const pesoRateio = item.vTotal + (incluiStNoPeso ? Math.max(0, originalItem.vIcmsSt ?? 0) : 0);
     let mvaPolicyGroup: TribCandidateForCte['mvaGrupo'] = '';
     let mvaPolicySource = '';
     let bonusUsoConsumo = false;
@@ -203,7 +210,8 @@ export function evaluateNfeForCte(params: {
 
     if (TAX_SUBSTITUTION_DESTINATIONS.has(destination)) {
       const rate = withNoteContext(note, () => resolveDestinationRate(context, item, destination));
-      const itemReducao = withNoteContext(note, () => resolveTributariaReduction(context, item))?.aliquota ?? null;
+      const itemReducao = withNoteContext(note, () => resolveTributariaReduction(context, item))?.aliquota
+        ?? (fobMva !== undefined ? originalItem.freteFobStReducao ?? null : null);
       const fcpRes = withNoteContext(note, () => resolveFcp(context, item));
       const { fcpAliquota, effectiveADst } = computeFcpApplication(
         destination,
@@ -227,13 +235,13 @@ export function evaluateNfeForCte(params: {
         itemMva = mvaRes.mva;
       }
       const temFcp = fcpAliquota > 0;
-      somaTrib += item.vTotal;
+      somaTrib += pesoRateio;
       countTrib += 1;
       tribCandidates.push({
         mva: itemMva,
         reducao: itemReducao,
         aDst: effectiveADst,
-        vTotal: item.vTotal,
+        vTotal: pesoRateio,
         fcp: fcpAliquota,
         fcpOrigem: temFcp && fcpRes ? fcpRes.origem : null,
         fcpDetalhe: temFcp && fcpRes ? fcpRes.detalhe : null,
@@ -241,7 +249,7 @@ export function evaluateNfeForCte(params: {
         mvaFonte: mvaPolicySource,
       });
     } else if (isDifalDestination(destination)) {
-      somaDifal += item.vTotal;
+      somaDifal += pesoRateio;
       countDifal += 1;
     } else {
       hasOtherOrExcluded = true;
@@ -455,7 +463,7 @@ function emitCteRow(params: {
     ipi_despesas: 0,
     mva,
     reducao,
-    red: '',
+    red: TAX_SUBSTITUTION_DESTINATIONS.has(destination) ? (reducao != null && reducao > 0 ? 'S' : 'N') : '',
     aliq_simples: aliqSimples,
     a_ori: cte.aOriHighlighted ? cte.aOri : null,
     a_dst: aDst,
@@ -516,12 +524,16 @@ function processCteTributaria(params: {
   } = params;
 
   const allTrib = nfesCtx.every((ctx) => ctx.allItemsTributaria);
-  const ratioTrib = allTrib ? 1 : Math.min(1, somaTrib / vTotalNfes);
+  const allCandidates = contributingTrib.flatMap((ctx) => ctx.tribCandidates);
+  const complementoFob = allCandidates.some((cand) => cand.mvaFonte === 'frete_fob_st_xml');
+  const arredondaFob = complementoFob && nfesCtx.every((ctx) => ctx.somaDifal === 0);
+  const ratioExato = Math.min(1, somaTrib / vTotalNfes);
+  // Percentual de rateio FOB com duas casas, como na apuração manual.
+  const ratioTrib = allTrib ? 1 : arredondaFob ? Math.round(ratioExato * 10000) / 10000 : ratioExato;
   const vTotalCteTrib = allTrib ? cte.vTotalCte : roundCurrency(cte.vTotalCte * ratioTrib);
   if (vTotalCteTrib <= 0) return;
 
   const vBcCteTrib = ratearBaseCalculoCte(cte, vTotalCteTrib, ratioTrib, allTrib);
-  const allCandidates = contributingTrib.flatMap((ctx) => ctx.tribCandidates);
   const aDstPadrao = resolveStandardDestinationRate(context, {
     itemNumero: 1,
     ncm: '',
@@ -554,7 +566,7 @@ function processCteTributaria(params: {
       let percentualGrupo = percentualTrib;
       if (isSplit) {
         const somaGrupo = candsGrupo.reduce((sum, c) => sum + c.vTotal, 0);
-        const ratioGrupo = Math.min(1, somaGrupo / vTotalNfes);
+        const ratioGrupo = Math.min(1, arredondaFob ? ratioTrib * somaGrupo / somaTrib : somaGrupo / vTotalNfes);
         vTotalGrupo = roundCurrency(cte.vTotalCte * ratioGrupo);
         if (vTotalGrupo <= 0) continue;
         vBcGrupo = ratearBaseCalculoCte(cte, vTotalGrupo, ratioGrupo, false);
@@ -620,7 +632,7 @@ function processCteTributaria(params: {
   for (const [fcpAliq, candsFcp] of fcpGroups.entries()) {
     const somaFcp = candsFcp.reduce((sum, c) => sum + c.vTotal, 0);
     const allSameFcp = allTrib && candsFcp.length === allCandidates.length;
-    const ratioFcp = allSameFcp ? 1 : Math.min(1, somaFcp / vTotalNfes);
+    const ratioFcp = allSameFcp ? 1 : Math.min(1, arredondaFob ? ratioTrib * somaFcp / somaTrib : somaFcp / vTotalNfes);
     const vTotalCteFcp = allSameFcp ? cte.vTotalCte : roundCurrency(cte.vTotalCte * ratioFcp);
     if (vTotalCteFcp <= 0) continue;
 
@@ -720,7 +732,8 @@ function processCteTributaria(params: {
     destino: destinoTrib,
     valorRateado: vTotalCteTrib,
     mvaHerdada: maxMva,
-    complementoFreteFobSt: allCandidates.some((cand) => cand.mvaFonte === 'frete_fob_st_xml'),
+    complementoFreteFobSt: complementoFob,
+    somaTrib, vTotalNfes, percentualRateio: percentualTrib, reducao: reducaoTrib,
   });
 }
 

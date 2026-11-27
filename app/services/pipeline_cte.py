@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 import re
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.constants import (
@@ -131,6 +131,14 @@ def avaliar_nfe_para_cte(
         evidencia_csosn=evidencia_csosn,
     )
 
+    # Composição homogênea do numerador e denominador do rateio.
+    # Não duplicar ST no item único que já recebeu o total da capa.
+    soma_itens = sum((it.v_total for it in nf_data.itens), Decimal("0"))
+    soma_st = sum((max(Decimal("0"), it.v_icms_st) for it in nf_data.itens), Decimal("0"))
+    inclui_st_no_peso = (
+        "icms_st_xml" in nf_data.raw_metadata and soma_st > 0
+        and abs(v_total_nota - soma_itens - soma_st) <= Decimal("0.03")
+    )
     soma_trib = Decimal("0.00")
     soma_difal = Decimal("0.00")
     trib_candidates: List[Dict[str, Any]] = []
@@ -140,6 +148,7 @@ def avaliar_nfe_para_cte(
 
     for orig_item in nf_data.itens:
         item = orig_item.copy(deep=True)
+        peso_rateio = item.v_total + (max(Decimal("0"), orig_item.v_icms_st) if inclui_st_no_peso else Decimal("0"))
         bonificacao_uso_consumo = False
         mva_policy_group = ""
         mva_policy_source = ""
@@ -267,14 +276,14 @@ def avaliar_nfe_para_cte(
                 else Decimal("0.00")
             )
             tem_fcp = fcp_aliquota > Decimal("0.00")
-            soma_trib += item.v_total
+            soma_trib += peso_rateio
             count_trib += 1
             trib_candidates.append(
                 {
                     "mva": mva_item,
-                    "reducao": aliq.reducao_item,
+                    "reducao": aliq.reducao_item if aliq.reducao_item is not None else (orig_item.frete_fob_st_reducao if fob_mva is not None else None),
                     "a_dst": aliq.a_dst,
-                    "v_total": item.v_total,
+                    "v_total": peso_rateio,
                     "fcp": fcp_aliquota,
                     "fcp_origem": (
                         aliq.resolucao_fcp.origem
@@ -291,7 +300,7 @@ def avaliar_nfe_para_cte(
                 }
             )
         elif destino_item in DESTINOS_DIFAL:
-            soma_difal += item.v_total
+            soma_difal += peso_rateio
             count_difal += 1
         else:
             has_other_or_excluded = True
@@ -490,7 +499,7 @@ def _emitir_linha_cte(
         "ipi_despesas": Decimal("0.00"),
         "mva": mva,
         "reducao": reducao,
-        "red": "",
+        "red": ("S" if reducao is not None and reducao > 0 else "N") if destino_final in DESTINOS_TRIBUTARIA else "",
         "aliq_simples": aliq_simples,
         "a_ori": cte.a_ori if cte.a_ori_destacada else None,
         "a_dst": a_dst,
@@ -542,11 +551,18 @@ def _processar_cte_tributaria(
     fcp_rows_por_destino: Dict[str, List[Dict[str, Any]]],
 ) -> None:
     all_trib = all(ctx["todos_itens_tributaria"] for ctx in nfes_ctx)
+    complemento_fob = any(
+        cand.get("mva_fonte") == "frete_fob_st_xml"
+        for ctx in contributing_trib for cand in ctx["trib_candidates"]
+    )
+    arredonda_fob = complemento_fob and all(ctx["soma_difal"] == 0 for ctx in nfes_ctx)
     if all_trib:
         ratio_trib = Decimal("1")
         v_total_cte_trib = cte.v_total_cte
     else:
         ratio_trib = min(Decimal("1"), soma_trib / v_total_nfes)
+        if arredonda_fob:
+            ratio_trib = ratio_trib.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
         v_total_cte_trib = round_currency(cte.v_total_cte * ratio_trib)
 
     if v_total_cte_trib <= Decimal("0.00"):
@@ -586,7 +602,7 @@ def _processar_cte_tributaria(
                 percentual_grupo = percentual_trib
             else:
                 soma_grupo = sum((c["v_total"] for c in cands_grupo), Decimal("0.00"))
-                ratio_grupo = min(Decimal("1"), soma_grupo / v_total_nfes)
+                ratio_grupo = min(Decimal("1"), ratio_trib * soma_grupo / soma_trib if arredonda_fob else soma_grupo / v_total_nfes)
                 v_total_grupo = round_currency(cte.v_total_cte * ratio_grupo)
                 if v_total_grupo <= Decimal("0.00"):
                     continue
@@ -650,7 +666,7 @@ def _processar_cte_tributaria(
             ratio_fcp = Decimal("1")
             v_total_cte_fcp = cte.v_total_cte
         else:
-            ratio_fcp = min(Decimal("1"), soma_fcp / v_total_nfes)
+            ratio_fcp = min(Decimal("1"), ratio_trib * soma_fcp / soma_trib if arredonda_fob else soma_fcp / v_total_nfes)
             v_total_cte_fcp = round_currency(cte.v_total_cte * ratio_fcp)
 
         if v_total_cte_fcp <= Decimal("0.00"):
